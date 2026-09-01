@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreProcessClient, toCoreError } from "./core-client";
@@ -98,6 +98,20 @@ function validateRendererRequest(value: unknown): {
   return { method: value.method, params: value.params ?? {} };
 }
 
+function validateImportPickerRequest(value: unknown): {
+  projectId: string;
+  kind: "presentation" | "supporting";
+} {
+  if (!isJsonObject(value) || typeof value.project_id !== "string") {
+    throw new Error("A project id is required to import a source.");
+  }
+  const kind = value.kind ?? "supporting";
+  if (kind !== "presentation" && kind !== "supporting") {
+    throw new Error("Source kind is invalid.");
+  }
+  return { projectId: value.project_id, kind };
+}
+
 async function bootstrapCore(): Promise<void> {
   const client = requireClient();
   try {
@@ -143,7 +157,38 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
   ipcMain.handle("core:request", async (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
     const request = validateRendererRequest(value);
-    return requireClient().request(request.method, request.params);
+    const timeoutMs = request.method === "source.reindex" ? 60_000 : undefined;
+    return timeoutMs === undefined
+      ? requireClient().request(request.method, request.params)
+      : requireClient().request(request.method, request.params, timeoutMs);
+  });
+  ipcMain.handle("source:pick-and-import", async (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    const request = validateImportPickerRequest(value);
+    const selection = await dialog.showOpenDialog({
+      title: "Import presentation source",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "Supported sources",
+          extensions: ["pdf", "pptx", "txt", "md", "markdown"],
+        },
+      ],
+    });
+    if (selection.canceled || selection.filePaths.length === 0)
+      return { cancelled: true };
+
+    // The selected absolute path is intentionally consumed in main and is
+    // never returned to the renderer or placed in an event payload.
+    return requireClient().request(
+      "source.import",
+      {
+        project_id: request.projectId,
+        kind: request.kind,
+        path: selection.filePaths[0],
+      },
+      60_000,
+    );
   });
 }
 

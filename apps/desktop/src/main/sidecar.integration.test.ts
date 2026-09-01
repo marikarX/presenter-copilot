@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -26,6 +27,9 @@ describe("Python sidecar integration", () => {
     const repositoryRoot = findRepositoryRoot();
     const coreDirectory = path.join(repositoryRoot, "core");
     const pythonCommand = resolvePythonCommand(coreDirectory);
+    const dataRoot = mkdtempSync(
+      path.join(tmpdir(), "presenter-copilot-core-"),
+    );
     const client = new CoreProcessClient({
       command: pythonCommand,
       args: ["-u", "-m", "presenter_core"],
@@ -36,6 +40,7 @@ describe("Python sidecar integration", () => {
           .filter(Boolean)
           .join(path.delimiter),
         PYTHONUNBUFFERED: "1",
+        PRESENTER_COPILOT_DATA_ROOT: dataRoot,
       },
       startupTimeoutMs: 5_000,
       requestTimeoutMs: 3_000,
@@ -57,6 +62,7 @@ describe("Python sidecar integration", () => {
       expect(client.getStatus().state).toBe("stopped");
     } finally {
       await client.shutdown();
+      rmSync(dataRoot, { recursive: true, force: true });
     }
   }, 15_000);
 });

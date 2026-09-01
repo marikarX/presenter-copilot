@@ -4,10 +4,32 @@ export const CORE_METHODS = [
   "core.hello",
   "core.health",
   "core.shutdown",
+  "project.create",
+  "project.open",
+  "project.list",
+  "project.update_settings",
+  "project.delete",
+  "source.import",
+  "source.list",
+  "source.preview",
+  "source.delete",
+  "source.reindex",
+  "search.lexical",
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
-export const RENDERER_CORE_METHODS = ["core.health"] as const;
+export const RENDERER_CORE_METHODS = [
+  "core.health",
+  "project.create",
+  "project.open",
+  "project.list",
+  "project.update_settings",
+  "project.delete",
+  "source.list",
+  "source.preview",
+  "source.delete",
+  "source.reindex",
+] as const;
 export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
 export type JsonObject = Record<string, unknown>;
 
@@ -62,6 +84,73 @@ export interface CoreMetadata {
   capabilities: CoreCapabilities;
   adapters: string[];
   migration_status: string;
+  storage?: {
+    app_schema_version: number;
+    project_schema_version: number;
+  };
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  last_opened_at?: string | null;
+  privacy_mode: string;
+  default_style_policy: string;
+  custom_style_guidance: string | null;
+  source_count: number;
+  storage_status: string;
+  storage_error_code?: string;
+}
+
+export interface SourceSummary {
+  id: string;
+  project_id: string;
+  kind: string;
+  original_name: string;
+  source_type: string;
+  mime_type: string;
+  parser_id: string;
+  sha256: string;
+  imported_at: string;
+  parse_status: "pending" | "ready" | "error";
+  parse_error?: { code: string; message: string };
+  byte_size: number;
+  source_units_count: number;
+  chunks_count: number;
+  snapshot_name: string | null;
+  metadata: JsonObject;
+}
+
+export interface SourceUnitPreview {
+  id: string;
+  unit_type: string;
+  ordinal: number | null;
+  title: string | null;
+  title_truncated: boolean;
+  text: string;
+  text_truncated: boolean;
+  metadata: JsonObject;
+  provenance: JsonObject;
+}
+
+export interface SourcePreviewResult {
+  document: SourceSummary;
+  units: SourceUnitPreview[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
+export interface ImportSourceResult {
+  cancelled?: boolean;
+  duplicate?: boolean;
+  document?: SourceSummary;
+  source_units_count?: number;
+  chunks_count?: number;
+  status?: string;
 }
 
 export interface HealthResult {
@@ -92,6 +181,12 @@ export interface PresenterCopilotApi {
     getStatus(): Promise<CoreStatus>;
     onEvent(listener: (event: EventEnvelope) => void): () => void;
     onStatus(listener: (status: CoreStatus) => void): () => void;
+  };
+  source: {
+    pickAndImport(
+      projectId: string,
+      kind?: "presentation" | "supporting",
+    ): Promise<ImportSourceResult>;
   };
 }
 

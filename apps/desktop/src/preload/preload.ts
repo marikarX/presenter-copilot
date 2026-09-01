@@ -5,6 +5,7 @@ import type {
   CoreStatus,
   EventEnvelope,
   JsonObject,
+  ImportSourceResult,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -35,6 +36,17 @@ const api: PresenterCopilotApi = {
         listener(status);
       ipcRenderer.on("core:status", handler);
       return () => ipcRenderer.removeListener("core:status", handler);
+    },
+  },
+  source: {
+    pickAndImport(
+      projectId: string,
+      kind: "presentation" | "supporting" = "supporting",
+    ): Promise<ImportSourceResult> {
+      return ipcRenderer.invoke("source:pick-and-import", {
+        project_id: projectId,
+        kind,
+      }) as Promise<ImportSourceResult>;
     },
   },
 };
