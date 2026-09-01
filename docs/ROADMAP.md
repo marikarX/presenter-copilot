@@ -49,7 +49,38 @@ Build:
 
 Critical metric: question-to-useful-cue latency.
 
-## Phase 3 — Hybrid reasoning
+## Phase 3 — Mobile companion
+
+Treat mobile first as a companion to the desktop presentation engine rather than a full replacement.
+
+Build:
+
+- paired phone/tablet connection to the desktop app;
+- private cue-card display on a phone placed near or below the presentation display;
+- presenter remote controls for next/previous cue, hide, expand, and mark question;
+- timer, current slide, next talking point, and source reference view;
+- rehearsal recording/capture from the phone when a laptop is inconvenient;
+- secure local-network mode so companion traffic does not require a cloud relay;
+- optional haptic cues for timing or transitions.
+
+Later mobile expansion, only after the companion workflow proves useful:
+
+- standalone presentation rehearsal from a phone/tablet;
+- import/share a deck into the mobile app;
+- on-device ASR and lightweight retrieval where hardware permits;
+- mobile camera-based delivery coaching;
+- Apple Watch/Wear OS cue or timer surfaces if there is demonstrated demand.
+
+Why this matters:
+
+- the phone can act as a second private screen while the laptop is screen-sharing;
+- a presenter can keep cues physically closer to the audience/camera sightline;
+- mobile rehearsal increases usage frequency outside the desk setup;
+- the companion can become a low-friction entry point without weakening the local-first desktop architecture.
+
+Do not make full cross-platform mobile parity an MVP requirement.
+
+## Phase 4 — Hybrid reasoning
 
 Build:
 
@@ -60,7 +91,7 @@ Build:
 - local router deciding when remote reasoning is justified;
 - explicit privacy-mode controls.
 
-## Phase 4 — Closed learning loop
+## Phase 5 — Closed learning loop
 
 Build:
 
@@ -73,7 +104,7 @@ Build:
 
 This phase is strategically more important than adding broad presentation-authoring features.
 
-## Phase 5 — Integrations
+## Phase 6 — Integrations
 
 Candidates:
 
@@ -85,7 +116,7 @@ Candidates:
 
 Integrations should follow validated user demand, not precede core product quality.
 
-## Phase 6 — Team / enterprise layer
+## Phase 7 — Team / enterprise layer
 
 Possible commercial features:
 
