@@ -150,16 +150,30 @@ Reason:
 
 High-stakes presentations often involve exact numbers and defensible claims. Generic model output without provenance is not sufficient.
 
-## D-012 — Open source is a strategy hypothesis, not yet a licensing decision
+## D-012 — Apache-2.0 for the open-source repository
 
-**Status:** Open
+**Status:** Accepted
 
-The project is currently being designed with an open-source core in mind, but the exact license and commercial boundary are undecided.
+The repository is licensed under the Apache License 2.0.
 
-Before public release evaluate:
+Reason:
 
-- MIT vs Apache-2.0 vs other approaches;
+Apache-2.0 is permissive, allows commercial use and modification, and includes an explicit contributor patent grant. It is a strong fit for an open-source AI/tooling project while leaving room for future separately developed hosted or enterprise services.
+
+This decision does not determine the eventual commercial boundary. Remaining questions include:
+
+- what stays in the open-source core;
+- whether commercial functionality is hosted, enterprise-only, or open-core;
+- contributor/CLA/DCO policy if contribution volume grows;
 - trademark/public naming;
-- enterprise/open-core boundary;
-- contributor expectations;
 - third-party model/provider licensing and terms.
+
+## D-013 — Mobile starts as a companion, not full platform parity
+
+**Status:** Accepted as roadmap direction
+
+The first mobile implementation should pair with the desktop app for private cue display, presenter controls, timers, and lightweight rehearsal capture.
+
+Reason:
+
+A second screen is useful while the laptop is screen-sharing and can sit close to the camera/audience sightline. Full standalone mobile parity would add substantial scope before the desktop interaction model is validated.
