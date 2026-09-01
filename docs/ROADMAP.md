@@ -133,13 +133,13 @@ Possible commercial features:
 
 ## Open-source strategy checkpoint
 
-Before public release, decide:
+Apache-2.0 has been selected for the open-source repository. Before broad public release, still decide:
 
-- core license;
 - what remains fully open source;
 - whether commercial functionality is hosted, enterprise-only, or open-core;
-- contributor model;
+- whether a CLA or DCO is needed as contribution volume grows;
 - trademark/public product name;
-- provider-integration terms and branding requirements.
+- provider-integration terms and branding requirements;
+- third-party dependency/model notice process.
 
 Do not select the public brand solely because a domain is available. Screen search engines, GitHub, app stores, competitors, domains, and trademarks first.
