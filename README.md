@@ -85,6 +85,7 @@ The project is currently in product/architecture planning and early prototyping.
 - [Roadmap](docs/ROADMAP.md)
 - [Decision log](docs/DECISIONS.md)
 - [Development guide](docs/DEVELOPMENT.md)
+- [Release policy](docs/RELEASING.md)
 
 ### Project and community
 
