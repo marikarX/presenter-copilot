@@ -1,5 +1,7 @@
 # Architecture
 
+This document captures durable architectural principles. The concrete developer contract for the first implementation is [`docs/MVP/ARCHITECTURE.md`](MVP/ARCHITECTURE.md).
+
 ## Goals
 
 The architecture should optimize for:
@@ -9,30 +11,65 @@ The architecture should optimize for:
 - graceful degradation when cloud models are unavailable;
 - pluggable model providers;
 - source-grounded answers;
+- preservation of the presenter's own communication style;
+- audience-specific rehearsal grounded in authorized evidence;
 - a lightweight desktop experience rather than a cloud-first meeting bot.
+
+## Context model
+
+The system deliberately separates three context layers:
+
+```text
+Speaker Profile
+     +
+Project Brain
+     +
+Audience Model
+     |
+     v
+Mode + style policy
+     |
+     v
+Retrieval / reasoning / cueing
+```
+
+### Speaker Profile
+
+User-controlled communication/style evidence: preferred wording, analogies, strong explanations, answer-length preference, and accepted/rejected coaching patterns.
+
+### Project Brain
+
+Project-local deck, sources, user explanations, evidence, decisions, rehearsal history, questions, answer versions, and session state.
+
+### Audience Model
+
+Project-local roles, attributed prior questions, observable recurring concerns/question patterns, and user notes. It must not become a biometric or sensitive-trait dossier.
 
 ## High-level design
 
 ```text
                        USER DEVICE
 
-Deck / docs ------------------------------+
-                                          |
-                                          v
-                                  Ingestion pipeline
-                                          |
-                                          v
-                                   Local knowledge index
-                                          |
-                                          |
-Microphone -> VAD -> Local ASR -> Transcript ----+
-                                          |       |
-Presentation state / current slide -------+       |
-                                                  v
+Deck / docs / transcripts -----------------+
+                                            |
+                                            v
+                                    Ingestion pipeline
+                                            |
+                                            v
+                                     Project Brain/index
+                                            |
+Mic -> VAD -> Local ASR -> Transcript ------+----+
+                                            |    |
+Presentation state / current slide ---------+    |
+                                                 v
                                           Context builder
-                                                  |
-                                                  v
-                                          Reasoning router
+                                     +-----------+----------+
+                                     |                      |
+                              Speaker Profile         Audience Model
+                                     |                      |
+                                     +-----------+----------+
+                                                 v
+                                         Reasoning router
                                           /      |      \
                                          /       |       \
                                         v        v        v
@@ -42,11 +79,23 @@ Presentation state / current slide -------+       |
                                           +------v------+
                                                  |
                                                  v
-                                         Response composer
+                                           Cue composer
                                                  |
                                                  v
                                       Webcam-adjacent HUD
 ```
+
+## MVP runtime choice
+
+For MVP implementation, the chosen split is:
+
+- Electron + React + TypeScript for desktop UI/window/HUD behavior;
+- Python sidecar for ASR, parsing, retrieval, orchestration, and provider adapters;
+- newline-delimited JSON over child-process stdio;
+- SQLite + project-local embedding data;
+- Windows 11 as reference platform.
+
+This is an MVP implementation decision, not a permanent requirement that every future client use Electron/Python.
 
 ## Local-first processing
 
@@ -56,84 +105,87 @@ The following should run locally by default where hardware permits:
 - voice activity detection;
 - streaming ASR;
 - slide state tracking;
-- document parsing/indexing;
+- document/transcript parsing and indexing;
 - embeddings/retrieval;
 - transcript persistence;
-- simple classification and routing;
+- speaker/project/audience context persistence;
+- simple classification/routing;
 - HUD rendering;
 - session history;
-- basic answer compression.
+- basic answer/cue compression.
 
 This keeps continuous processing inexpensive and reduces round-trip latency.
 
 ## Reasoning router
 
-Not every utterance should invoke an expensive model.
+Not every utterance should invoke a large model.
 
 The router should distinguish at least:
 
 1. **No action** — normal narration; no HUD update needed.
-2. **Retrieval only** — surface a known number, fact, citation, or slide reference.
+2. **Retrieval only** — surface a known number, fact, citation, practiced explanation, or slide reference.
 3. **Local reasoning** — summarize or structure retrieved context.
 4. **Remote reasoning** — complex comparison, synthesis, objection handling, or ambiguous questions.
 
-The router itself should be deterministic or use a lightweight local model where practical.
+The router also enforces active privacy mode and provider availability.
 
 ## ASR
 
-The implementation should abstract transcription behind an interface so multiple engines can be benchmarked.
+Transcription is behind an adapter interface. The MVP reference adapter is `faster-whisper`; other local/cloud engines may be benchmarked later.
 
-Candidate classes:
-
-- local NVIDIA/ONNX/TensorRT-compatible ASR;
-- faster-whisper/Whisper-compatible local ASR;
-- OS-native transcription when quality is sufficient;
-- optional cloud streaming ASR.
-
-Metrics to benchmark:
+Metrics:
 
 - first partial latency;
-- stable partial latency;
+- stable final latency;
 - word error rate on business/technical language;
 - GPU/CPU utilization;
 - coexistence with a local LLM;
 - microphone/device robustness.
 
-## Presentation ingestion
+## Presentation and source ingestion
 
-Initial file types:
+P0 file classes:
 
 - PDF;
-- PPT/PPTX where parsing is reliable;
-- plain text / Markdown;
-- common office documents used as supporting sources.
+- PPTX;
+- Markdown/plain text;
+- attributed transcript formats such as VTT/SRT/structured text through adapters.
 
-Each source should retain provenance so a surfaced answer can point back to:
+Each source retains provenance to document/page/slide/section/timestamp/speaker where available.
 
-- document;
-- page/slide;
-- section;
-- optionally exact text span.
+Do not flatten source material into an untraceable text blob.
 
-The system should never flatten all presentation material into an untraceable text blob.
+## Meeting transcript attribution
+
+For prior meeting context, use attribution in this order:
+
+1. platform/native transcript speaker label;
+2. user mapping of that label to a project-local Audience Profile;
+3. future diarization only when attribution is missing.
+
+The MVP does not maintain persistent voiceprints or face-recognition identity templates.
 
 ## Retrieval
 
 Local retrieval should support:
 
+- exact-number/lexical match;
 - current-slide bias;
 - nearby-slide context;
-- audience-role weighting;
+- user-authored/preferred explanation boost;
+- audience-role relevance;
 - source priority;
-- recency/session memory;
-- exact-number lookup;
-- semantic retrieval across supporting documents.
+- semantic retrieval across supporting documents and prior answers;
+- `use_live` / privacy filtering;
+- conflict detection for exact facts.
 
-A simple local vector store is sufficient for the prototype. The interface should remain replaceable.
+The MVP uses an in-process vector search abstraction rather than requiring a standalone vector database.
 
 ## Reasoning backends
 
-Use a provider abstraction. Planned classes:
+Use a provider abstraction.
+
+Planned classes:
 
 ### Local model
 
@@ -141,13 +193,27 @@ For offline/private operation and cheap continuous processing.
 
 ### User-supplied API
 
-For users or organizations that want predictable provider-backed capacity.
+For predictable provider-backed capacity using user-owned credentials.
 
 ### Official agent backend
 
-An optional integration may use an officially supported Codex app-server / SDK flow when appropriate. Authentication must be owned by the official client flow; the application must not scrape browser cookies, extract undocumented tokens, or call undocumented ChatGPT endpoints directly.
+An optional integration may use an officially supported Codex app-server/SDK flow where appropriate. Authentication must use official surfaces only. This backend remains optional.
 
-Because provider terms, quotas, and product scope can change, this backend must remain optional.
+## Style preservation
+
+Style policy is independent from rehearsal/live mode.
+
+Default: `Preserve my voice`.
+
+The context builder should prefer the presenter's own accepted phrases, practiced answers, analogies, and explanations before generating replacement prose.
+
+The system must distinguish:
+
+- user-authored statement;
+- user-approved style evidence;
+- source fact;
+- practiced answer;
+- AI inference/suggestion.
 
 ## HUD
 
@@ -155,14 +221,15 @@ The HUD is a first-class component, not a generic chat window.
 
 Default behavior:
 
-- top-center placement near the laptop webcam;
+- top-center placement near laptop webcam;
 - one to three short lines;
 - large readable text;
 - minimal horizontal eye movement;
 - progressive disclosure;
-- confidence/provenance indicator when useful;
-- optional slide/source reference;
-- no full generated paragraph by default.
+- optional confidence/provenance indicator;
+- source/slide pointer;
+- no full generated paragraph by default;
+- global show/hide and push-to-assist controls.
 
 Example:
 
@@ -174,86 +241,91 @@ Example:
        Mention June failover test
 ```
 
-The presenter should be able to glance at the cue and continue speaking in their own words.
-
 ## Live question pipeline
 
-Target flow:
-
 ```text
-Audience question
+Audience question / recent transcript
       |
-      v
-Local partial transcript
+      +--> explicit push-to-assist (required MVP fallback)
       |
-      +--> early intent detection
-      |
-      v
-Stable question segment
+      +--> automatic segmentation (experimental)
       |
       v
 Retrieve likely sources
       |
-      +--> immediate fact cue if high confidence
+      +--> immediate fact/practiced-answer cue when high confidence
       |
       v
-Reasoning / answer scaffold
+Reasoning / answer scaffold if needed
       |
       v
 HUD update
 ```
 
-The system should prefer an early correct partial cue over waiting several seconds for a polished paragraph.
+The system should prefer an early correct partial cue over waiting several seconds for polished prose.
 
-## Rehearsal mode
+## Rehearsal modes
 
-Rehearsal adds:
+### Teach
 
-- simulated audience personas;
-- interrupt/question policy;
-- answer scoring;
-- concise-answer coaching;
-- repeated practice on weak objections;
-- delivery metrics;
-- storage of strongest answer versions.
+Conversationally capture project knowledge and the user's own reasoning/explanations.
 
-The simulated audience should be grounded in the same local presentation corpus rather than acting as a generic roleplay bot.
+### Challenge
+
+Simulate evidence-grounded audience questions and follow-ups; coach/retry weak answers.
+
+### Run
+
+Uninterrupted rehearsal with transcript/slide timeline and post-run debrief.
+
+### Live Assist
+
+Private source-grounded cueing during mock/real presentation.
 
 ## Data storage
 
-Prototype storage should be local and easy to inspect/delete.
+Prototype storage is local, inspectable, and deletable.
 
-Suggested logical stores:
+Logical stores include:
 
-- project metadata;
-- source documents/index metadata;
+- app/global settings and Speaker Profile;
+- per-project database/vault;
+- source snapshots/extracted units;
 - embeddings/index;
-- transcripts;
-- rehearsal sessions;
+- transcripts/sessions;
+- Audience Models;
 - questions/answers;
-- settings/model configuration.
+- cues/provenance;
+- provider context manifests.
 
-Encryption-at-rest and enterprise key-management requirements can be layered later, but the schema should avoid assumptions that all data is cloud-hosted.
+Project-local separation is preferred because deletion/export and privacy boundaries become simpler.
 
-## Desktop shell
+## Privacy modes
 
-The implementation stack is intentionally undecided. Key requirements are more important than framework choice:
+- **Local Only** — no content-processing network calls.
+- **Selected Context Cloud** — raw audio/full corpus local; only question + selected evidence/minimum context may leave the device.
+- **Full Context Cloud** — explicit opt-in.
 
-- Windows first-class support;
-- transparent always-on-top HUD;
-- reliable global shortcuts;
-- microphone access;
-- local process/model management;
-- GPU capability detection;
-- screen/presentation state integration;
-- eventual macOS support.
+Every remote provider call should have a context manifest recording what source classes/IDs were sent without logging the full confidential prompt by default.
 
-## Open technical questions
+## Mobile direction
 
-1. Best Windows desktop shell for low-latency overlays and native integration.
-2. Best local ASR quality/latency tradeoff on CPU-only laptops vs RTX systems.
-3. Whether slide state is best inferred through PowerPoint integration, screen analysis, or both.
-4. Minimum local model size that produces useful answer scaffolds.
-5. How to robustly segment an audience question from general room speech.
-6. How to keep the HUD helpful without creating dependence or visible reading behavior.
-7. How to expose provenance without cluttering the HUD.
+Mobile is initially a companion, not an MVP dependency:
+
+- second private cue surface;
+- remote controls;
+- timer/current/next point;
+- optional rehearsal capture;
+- secure local-network pairing.
+
+Standalone mobile rehearsal comes only after desktop value is validated.
+
+## Open technical questions after MVP freeze
+
+1. Best embedding model/runtime across CPU-only and RTX Windows hardware.
+2. Best PowerPoint current-slide adapter reliability and packaging approach.
+3. Minimum useful local model size for answer scaffolding.
+4. Robust automatic audience-question segmentation beyond push-to-assist.
+5. Best way to quantify style preservation without turning it into an opaque personality score.
+6. How much Audience Model context improves rehearsal before it becomes noisy/overfit.
+7. When the simple in-process vector index should be replaced for larger projects.
