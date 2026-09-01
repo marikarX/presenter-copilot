@@ -27,13 +27,14 @@ jobs:
           node-version: 22.16.0
           cache: pnpm
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+      - name: Verify local Python and uv toolchain
+        shell: pwsh
+        run: |
+          $pythonVersion = (& python --version 2>&1).Trim()
+          if ($pythonVersion -notmatch '^Python 3\.13\.') {
+            throw "Presenter Copilot's Windows runner requires Python 3.13.x; found: $pythonVersion"
+          }
+          uv --version
 
       - name: Install JavaScript dependencies from lockfile
         run: pnpm install --frozen-lockfile
