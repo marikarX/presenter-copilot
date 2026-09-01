@@ -21,6 +21,11 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 - Mobile companion added to the product roadmap.
 
+### Fixed
+
+- Hardened Milestone 0 renderer sender/origin validation and sidecar process
+  finalization across spawn errors, exits, closes, timeouts, and shutdown.
+
 ## 0.0.0
 
 Repository planning baseline. No executable application has been released yet.

@@ -1,13 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { SpawnOptions } from "node:child_process";
-
 export interface SidecarCommand {
   command: string;
   args: string[];
   cwd: string;
-  options: SpawnOptions;
+  env: NodeJS.ProcessEnv;
 }
 
 export function resolveCoreDirectory(): string {
@@ -45,15 +43,10 @@ export function createSidecarCommand(): SidecarCommand {
     command: resolvePythonCommand(cwd),
     args: ["-u", "-m", "presenter_core"],
     cwd,
-    options: {
-      cwd,
-      env: {
-        ...process.env,
-        PYTHONPATH: pythonPath,
-        PYTHONUNBUFFERED: "1",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
+    env: {
+      ...process.env,
+      PYTHONPATH: pythonPath,
+      PYTHONUNBUFFERED: "1",
     },
   };
 }

@@ -251,3 +251,19 @@ Milestone 0 has only three lifecycle methods. A shared schema plus executable
 cross-language examples catches envelope drift while preserving the simple
 Electron/Python boundary. Future method contracts can extend the schema or
 introduce generated types when that becomes materially useful.
+
+## D-020 — Renderer IPC authority is explicit and sender-origin checked
+
+**Status:** Accepted for the scaffold
+
+Privileged renderer-to-main IPC accepts only the exact bundled renderer file or
+the exact loopback Vite development renderer in the explicit development run.
+The main process also requires the sending frame to be the window's main frame.
+Renderer-callable core methods have their own explicit runtime and TypeScript
+allowlist; adding an internal core method does not expand renderer authority.
+
+Reason:
+
+The renderer boundary is a security boundary, not only a type boundary. Parsed
+URL and frame checks prevent a future navigation, child frame, or environment
+mistake from turning a new internal capability into renderer authority.

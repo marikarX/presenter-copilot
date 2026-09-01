@@ -86,6 +86,7 @@ const electron = spawn(electronBinary, [mainEntry], {
   env: {
     ...process.env,
     PRESENTER_COPILOT_DEV_SERVER_URL: devServerUrl,
+    PRESENTER_COPILOT_DEV_MODE: "1",
     PRESENTER_COPILOT_REPO_ROOT: path.resolve(appDirectory, "..", ".."),
   },
   stdio: "inherit",

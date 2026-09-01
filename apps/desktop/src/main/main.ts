@@ -1,14 +1,15 @@
 import path from "node:path";
 
 import { app, BrowserWindow, ipcMain } from "electron";
+import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreProcessClient, toCoreError } from "./core-client";
 import { createSidecarCommand } from "./sidecar-command";
 import {
-  isCoreMethod,
   isCoreMetadata,
   isHealthResult,
   isJsonObject,
+  isRendererCoreMethod,
   PROTOCOL_VERSION,
   type CoreMetadata,
   type RendererCoreMethod,
@@ -17,12 +18,19 @@ import {
   type HealthResult,
   type JsonObject,
 } from "../shared/protocol";
+import {
+  isTrustedRendererSender,
+  selectRendererLoadTarget,
+  type RendererValidationOptions,
+} from "./sender-validation";
 
 let mainWindow: BrowserWindow | null = null;
 let coreClient: CoreProcessClient | null = null;
 let isQuitting = false;
 
-function createWindow(): BrowserWindow {
+function createWindow(
+  rendererPolicy: RendererValidationOptions,
+): BrowserWindow {
   const window = new BrowserWindow({
     width: 980,
     height: 720,
@@ -46,11 +54,16 @@ function createWindow(): BrowserWindow {
     if (mainWindow === window) mainWindow = null;
   });
 
-  const developmentUrl = process.env.PRESENTER_COPILOT_DEV_SERVER_URL;
-  if (developmentUrl) {
-    void window.loadURL(developmentUrl);
+  const rendererTarget = selectRendererLoadTarget({
+    bundledRendererPath: rendererPolicy.bundledRendererPath,
+    developmentUrl: process.env.PRESENTER_COPILOT_DEV_SERVER_URL,
+    isPackaged: app.isPackaged,
+    isDevelopment: rendererPolicy.allowDevelopmentRenderer,
+  });
+  if (rendererTarget.type === "development") {
+    void window.loadURL(rendererTarget.url);
   } else {
-    void window.loadFile(path.join(__dirname, "../renderer/index.html"));
+    void window.loadFile(rendererTarget.path);
   }
   return window;
 }
@@ -74,12 +87,10 @@ function validateRendererRequest(value: unknown): {
   method: RendererCoreMethod;
   params: JsonObject;
 } {
-  if (
-    !isJsonObject(value) ||
-    !isCoreMethod(value.method) ||
-    value.method === "core.shutdown"
-  ) {
-    throw new Error("Only allowlisted core methods may be invoked.");
+  if (!isJsonObject(value) || !isRendererCoreMethod(value.method)) {
+    throw new Error(
+      "Only explicitly renderer-allowlisted core methods may be invoked.",
+    );
   }
   if (value.params !== undefined && !isJsonObject(value.params)) {
     throw new Error("Core request params must be a JSON object.");
@@ -109,9 +120,28 @@ async function bootstrapCore(): Promise<void> {
   }
 }
 
-function registerIpc(): void {
-  ipcMain.handle("core:get-status", () => requireClient().getStatus());
-  ipcMain.handle("core:request", async (_event, value: unknown) => {
+function assertTrustedRendererSender(
+  event: IpcMainInvokeEvent,
+  rendererPolicy: RendererValidationOptions,
+): void {
+  if (
+    !isTrustedRendererSender(
+      event.senderFrame,
+      event.sender.mainFrame,
+      rendererPolicy,
+    )
+  ) {
+    throw new Error("IPC request rejected from an untrusted renderer frame.");
+  }
+}
+
+function registerIpc(rendererPolicy: RendererValidationOptions): void {
+  ipcMain.handle("core:get-status", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return requireClient().getStatus();
+  });
+  ipcMain.handle("core:request", async (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
     const request = validateRendererRequest(value);
     return requireClient().request(request.method, request.params);
   });
@@ -123,7 +153,12 @@ async function stopCore(): Promise<void> {
 }
 
 void app.whenReady().then(() => {
-  registerIpc();
+  const rendererPolicy: RendererValidationOptions = {
+    bundledRendererPath: path.join(__dirname, "../renderer/index.html"),
+    allowDevelopmentRenderer:
+      !app.isPackaged && process.env.PRESENTER_COPILOT_DEV_MODE === "1",
+  };
+  registerIpc(rendererPolicy);
   const command = createSidecarCommand();
   coreClient = new CoreProcessClient(command);
   coreClient.onStatus(sendStatus);
@@ -133,11 +168,12 @@ void app.whenReady().then(() => {
     // or arbitrary child-process output to the renderer.
     console.error(`[core:${error.code}] ${error.message}`);
   });
-  mainWindow = createWindow();
+  mainWindow = createWindow(rendererPolicy);
   void bootstrapCore();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+    if (BrowserWindow.getAllWindows().length === 0)
+      mainWindow = createWindow(rendererPolicy);
   });
 });
 

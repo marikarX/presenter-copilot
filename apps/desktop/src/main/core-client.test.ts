@@ -7,7 +7,11 @@ import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CoreProcessClient, CoreRequestTimeoutError } from "./core-client";
-import type { EventEnvelope } from "../shared/protocol";
+import {
+  isHealthResult,
+  isRendererCoreMethod,
+  type EventEnvelope,
+} from "../shared/protocol";
 
 const readyMessage: EventEnvelope = {
   protocol_version: 1,
@@ -91,6 +95,12 @@ function response(requestId: string, result: unknown): string {
 afterEach(() => vi.useRealTimers());
 
 describe("CoreProcessClient", () => {
+  it("keeps renderer authority explicit instead of deriving it from core methods", () => {
+    expect(isRendererCoreMethod("core.health")).toBe(true);
+    expect(isRendererCoreMethod("core.hello")).toBe(false);
+    expect(isRendererCoreMethod("core.shutdown")).toBe(false);
+  });
+
   it("returns a rejecting promise when sidecar spawn fails synchronously", async () => {
     const client = new CoreProcessClient({
       command: "missing-python",
@@ -103,6 +113,74 @@ describe("CoreProcessClient", () => {
       code: "SIDECAR_START_FAILED",
     });
     expect(client.getStatus().state).toBe("unavailable");
+  });
+
+  it("finalizes an async spawn error and permits a clean retry", async () => {
+    const firstChild = new FakeChild();
+    const secondChild = new FakeChild();
+    let spawnCount = 0;
+    const client = new CoreProcessClient({
+      command: "fake-python",
+      requestTimeoutMs: 100,
+      startupTimeoutMs: 500,
+      spawnProcess: () => {
+        spawnCount += 1;
+        return (spawnCount === 1
+          ? firstChild
+          : secondChild) as unknown as ChildProcessWithoutNullStreams;
+      },
+    });
+
+    const firstStart = client.start();
+    firstChild.emit("error", new Error("spawn failed asynchronously"));
+
+    await expect(firstStart).rejects.toMatchObject({
+      code: "SIDECAR_PROCESS_ERROR",
+    });
+    expect(firstChild.killed).toBe(true);
+    expect(client.getStatus().state).toBe("unavailable");
+
+    const secondStart = client.start();
+    secondChild.stdout.write(`${JSON.stringify(readyMessage)}\n`);
+    await expect(secondStart).resolves.toEqual(readyMessage.payload);
+    expect(spawnCount).toBe(2);
+
+    await client.shutdown();
+  });
+
+  it("finalizes a startup timeout and permits a clean retry", async () => {
+    vi.useFakeTimers();
+    const firstChild = new FakeChild();
+    const secondChild = new FakeChild();
+    let spawnCount = 0;
+    const client = new CoreProcessClient({
+      command: "fake-python",
+      requestTimeoutMs: 100,
+      startupTimeoutMs: 10,
+      spawnProcess: () => {
+        spawnCount += 1;
+        return (spawnCount === 1
+          ? firstChild
+          : secondChild) as unknown as ChildProcessWithoutNullStreams;
+      },
+    });
+
+    const firstStart = client.start();
+    const rejection = expect(firstStart).rejects.toMatchObject({
+      code: "SIDECAR_START_TIMEOUT",
+    });
+    await vi.advanceTimersByTimeAsync(11);
+
+    await rejection;
+    expect(firstChild.killed).toBe(true);
+    expect(client.getStatus().state).toBe("unavailable");
+
+    const secondStart = client.start();
+    secondChild.stdout.write(`${JSON.stringify(readyMessage)}\n`);
+    await expect(secondStart).resolves.toEqual(readyMessage.payload);
+    expect(spawnCount).toBe(2);
+
+    await client.shutdown();
   });
 
   it("accepts the shared cross-language protocol examples", () => {
@@ -128,6 +206,19 @@ describe("CoreProcessClient", () => {
         expect(message.payload).toBeTypeOf("object");
       }
     }
+
+    const healthExample = fixture.messages.find(
+      (message) =>
+        message.type === "response" && isHealthResult(message.result),
+    );
+    expect(healthExample).toBeDefined();
+    expect(healthExample?.result).toEqual({
+      status: "ok",
+      ready: true,
+      protocol_version: 1,
+      core_version: "0.1.0",
+      uptime_ms: 0,
+    });
   });
 
   it("buffers partial lines and handles multiple messages in one chunk", async () => {

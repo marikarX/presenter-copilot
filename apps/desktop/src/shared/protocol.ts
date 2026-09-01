@@ -7,7 +7,8 @@ export const CORE_METHODS = [
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
-export type RendererCoreMethod = Exclude<CoreMethod, "core.shutdown">;
+export const RENDERER_CORE_METHODS = ["core.health"] as const;
+export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
 export type JsonObject = Record<string, unknown>;
 
 export interface RequestEnvelope {
@@ -98,6 +99,15 @@ export function isCoreMethod(value: unknown): value is CoreMethod {
   return (
     typeof value === "string" &&
     (CORE_METHODS as readonly string[]).includes(value)
+  );
+}
+
+export function isRendererCoreMethod(
+  value: unknown,
+): value is RendererCoreMethod {
+  return (
+    typeof value === "string" &&
+    (RENDERER_CORE_METHODS as readonly string[]).includes(value)
   );
 }
 

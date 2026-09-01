@@ -106,6 +106,8 @@ export class CoreProcessClient {
   private readonly eventListeners = new Set<EventListener>();
   private readonly statusListeners = new Set<StatusListener>();
   private readonly protocolErrorListeners = new Set<ProtocolErrorListener>();
+  private readonly finalizedChildren =
+    new WeakSet<ChildProcessWithoutNullStreams>();
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private metadata: CoreMetadata | null = null;
@@ -214,15 +216,16 @@ export class CoreProcessClient {
     this.lineBuffer.reset();
 
     try {
-      this.child = this.spawnProcess(
+      const child = this.spawnProcess(
         this.command,
         this.args,
         this.spawnOptions,
       );
+      this.child = child;
       this.exitPromise = new Promise<void>((resolve) => {
         this.resolveExit = resolve;
       });
-      this.attachChild(this.child);
+      this.attachChild(child);
       this.startupTimer = setTimeout(() => {
         const error = new CoreClientError({
           code: "SIDECAR_START_TIMEOUT",
@@ -230,8 +233,8 @@ export class CoreProcessClient {
           retryable: true,
           details: {},
         });
-        this.fail(error);
-        this.killChild();
+        if (this.child) this.finalizeChild(this.child, error, false, true);
+        else this.fail(error);
       }, this.startupTimeoutMs);
     } catch (error) {
       this.fail(
@@ -343,7 +346,8 @@ export class CoreProcessClient {
   }
 
   private async shutdownInternal(): Promise<void> {
-    if (!this.child) {
+    const child = this.child;
+    if (!child) {
       this.setStatus({ state: "stopped" });
       return;
     }
@@ -360,9 +364,22 @@ export class CoreProcessClient {
 
     this.setStatus({ state: "stopping" });
     await this.waitForExit(this.shutdownTimeoutMs);
-    if (this.child) {
-      this.killChild();
+    if (this.child === child) {
+      this.killChild(child);
       await this.waitForExit(Math.min(1_000, this.shutdownTimeoutMs));
+      if (this.child === child) {
+        this.finalizeChild(
+          child,
+          new CoreClientError({
+            code: "SIDECAR_SHUTDOWN_TIMEOUT",
+            message: "Core sidecar did not report process termination.",
+            retryable: false,
+            details: {},
+          }),
+          true,
+          false,
+        );
+      }
     }
     this.setStatus({ state: "stopped" });
   }
@@ -370,19 +387,20 @@ export class CoreProcessClient {
   private attachChild(child: ChildProcessWithoutNullStreams): void {
     child.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk));
     child.stdout.on("error", (error) =>
-      this.fail(
-        new CoreClientError(toCoreError(error, "SIDECAR_STDOUT_ERROR")),
-      ),
+      this.handleChildError(child, error, "SIDECAR_STDOUT_ERROR"),
     );
     child.stderr.on("data", () => {
       // Consume stderr so a verbose diagnostic stream cannot block the sidecar.
     });
     child.on("error", (error) =>
-      this.fail(
-        new CoreClientError(toCoreError(error, "SIDECAR_PROCESS_ERROR")),
-      ),
+      this.handleChildError(child, error, "SIDECAR_PROCESS_ERROR"),
     );
-    child.on("exit", (code, signal) => this.handleExit(code, signal));
+    child.on("exit", (code, signal) =>
+      this.handleChildExit(child, code, signal),
+    );
+    child.on("close", (code, signal) =>
+      this.handleChildExit(child, code, signal),
+    );
   }
 
   private handleStdout(chunk: Buffer): void {
@@ -508,26 +526,62 @@ export class CoreProcessClient {
     }
   }
 
-  private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
-    this.child = null;
-    this.resolveExit?.();
-    this.resolveExit = null;
-    this.exitPromise = null;
+  private handleChildError(
+    child: ChildProcessWithoutNullStreams,
+    error: Error,
+    fallbackCode: string,
+  ): void {
+    this.finalizeChild(
+      child,
+      new CoreClientError(toCoreError(error, fallbackCode)),
+      this.isExpectedExit(),
+      true,
+    );
+  }
 
-    const expected =
-      this.intentionalShutdown || this.status.state === "stopping";
+  private handleChildExit(
+    child: ChildProcessWithoutNullStreams,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    const expected = this.isExpectedExit();
     const exitMessage = expected
       ? "Core sidecar exited."
       : `Core sidecar exited unexpectedly${signal ? ` with ${signal}` : ` with code ${String(code)}`}.`;
-    const error = new CoreClientError({
-      code: expected ? "SIDECAR_EXITED" : "SIDECAR_EXITED_UNEXPECTEDLY",
-      message: exitMessage,
-      retryable: !expected,
-      details: { code, signal },
-    });
+    this.finalizeChild(
+      child,
+      new CoreClientError({
+        code: expected ? "SIDECAR_EXITED" : "SIDECAR_EXITED_UNEXPECTEDLY",
+        message: exitMessage,
+        retryable: !expected,
+        details: { code, signal },
+      }),
+      expected,
+      false,
+    );
+  }
+
+  private finalizeChild(
+    child: ChildProcessWithoutNullStreams,
+    error: CoreClientError,
+    expected: boolean,
+    terminate: boolean,
+  ): void {
+    if (this.finalizedChildren.has(child)) return;
+    this.finalizedChildren.add(child);
+
+    if (terminate) this.killChild(child);
+    if (this.child !== child) return;
+
+    this.child = null;
+    const resolveExit = this.resolveExit;
+    this.resolveExit = null;
+    this.exitPromise = null;
+    this.clearStartupTimer();
 
     this.rejectAllPending(error);
     if (this.startPromise) this.rejectStartPromise(error);
+    resolveExit?.();
     if (expected) {
       this.setStatus({ state: "stopped" });
     } else {
@@ -536,9 +590,18 @@ export class CoreProcessClient {
   }
 
   private fail(error: CoreClientError): void {
-    this.setStatus({ state: "unavailable", error: toCoreError(error) });
+    if (this.child) {
+      this.finalizeChild(this.child, error, this.isExpectedExit(), true);
+      return;
+    }
+    this.clearStartupTimer();
     this.rejectAllPending(error);
     if (this.startPromise) this.rejectStartPromise(error);
+    this.setStatus({ state: "unavailable", error: toCoreError(error) });
+  }
+
+  private isExpectedExit(): boolean {
+    return this.intentionalShutdown || this.status.state === "stopping";
   }
 
   private resolveStartPromise(metadata: CoreMetadata): void {
@@ -599,9 +662,11 @@ export class CoreProcessClient {
     });
   }
 
-  private killChild(): void {
+  private killChild(
+    child: ChildProcessWithoutNullStreams | null = this.child,
+  ): void {
     try {
-      this.child?.kill();
+      child?.kill();
     } catch {
       // The process may have exited between the wait and the kill attempt.
     }

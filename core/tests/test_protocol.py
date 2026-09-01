@@ -44,12 +44,14 @@ def test_core_hello_exposes_only_milestone_zero_capabilities() -> None:
 
 
 def test_core_health_is_successful() -> None:
-    response = CoreService(clock=lambda: 10.0).handle_message(request("health", "core.health"))
+    response = CoreService(clock=lambda: 10.0).handle_message(
+        request("00000000-0000-0000-0000-000000000002", "core.health")
+    )
 
     assert response == {
         "protocol_version": 1,
         "type": "response",
-        "request_id": "health",
+        "request_id": "00000000-0000-0000-0000-000000000002",
         "ok": True,
         "result": {
             "status": "ok",
@@ -59,6 +61,10 @@ def test_core_health_is_successful() -> None:
             "uptime_ms": 0,
         },
     }
+
+    fixture_path = Path(__file__).parents[2] / "shared" / "schemas" / "protocol-v1.examples.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert response == fixture["messages"][4]
 
 
 def test_core_shutdown_marks_server_for_clean_exit() -> None:

@@ -58,7 +58,8 @@
         "status": "ok",
         "ready": true,
         "protocol_version": 1,
-        "core_version": "0.1.0"
+        "core_version": "0.1.0",
+        "uptime_ms": 0
       }
     },
     {
