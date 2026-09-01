@@ -7,6 +7,7 @@ High-stakes presenters often know their subject but still fail in predictable wa
 - they do not rehearse against the actual objections their audience will raise;
 - their supporting evidence is scattered across decks, notes, spreadsheets, documents, and prior meetings;
 - generic speech coaches measure delivery but not whether the argument is defensible;
+- generic LLM assistance tends to replace the presenter's natural wording with generic AI prose;
 - teleprompters encourage reading instead of speaking naturally;
 - live AI assistants often lack presentation context, provenance, or enterprise-appropriate privacy.
 
@@ -18,10 +19,76 @@ The product should know:
 
 - what is on each slide;
 - what supporting material backs each claim;
+- how the presenter naturally explains the topic;
 - who the audience is;
+- what that audience has actually asked or cared about before, when the user provides authorized prior transcripts/context;
 - what objections are likely;
 - which answers the presenter has already practiced;
 - where the presenter historically struggles.
+
+## Core context model
+
+### Speaker Profile
+
+Persistent, user-controlled knowledge about how the presenter communicates:
+
+- preferred phrases and vocabulary;
+- strong prior explanations/analogies;
+- answer-length and formality preferences;
+- accepted coaching patterns;
+- explicit style guidance.
+
+The default objective is **the user on a very good day**, not an AI voice replacing the user.
+
+### Project Brain
+
+Project-local knowledge containing:
+
+- deck and supporting sources;
+- user Teach-mode explanations;
+- decisions and rationale;
+- evidence/provenance;
+- rehearsals;
+- questions and answer versions;
+- presentation/session history.
+
+### Audience Model
+
+Project-local audience context containing:
+
+- participant role/name when lawfully supplied;
+- native speaker-attributed transcript questions;
+- recurring observable concerns/question patterns;
+- user notes about expected objections/decision criteria.
+
+The product models observable interaction behavior, not hidden emotions, psychological diagnoses, or sensitive traits.
+
+## Modes
+
+### Teach
+
+User talks or types with the AI so the app learns missing context and the user's own explanations.
+
+### Challenge
+
+Simulated audience profiles ask grounded questions and follow-ups. Weak answers can be retried and strong answers retained.
+
+### Run
+
+Uninterrupted presentation rehearsal with slide/transcript tracking and a post-run debrief.
+
+### Live Assist
+
+Private webcam-adjacent HUD surfaces short source-grounded facts, answer structures, and reminders during a mock or real presentation.
+
+## Style policies
+
+Mode and style are independent.
+
+- **Preserve my voice** — default.
+- **Light polish** — improve clarity without changing identity.
+- **Executive concise** — more aggressive compression/structure.
+- **Custom** — project/user guidance.
 
 ## Primary users
 
@@ -41,14 +108,16 @@ Initial focus should be people for whom a presentation has material economic or 
 ### Before the presentation
 
 - Understand the deck and supporting documents.
+- Capture important context that exists only in the presenter's head.
 - Identify unsupported or weak claims.
-- Predict likely questions by audience role.
-- Generate concise answer structures with sources.
-- Build a rehearsal plan around weak areas.
+- Build realistic audience models from roles, user notes, and authorized attributed transcripts.
+- Predict likely questions by actual audience context.
+- Prepare concise answer structures with sources while preserving presenter voice.
 
 ### During rehearsal
 
 - Track slide position and speech.
+- Learn strong natural explanations from the presenter.
 - Measure delivery without over-indexing on cosmetic metrics.
 - Ask realistic audience questions.
 - Challenge vague, incomplete, overlong, or evasive answers.
@@ -57,29 +126,33 @@ Initial focus should be people for whom a presentation has material economic or 
 ### During the real presentation
 
 - Show minimal private cues close to the webcam.
-- Surface exact numbers, facts, slide references, and answer scaffolds when needed.
+- Surface exact numbers, facts, slide references, practiced explanations, and answer scaffolds when needed.
 - Avoid displaying full prose unless the user explicitly requests it.
 - Preserve natural eye contact and normal speaking cadence.
+- Prefer local processing and retrieval before remote reasoning.
 
 ### After the presentation
 
 - Capture questions that actually occurred.
 - Compare rehearsed vs. real objections.
 - Identify answer failures and strong responses.
-- Feed the resulting knowledge into the next rehearsal.
+- Feed resulting knowledge into the Project Brain and future rehearsal.
 
 ## MVP
 
-The first useful version should include:
+The developer-ready MVP contract is frozen in [`docs/MVP/`](MVP/README.md).
 
-1. PDF/PPT ingestion plus supporting documents.
-2. Local semantic retrieval over presentation material.
-3. Local or low-latency transcription during rehearsal.
-4. Slide/presentation context tracking.
-5. Audience-persona question generation.
-6. Rehearsal transcript and answer review.
-7. A top-center webcam-adjacent HUD with short cue cards.
-8. Pluggable reasoning backends.
+Key P0 capabilities:
+
+1. PDF/PPTX plus supporting-document ingestion.
+2. Local semantic/exact retrieval with provenance.
+3. Speaker Profile and Preserve-My-Voice behavior.
+4. Teach mode for conversational project enrichment.
+5. Named transcript import and project-local Audience Models.
+6. Challenge mode with grounded audience questions.
+7. Local ASR and Run rehearsal mode.
+8. A top-center webcam-adjacent HUD with short cues and push-to-assist fallback.
+9. Pluggable reasoning backends and explicit privacy modes.
 
 ## Explicit non-goals for MVP
 
@@ -90,18 +163,22 @@ The first useful version should include:
 - video editing;
 - stealth or undetectability claims;
 - automatic spoken answers during the real meeting;
+- persistent biometric voice/face identification;
+- workplace emotion recognition or hidden personality inference;
+- full meeting audio/video diarization pipeline;
 - enterprise analytics before the individual workflow is compelling.
 
 ## Differentiation hypothesis
 
 The moat is not the model, teleprompter, or filler-word analysis. Those are commoditized or easily copied.
 
-Potential differentiation comes from the accumulated presentation context and workflow:
+Potential differentiation comes from accumulated context and workflow:
 
-- presentation-specific knowledge graph/index;
-- audience-specific objection history;
+- Speaker Profile that preserves the user's own voice;
+- presentation-specific Project Brain;
+- audience-specific objection/question history;
 - rehearsal-to-live continuity;
-- source-grounded answer memory;
+- source-grounded preferred-answer memory;
 - local-first privacy and latency;
 - longitudinal learning from actual questions and prior responses.
 
@@ -110,7 +187,8 @@ Potential differentiation comes from the accumulated presentation context and wo
 A prototype is compelling if a user can:
 
 1. upload a real technical/business deck;
-2. rehearse it naturally;
-3. receive at least several genuinely relevant questions the user had not anticipated;
-4. answer those questions more concisely after coaching;
-5. run a mock live session where the HUD surfaces the right fact or answer scaffold quickly enough to be useful without visibly reading.
+2. teach missing reasoning in their own words;
+3. rehearse against audience profiles grounded in actual project context;
+4. receive several genuinely relevant questions they had not anticipated;
+5. answer those questions more concisely without losing their speaking style;
+6. run a mock live session where the HUD surfaces the right fact or answer scaffold quickly enough to be useful without visibly reading.
