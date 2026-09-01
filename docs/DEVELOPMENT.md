@@ -74,6 +74,22 @@ protocol tests, and an integration test that spawns the real Python sidecar.
 `pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
 bundle Python into an installer; release bundling is a later packaging slice.
 
+## CI environments
+
+The canonical `CI` workflow runs on GitHub-hosted Windows runners for every
+pull request and for pushes to `main`. It provisions Node.js 22.16.0, pnpm
+11.19.0, Python 3.13, and uv 0.11.7 before running the locked dependency
+install, `pnpm check`, and `pnpm build`.
+
+`Local CI` is optional trusted Windows validation on the
+`presenter-copilot-ci` self-hosted runner. It runs for repository pushes and
+manual dispatch only; it must never gain a general `pull_request` trigger, so
+fork and other untrusted pull requests stay on GitHub-hosted infrastructure.
+The local workflow verifies Node.js 22.16.0, pnpm 11.19.0, Python 3.13, and uv
+0.11.7 before running the same substantive checks. The runner should use a
+dedicated non-admin Windows account, contain no developer/provider credentials,
+and may be offline without preventing canonical PR CI from running.
+
 ## Target repository structure
 
 ```text

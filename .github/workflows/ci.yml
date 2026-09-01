@@ -1,20 +1,24 @@
 name: CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    name: Verify on Windows
-    runs-on: [self-hosted, windows, x64, presenter-copilot-ci]
+    name: Verify on Windows (hosted)
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -26,14 +30,17 @@ jobs:
         with:
           node-version: 22.16.0
 
-      - name: Verify local Python and uv toolchain
-        shell: pwsh
-        run: |
-          $pythonVersion = (& python --version 2>&1).Trim()
-          if ($pythonVersion -notmatch '^Python 3\.13\.') {
-            throw "Presenter Copilot's Windows runner requires Python 3.13.x; found: $pythonVersion"
-          }
-          uv --version
+          cache: pnpm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.7"
 
       - name: Install JavaScript dependencies from lockfile
         run: pnpm install --frozen-lockfile

@@ -1,0 +1,73 @@
+name: Local CI
+
+on:
+  # This workflow is intentionally limited to trusted repository pushes.
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify on Windows (self-hosted)
+    runs-on: [self-hosted, windows, x64, presenter-copilot-ci]
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.7"
+
+      - name: Verify local Windows toolchain
+        shell: pwsh
+        run: |
+          $nodeVersion = (& node --version 2>&1).Trim()
+          if ($nodeVersion -ne 'v22.16.0') {
+            throw "Presenter Copilot's local runner requires Node.js v22.16.0; found: $nodeVersion"
+          }
+
+          $pnpmVersion = (& pnpm --version 2>&1).Trim()
+          if ($pnpmVersion -ne '11.19.0') {
+            throw "Presenter Copilot's local runner requires pnpm 11.19.0; found: $pnpmVersion"
+          }
+
+          $pythonVersion = (& python --version 2>&1).Trim()
+          if ($pythonVersion -notmatch '^Python 3\.13\.') {
+            throw "Presenter Copilot's local runner requires Python 3.13.x; found: $pythonVersion"
+          }
+
+          $uvVersion = (& uv --version 2>&1).Trim()
+          if ($uvVersion -notmatch '^uv 0\.11\.7(?:\s|$)') {
+            throw "Presenter Copilot's local runner requires uv 0.11.7; found: $uvVersion"
+          }
+
+      - name: Install JavaScript dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Ensure Electron development runtime
+        run: pnpm --filter @presenter-copilot/desktop exec electron --version
+
+      - name: Install Python dependencies from lockfile
+        run: uv sync --project core --locked
+
+      - name: Run formatting, lint, typecheck, and tests
+        run: pnpm check
+
+      - name: Build desktop application
+        run: pnpm build
