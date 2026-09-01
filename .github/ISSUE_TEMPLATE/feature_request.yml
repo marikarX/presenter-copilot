@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a product, UX, architecture, privacy, or integration improvement
+title: "[Feature]: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user problem before proposing the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Presenter Copilot do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Presentation use case
+      description: Who needs this, and in what kind of presentation or rehearsal?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workflow, competitor behavior, or simpler solution.
+  - type: dropdown
+    id: privacy
+    attributes:
+      label: Does this change data leaving the device?
+      options:
+        - No
+        - Yes
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Privacy / security / latency implications
+      description: Note any new permissions, cloud calls, listeners, credentials, or live-presentation risks.
