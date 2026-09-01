@@ -75,6 +75,38 @@ Read in this order:
 8. [MVP implementation plan](docs/MVP/IMPLEMENTATION_PLAN.md)
 9. [MVP backlog](docs/MVP/BACKLOG.md)
 
+## Run the Milestone 0 scaffold
+
+Prerequisites: Node.js 22.12+, pnpm 11+, Python 3.13+, and uv. From the
+repository root:
+
+```text
+pnpm setup
+pnpm dev
+```
+
+The first setup downloads the pinned Electron development runtime when it is
+not already present. `pnpm dev` opens the desktop shell, which starts the
+Python core sidecar automatically. The shell should show `CORE READY`,
+protocol `1`, core version `0.1.0`, and health `OK`.
+
+Useful root commands:
+
+```text
+pnpm build          # compile the Electron main/preload and renderer bundles
+pnpm start          # open the last built desktop bundle
+pnpm test           # TypeScript tests plus Python tests and real sidecar IPC
+pnpm lint           # ESLint plus Ruff
+pnpm typecheck      # TypeScript plus mypy
+pnpm format:check   # Prettier plus Ruff format check
+pnpm check          # formatting, lint, typecheck, and all tests
+```
+
+Milestone 0 intentionally does not include project storage, ingestion, ASR,
+model providers, or the real presentation HUD. See
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
+commands.
+
 ## Broader documentation
 
 ### Product and architecture
@@ -101,7 +133,9 @@ Read in this order:
 
 ## Repository status
 
-The project has a developer-ready MVP specification but no production implementation scaffold yet. The next engineering step is **Milestone 0 — repository scaffold** in `docs/MVP/IMPLEMENTATION_PLAN.md`.
+Milestone 0 — repository scaffold is implemented on the `feat/m0-scaffold`
+branch. The next implementation slice is Milestone 1 — local project vault and
+ingestion; it is intentionally not part of this scaffold.
 
 ## License
 

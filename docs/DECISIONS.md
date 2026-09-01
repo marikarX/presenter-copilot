@@ -235,3 +235,35 @@ Automatic audience-question detection may be developed experimentally, but MVP L
 Reason:
 
 Perfectly segmenting audience questions in arbitrary rooms is a hard reliability problem. The live-value hypothesis can be tested without making automatic detection a release blocker.
+
+## D-019 — Milestone 0 shares protocol through a schema and contract fixtures
+
+**Status:** Accepted for the scaffold
+
+Keep `shared/schemas/protocol-v1.schema.json` as the canonical envelope
+description and validate `protocol-v1.examples.json` from both the Python and
+TypeScript test suites. Runtime code keeps small, explicit native types instead
+of adding a schema-generation tool before the first domain payload exists.
+
+Reason:
+
+Milestone 0 has only three lifecycle methods. A shared schema plus executable
+cross-language examples catches envelope drift while preserving the simple
+Electron/Python boundary. Future method contracts can extend the schema or
+introduce generated types when that becomes materially useful.
+
+## D-020 — Renderer IPC authority is explicit and sender-origin checked
+
+**Status:** Accepted for the scaffold
+
+Privileged renderer-to-main IPC accepts only the exact bundled renderer file or
+the exact loopback Vite development renderer in the explicit development run.
+The main process also requires the sending frame to be the window's main frame.
+Renderer-callable core methods have their own explicit runtime and TypeScript
+allowlist; adding an internal core method does not expand renderer authority.
+
+Reason:
+
+The renderer boundary is a security boundary, not only a type boundary. Parsed
+URL and frame checks prevent a future navigation, child frame, or environment
+mistake from turning a new internal capability into renderer authority.

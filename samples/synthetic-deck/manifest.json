@@ -1,0 +1,25 @@
+{
+  "fixture_id": "synthetic-deck",
+  "status": "skeleton",
+  "planned_assets": {
+    "presentation": "deck/presentation.pptx",
+    "supporting_documents": [
+      "supporting/cost-model.md",
+      "supporting/architecture-notes.md"
+    ],
+    "transcript": "transcript/named-meeting.vtt",
+    "expected": [
+      "expected/audience-mappings.json",
+      "expected/questions.json",
+      "expected/retrieval-goldens.json"
+    ],
+    "security": ["security/prompt-injection.md"]
+  },
+  "required_facts": [
+    "current_solution_three_year_cost",
+    "proposed_solution_three_year_cost",
+    "recovery_time_objective",
+    "rejected_option_and_rationale",
+    "controlled_conflicting_fact"
+  ]
+}
