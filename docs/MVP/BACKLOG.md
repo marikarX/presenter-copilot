@@ -1,0 +1,247 @@
+# MVP Backlog
+
+This is the initial issue-sized engineering backlog. `P0` blocks the MVP release. `P1` is important but may move after first external usability. `P2` is explicitly post-MVP.
+
+## Epic A — Scaffold and protocol
+
+### P0
+
+- [ ] A01 Create Electron/React/TypeScript desktop scaffold.
+- [ ] A02 Create Python `presenter_core` package and test scaffold.
+- [ ] A03 Launch/stop Python sidecar from Electron main process.
+- [ ] A04 Implement protocol v1 NDJSON request/response/event envelopes.
+- [ ] A05 Implement `core.hello`, `core.health`, `core.shutdown`.
+- [ ] A06 Generate/share IPC schemas/types between Python and TypeScript or add contract fixtures.
+- [ ] A07 Configure formatter/linter/typecheck/test commands.
+- [ ] A08 Add CI for non-hardware tests.
+- [ ] A09 Create synthetic sample project fixture and fixture documentation.
+
+## Epic B — Local project storage
+
+### P0
+
+- [ ] B01 Implement `app.db` initialization/migrations.
+- [ ] B02 Implement project vault creation and `project.db` migrations.
+- [ ] B03 Implement ProjectService CRUD.
+- [ ] B04 Implement source snapshot hashing/path sanitization.
+- [ ] B05 Implement project delete cascade and filesystem cleanup.
+- [ ] B06 Implement session delete/source delete semantics.
+- [ ] B07 Add migration/version fixture tests.
+
+## Epic C — Ingestion and provenance
+
+### P0
+
+- [ ] C01 PDF parser preserving pages.
+- [ ] C02 PPTX parser preserving slides and notes where available.
+- [ ] C03 TXT/Markdown parser.
+- [ ] C04 SourceUnit/chunk pipeline.
+- [ ] C05 Deduplication by source hash.
+- [ ] C06 Source preview/list/delete/re-index IPC.
+- [ ] C07 Canonical `Evidence` / `ProvenanceRef` model.
+- [ ] C08 Import security tests: zip-slip, unsafe filename, HTML/script preview.
+
+### P1
+
+- [ ] C09 DOCX parser.
+- [ ] C10 XLSX structured extraction.
+
+## Epic D — Retrieval
+
+### P0
+
+- [ ] D01 Embedding adapter interface.
+- [ ] D02 Initial local embedding implementation.
+- [ ] D03 Persist embedding matrix/vector metadata.
+- [ ] D04 In-process cosine similarity search.
+- [ ] D05 Lexical/exact-number scoring.
+- [ ] D06 Current/adjacent slide boosts.
+- [ ] D07 User-preferred answer/explanation boost.
+- [ ] D08 `use_live` filter.
+- [ ] D09 Conflict/ambiguity detection for exact facts.
+- [ ] D10 Golden retrieval benchmark/tests up to 50k chunks.
+
+## Epic E — Provider and orchestration layer
+
+### P0
+
+- [ ] E01 Define ReasoningProvider interface.
+- [ ] E02 Implement deterministic fake provider.
+- [ ] E03 Implement one real provider adapter using user-owned credentials.
+- [ ] E04 Implement structured context builder.
+- [ ] E05 Implement ReasoningRouter classes: NONE/RETRIEVAL/LOCAL/REMOTE.
+- [ ] E06 Implement provider cancellation/timeout/auth/quota errors.
+- [ ] E07 Implement provider health/status UI contract.
+- [ ] E08 Implement prompt-injection isolation: retrieved text is untrusted data.
+
+### P1
+
+- [ ] E09 Local OpenAI-compatible/local-model adapter.
+- [ ] E10 Official Codex adapter behind feature flag if still appropriate.
+
+## Epic F — Speaker Profile and style preservation
+
+### P0
+
+- [ ] F01 Implement SpeakerProfile/SpeakerEvidence persistence.
+- [ ] F02 Speaker Profile settings/review UI.
+- [ ] F03 Style policy selector: Preserve / Light / Executive / Custom.
+- [ ] F04 Require user approval before project evidence becomes global speaker evidence.
+- [ ] F05 Implement preferred phrase/explanation retrieval.
+- [ ] F06 Implement project style override.
+- [ ] F07 Reset/remove profile evidence.
+- [ ] F08 Tests proving Preserve My Voice prefers accepted user wording.
+
+## Epic G — Teach mode
+
+### P0
+
+- [ ] G01 Teach session state machine.
+- [ ] G02 Typed Teach conversation UI.
+- [ ] G03 Generate one focused clarification at a time.
+- [ ] G04 Extract KnowledgeItem candidate from user answer.
+- [ ] G05 Confirm/edit/reject KnowledgeItem UI.
+- [ ] G06 `preferred`, `private`, `use_live`, `use_rehearsal` controls.
+- [ ] G07 Store user-authored provenance separately from AI suggestions.
+- [ ] G08 Make confirmed Teach knowledge retrievable immediately.
+
+### P1
+
+- [ ] G09 Voice-first Teach using ASR.
+
+## Epic H — Transcript import and Audience Model
+
+### P0
+
+- [ ] H01 VTT transcript adapter.
+- [ ] H02 SRT transcript adapter.
+- [ ] H03 Generic named text/structured transcript adapter.
+- [ ] H04 Preserve native speaker labels/timestamps.
+- [ ] H05 Transcript speaker mapping UI.
+- [ ] H06 AudienceProfile CRUD.
+- [ ] H07 Extract evidence-backed observable audience observations.
+- [ ] H08 Observation review/edit/delete UI.
+- [ ] H09 Prohibited sensitive-observation filter.
+- [ ] H10 Tests: unresolved speaker, remap, delete profile.
+
+### P1
+
+- [ ] H11 Import adapters tuned to common Teams transcript exports.
+- [ ] H12 Import adapters tuned to common Webex transcript exports.
+
+### P2
+
+- [ ] H13 Audio/video import.
+- [ ] H14 Diarization fallback without persistent voice identity.
+- [ ] H15 Direct conferencing connectors.
+
+## Epic I — Challenge mode
+
+### P0
+
+- [ ] I01 Challenge configuration UI.
+- [ ] I02 Select 1–3 audience profiles.
+- [ ] I03 Generate source-grounded audience-specific questions.
+- [ ] I04 Question provenance/rationale display.
+- [ ] I05 Typed answer submission first.
+- [ ] I06 Evaluation schema and display.
+- [ ] I07 Retry same question.
+- [ ] I08 Save preferred answer.
+- [ ] I09 Follow-up question support.
+- [ ] I10 Persist Question/AnswerVersion/Evidence.
+
+## Epic J — ASR and Run mode
+
+### P0
+
+- [ ] J01 ASR adapter interface.
+- [ ] J02 `faster-whisper` reference adapter.
+- [ ] J03 Microphone enumeration/selection.
+- [ ] J04 Model download/load/status UX.
+- [ ] J05 VAD/partial/final event flow.
+- [ ] J06 ASR latency benchmark harness.
+- [ ] J07 Run session UI and timer.
+- [ ] J08 Session transcript persistence.
+- [ ] J09 Manual slide next/previous global shortcuts.
+- [ ] J10 SlideStateEvent timeline.
+- [ ] J11 Windows PowerPoint current-slide adapter with fallback.
+- [ ] J12 Post-run debrief.
+
+## Epic K — Live HUD
+
+### P0
+
+- [ ] K01 Dedicated transparent frameless HUD BrowserWindow.
+- [ ] K02 Top-center display positioning and calibration.
+- [ ] K03 Collapsed cue renderer hard-limited to <=3 lines.
+- [ ] K04 Global show/hide shortcut.
+- [ ] K05 Global push-to-assist shortcut.
+- [ ] K06 Click-through collapsed mode.
+- [ ] K07 Electron/OS content protection and visible status.
+- [ ] K08 CueService with user-wording preference.
+- [ ] K09 `cue.partial` progressive updates.
+- [ ] K10 Expanded provenance view.
+- [ ] K11 Retrieval-only fast path.
+- [ ] K12 HUD survives provider/core error and remains hideable.
+- [ ] K13 Question-to-cue latency instrumentation.
+
+### P1
+
+- [ ] K14 Experimental automatic question segmentation.
+
+## Epic L — Privacy and secret handling
+
+### P0
+
+- [ ] L01 Implement Local Only hard routing invariant.
+- [ ] L02 Implement Selected Context Cloud minimum-context builder.
+- [ ] L03 Emit/store privacy context manifest before remote call.
+- [ ] L04 Implement OS-backed provider secret storage.
+- [ ] L05 Prevent renderer access to raw secrets.
+- [ ] L06 Add local-only network isolation test.
+- [ ] L07 Add fake-provider payload inspection test.
+- [ ] L08 Add local legal/authorization disclosure for transcript/recording inputs.
+- [ ] L09 Log redaction rules/tests.
+- [ ] L10 Verify deleted project is absent from caches/indexes.
+
+## Epic M — Packaging and release readiness
+
+### P0
+
+- [ ] M01 Bundle Python sidecar for Windows release build.
+- [ ] M02 Clean-machine installation test.
+- [ ] M03 Model bootstrap/download path.
+- [ ] M04 Crash/restart recovery flow.
+- [ ] M05 Diagnostic export with user preview/redaction.
+- [ ] M06 Release benchmark on CPU-only Windows machine.
+- [ ] M07 Release benchmark on RTX reference machine when available.
+- [ ] M08 Run all E2E acceptance scenarios from `TEST_PLAN.md`.
+- [ ] M09 Update README with real setup/run commands after scaffold lands.
+- [ ] M10 Produce first pre-1.0 release notes.
+
+## Epic N — Post-MVP mobile companion
+
+### P2
+
+- [ ] N01 Define authenticated LAN companion protocol.
+- [ ] N02 Phone/tablet private cue display.
+- [ ] N03 Remote next/previous/hide/expand controls.
+- [ ] N04 Optional haptic timing cues.
+- [ ] N05 Standalone mobile rehearsal feasibility spike.
+
+## Suggested first 10 implementation issues
+
+If development starts now, create/work these in order:
+
+1. A01 Desktop scaffold.
+2. A02 Python core scaffold.
+3. A03/A04 sidecar + protocol.
+4. B01/B02 local DB/project vault.
+5. C01/C02 presentation parsing.
+6. C04/C07 chunk + provenance model.
+7. D01–D04 basic semantic retrieval.
+8. E01/E02 provider interface + fake provider.
+9. G01/G02 typed Teach vertical slice.
+10. K01/K03 minimal standalone HUD spike.
+
+The HUD spike is intentionally early enough to validate Windows overlay/capture behavior before most product logic depends on it.
