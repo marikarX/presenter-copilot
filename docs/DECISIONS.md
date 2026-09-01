@@ -177,3 +177,61 @@ The first mobile implementation should pair with the desktop app for private cue
 Reason:
 
 A second screen is useful while the laptop is screen-sharing and can sit close to the camera/audience sightline. Full standalone mobile parity would add substantial scope before the desktop interaction model is validated.
+
+## D-014 — Product state is Speaker Profile + Project Brain + Audience Model
+
+**Status:** Accepted
+
+The MVP conceptual model has three distinct context layers:
+
+- **Speaker Profile** — the user's own approved communication/style evidence;
+- **Project Brain** — deck, sources, user explanations, decisions, rehearsals, questions, and answers for one project;
+- **Audience Model** — project-local audience roles, attributed prior questions, observable interaction patterns, and user notes.
+
+Reason:
+
+Keeping these layers distinct gives the system better provenance, deletion semantics, personalization, and privacy than one undifferentiated vector store or chat history.
+
+## D-015 — Preserve the user's voice by default
+
+**Status:** Accepted
+
+`Preserve my voice` is the default style policy. The application should prefer the user's own prior strong wording/explanations over newly generated prose.
+
+Reason:
+
+The product should make the presenter better prepared and clearer without making them sound like a generic LLM. Style learning must be visible, user-controlled, and removable.
+
+## D-016 — Native transcript attribution before diarization; no persistent biometrics in MVP
+
+**Status:** Accepted
+
+When prior meeting transcripts are imported, preserve platform/native speaker names and timestamps first. Let the user map those labels to project-local audience profiles. Diarization is only a future fallback when attribution is missing.
+
+Do not persist voiceprints, facial embeddings, or biometric identity templates in the MVP.
+
+Reason:
+
+Teams/Webex and similar transcripts often already contain useful attribution. Reusing that metadata is more accurate, simpler, and avoids unnecessary biometric/privacy complexity.
+
+## D-017 — MVP desktop stack is Electron + TypeScript UI with a Python core sidecar
+
+**Status:** Accepted for MVP
+
+Use Electron/React/TypeScript for desktop/HUD behavior and a Python sidecar for parsing, ASR, retrieval, orchestration, and provider adapters.
+
+Electron main process communicates with the sidecar over newline-delimited JSON on child-process stdio. Normal desktop operation does not require a localhost network listener.
+
+Reason:
+
+This split optimizes implementation speed while preserving strong boundaries: Electron is effective for Windows overlays/global shortcuts/capture protection, while Python has the strongest ecosystem for local speech/ML/document tooling. Stdio keeps the local attack surface small and is replaceable later.
+
+## D-018 — Push-to-assist is the reliable MVP live trigger
+
+**Status:** Accepted
+
+Automatic audience-question detection may be developed experimentally, but MVP Live Assist must always support an explicit global push-to-assist action using the recent local transcript/current slide.
+
+Reason:
+
+Perfectly segmenting audience questions in arbitrary rooms is a hard reliability problem. The live-value hypothesis can be tested without making automatic detection a release blocker.
