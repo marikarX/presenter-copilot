@@ -1,0 +1,77 @@
+{
+  "protocol_version": 1,
+  "messages": [
+    {
+      "protocol_version": 1,
+      "type": "request",
+      "request_id": "00000000-0000-0000-0000-000000000000",
+      "method": "core.health",
+      "params": {}
+    },
+    {
+      "protocol_version": 1,
+      "type": "event",
+      "event": "core.ready",
+      "payload": {
+        "protocol_version": 1,
+        "core_version": "0.1.0",
+        "capabilities": {
+          "methods": ["core.hello", "core.health", "core.shutdown"],
+          "events": ["core.ready", "core.error"]
+        },
+        "adapters": [],
+        "migration_status": "not_required"
+      }
+    },
+    {
+      "protocol_version": 1,
+      "type": "event",
+      "event": "core.error",
+      "payload": {
+        "code": "METHOD_NOT_FOUND",
+        "message": "Unknown method: core.nope",
+        "request_id": "00000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "protocol_version": 1,
+      "type": "response",
+      "request_id": "00000000-0000-0000-0000-000000000001",
+      "ok": true,
+      "result": {
+        "protocol_version": 1,
+        "core_version": "0.1.0",
+        "capabilities": {
+          "methods": ["core.hello", "core.health", "core.shutdown"],
+          "events": ["core.ready", "core.error"]
+        },
+        "adapters": [],
+        "migration_status": "not_required"
+      }
+    },
+    {
+      "protocol_version": 1,
+      "type": "response",
+      "request_id": "00000000-0000-0000-0000-000000000002",
+      "ok": true,
+      "result": {
+        "status": "ok",
+        "ready": true,
+        "protocol_version": 1,
+        "core_version": "0.1.0"
+      }
+    },
+    {
+      "protocol_version": 1,
+      "type": "response",
+      "request_id": "00000000-0000-0000-0000-000000000003",
+      "ok": false,
+      "error": {
+        "code": "METHOD_NOT_FOUND",
+        "message": "Unknown method: example.unknown",
+        "retryable": false,
+        "details": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "presenter-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first AI copilot for high-stakes presentations",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=11.19.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @presenter-copilot/desktop dev",
+    "build": "pnpm --filter @presenter-copilot/desktop build",
+    "start": "pnpm --filter @presenter-copilot/desktop start",
+    "test": "pnpm --filter @presenter-copilot/desktop test && uv run --directory core --project . --locked python -m pytest",
+    "test:watch": "pnpm --filter @presenter-copilot/desktop test:watch",
+    "lint": "pnpm --filter @presenter-copilot/desktop lint && uv run --directory core --project . --locked ruff check presenter_core tests",
+    "typecheck": "pnpm --filter @presenter-copilot/desktop typecheck && uv run --directory core --project . --locked mypy presenter_core",
+    "format": "pnpm --filter @presenter-copilot/desktop format && uv run --directory core --project . --locked ruff format presenter_core tests",
+    "format:check": "pnpm --filter @presenter-copilot/desktop format:check && uv run --directory core --project . --locked ruff format --check presenter_core tests",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "setup": "pnpm install --frozen-lockfile && pnpm --filter @presenter-copilot/desktop exec electron --version && uv sync --project core --locked",
+    "core:dev": "uv run --directory core --project . --locked python -m presenter_core"
+  }
+}

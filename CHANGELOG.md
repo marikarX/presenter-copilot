@@ -13,6 +13,9 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 - Competitive analysis and roadmap.
 - Apache-2.0 license.
 - Community, contribution, security, and support policies.
+- Milestone 0 Electron/React/TypeScript desktop scaffold with a Python NDJSON sidecar.
+- Versioned core handshake, health, shutdown, request correlation, events, and cross-language contract fixtures.
+- Synthetic deck fixture skeleton and Windows CI checks.
 
 ### Changed
 

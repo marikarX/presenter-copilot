@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install JavaScript dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Ensure Electron development runtime
+        run: pnpm --filter @presenter-copilot/desktop exec electron --version
+
+      - name: Install Python dependencies from lockfile
+        run: uv sync --project core --locked
+
+      - name: Run formatting, lint, typecheck, and tests
+        run: pnpm check
+
+      - name: Build desktop application
+        run: pnpm build

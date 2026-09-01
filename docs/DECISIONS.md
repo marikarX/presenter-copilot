@@ -235,3 +235,19 @@ Automatic audience-question detection may be developed experimentally, but MVP L
 Reason:
 
 Perfectly segmenting audience questions in arbitrary rooms is a hard reliability problem. The live-value hypothesis can be tested without making automatic detection a release blocker.
+
+## D-019 — Milestone 0 shares protocol through a schema and contract fixtures
+
+**Status:** Accepted for the scaffold
+
+Keep `shared/schemas/protocol-v1.schema.json` as the canonical envelope
+description and validate `protocol-v1.examples.json` from both the Python and
+TypeScript test suites. Runtime code keeps small, explicit native types instead
+of adding a schema-generation tool before the first domain payload exists.
+
+Reason:
+
+Milestone 0 has only three lifecycle methods. A shared schema plus executable
+cross-language examples catches envelope drift while preserving the simple
+Electron/Python boundary. Future method contracts can extend the schema or
+introduce generated types when that becomes materially useful.

@@ -6,15 +6,15 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] A01 Create Electron/React/TypeScript desktop scaffold.
-- [ ] A02 Create Python `presenter_core` package and test scaffold.
-- [ ] A03 Launch/stop Python sidecar from Electron main process.
-- [ ] A04 Implement protocol v1 NDJSON request/response/event envelopes.
-- [ ] A05 Implement `core.hello`, `core.health`, `core.shutdown`.
-- [ ] A06 Generate/share IPC schemas/types between Python and TypeScript or add contract fixtures.
-- [ ] A07 Configure formatter/linter/typecheck/test commands.
-- [ ] A08 Add CI for non-hardware tests.
-- [ ] A09 Create synthetic sample project fixture and fixture documentation.
+- [x] A01 Create Electron/React/TypeScript desktop scaffold.
+- [x] A02 Create Python `presenter_core` package and test scaffold.
+- [x] A03 Launch/stop Python sidecar from Electron main process.
+- [x] A04 Implement protocol v1 NDJSON request/response/event envelopes.
+- [x] A05 Implement `core.hello`, `core.health`, `core.shutdown`.
+- [x] A06 Generate/share IPC schemas/types between Python and TypeScript or add contract fixtures.
+- [x] A07 Configure formatter/linter/typecheck/test commands.
+- [x] A08 Add CI for non-hardware tests.
+- [x] A09 Create synthetic sample project fixture and fixture documentation.
 
 ## Epic B — Local project storage
 

@@ -1,0 +1,4 @@
+packages:
+  - apps/*
+minimumReleaseAgeExclude:
+  - globals@17.12.0

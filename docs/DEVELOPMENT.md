@@ -30,6 +30,50 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
+## Milestone 0 setup and commands
+
+The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
+3.13, and uv. Install the locked JavaScript and Python environments from the
+repository root:
+
+```text
+pnpm setup
+```
+
+`pnpm setup` runs `pnpm install --frozen-lockfile`, makes sure the pinned
+Electron development binary is available, and runs `uv sync --project core
+--locked`. The Python runtime has no feature dependencies yet; its locked dev
+tools are pytest, Ruff, and mypy.
+
+Run the desktop shell:
+
+```text
+pnpm dev
+```
+
+Electron main starts `presenter_core` as a child process over UTF-8 NDJSON
+stdio. The renderer should show `CORE READY`, protocol `1`, core version
+`0.1.0`, and health `OK`. Stop the development process with Ctrl+C; main sends
+`core.shutdown` and waits for the child to exit before quitting.
+
+Other verified commands:
+
+```text
+pnpm build
+pnpm start
+pnpm test
+pnpm lint
+pnpm typecheck
+pnpm format:check
+pnpm check
+pnpm core:dev
+```
+
+`pnpm test` includes the TypeScript Electron-side client tests, Python
+protocol tests, and an integration test that spawns the real Python sidecar.
+`pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
+bundle Python into an installer; release bundling is a later packaging slice.
+
 ## Target repository structure
 
 ```text
@@ -74,21 +118,12 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## First scaffold requirements
+## Scaffold boundary
 
-The scaffold milestone must establish reproducible commands for:
-
-- dependency install;
-- desktop dev run;
-- Python core dev run/tests;
-- combined desktop + core run;
-- lint;
-- format;
-- type checking;
-- unit tests;
-- packaging smoke test.
-
-Update this document with the exact commands as soon as the scaffold exists.
+The current implementation stops at the repository scaffold and lifecycle
+contract. It does not create SQLite state, import sources, load ASR models,
+call providers, or expose the real HUD. Those features must land behind the
+interfaces and milestones defined in `docs/MVP/`.
 
 ## Expected architecture boundaries
 
