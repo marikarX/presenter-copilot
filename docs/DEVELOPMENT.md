@@ -1,37 +1,98 @@
 # Development Guide
 
-Presenter Copilot is still in the architecture/prototyping stage. This document defines development expectations without pretending the implementation stack has already been selected.
+Presenter Copilot now has a frozen developer-ready MVP contract under [`docs/MVP/`](MVP/README.md). That package controls MVP implementation when older planning text is less specific.
 
-## Current status
+## MVP implementation baseline
 
-No production framework, package manager, desktop runtime, mobile framework, database, ASR engine, or model runtime is yet mandatory.
+For the first executable Windows MVP:
 
-When implementation begins, this document should become the canonical source for:
+- desktop: Electron + React + TypeScript;
+- core/ML sidecar: Python;
+- desktop/core IPC: newline-delimited JSON over child-process stdio;
+- structured local state: SQLite;
+- local embeddings: project-local float32 matrix/in-process search for P0 scale;
+- reference ASR adapter: `faster-whisper` behind a replaceable interface;
+- provider integrations behind a single reasoning-provider interface;
+- Windows 11 is the reference platform;
+- no always-required cloud/server backend.
 
-- prerequisites;
-- local setup;
-- build commands;
-- test commands;
-- lint/format commands;
-- packaging;
-- platform-specific notes;
-- model downloads;
-- local services and ports.
+Exact dependency versions and package-manager lockfiles are established by the scaffold commit and then become authoritative.
 
-## Repository conventions
+## Start here
 
-Until a concrete stack is selected:
+Read in order:
 
-- keep product/architecture decisions in `docs/`;
-- record durable architectural decisions in `docs/DECISIONS.md` or future ADRs;
-- keep secrets and local model artifacts out of Git;
-- prefer deterministic, scriptable setup over hand-configured environments;
-- keep local and cloud model integrations behind interfaces rather than spreading provider-specific calls through UI code;
-- keep the live HUD independent from model/provider logic.
+1. [`MVP/SPEC.md`](MVP/SPEC.md)
+2. [`MVP/ARCHITECTURE.md`](MVP/ARCHITECTURE.md)
+3. [`MVP/DATA_MODEL.md`](MVP/DATA_MODEL.md)
+4. [`MVP/INTERFACES.md`](MVP/INTERFACES.md)
+5. [`MVP/IMPLEMENTATION_PLAN.md`](MVP/IMPLEMENTATION_PLAN.md)
+6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
+7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
+
+## Target repository structure
+
+```text
+apps/
+  desktop/
+    src/main/
+    src/preload/
+    src/renderer/
+    src/hud/
+core/
+  presenter_core/
+    ipc/
+    ingestion/
+    asr/
+    retrieval/
+    models/
+    orchestration/
+    rehearsal/
+    audience/
+    speaker/
+    storage/
+    providers/
+  tests/
+shared/
+  schemas/
+samples/
+  synthetic-deck/
+docs/
+  MVP/
+```
+
+Do not create these folders merely to match documentation; scaffold them as the corresponding implementation lands.
+
+## Development principles
+
+- preserve module boundaries from `MVP/ARCHITECTURE.md`;
+- keep local/cloud model integrations behind interfaces;
+- keep HUD independent from model/provider logic;
+- renderer must not receive raw filesystem/provider-secret authority;
+- use provenance objects end-to-end instead of plain answer strings;
+- make privacy routing testable before provider invocation;
+- prefer a working vertical slice over speculative abstraction;
+- record durable deviations in `docs/DECISIONS.md`.
+
+## First scaffold requirements
+
+The scaffold milestone must establish reproducible commands for:
+
+- dependency install;
+- desktop dev run;
+- Python core dev run/tests;
+- combined desktop + core run;
+- lint;
+- format;
+- type checking;
+- unit tests;
+- packaging smoke test.
+
+Update this document with the exact commands as soon as the scaffold exists.
 
 ## Expected architecture boundaries
 
-The implementation should preserve separable modules for:
+Implementation must preserve separable modules for:
 
 1. presentation/document ingestion;
 2. local indexing and retrieval;
@@ -39,52 +100,65 @@ The implementation should preserve separable modules for:
 4. presentation/slide state;
 5. reasoning/router layer;
 6. model-provider adapters;
-7. rehearsal engine;
-8. live HUD;
-9. session storage and deletion;
-10. mobile-companion transport;
-11. telemetry/diagnostics, if any.
+7. Speaker Profile;
+8. Audience Model;
+9. rehearsal modes;
+10. live HUD;
+11. session/project storage and deletion;
+12. future mobile-companion transport;
+13. local diagnostics/benchmarking.
 
 ## Testing priorities
 
-The first automated tests should focus on behavior that is easy to regress and hard to notice manually:
+Before broad feature work, automate behavior that is easy to regress and expensive to discover manually:
 
 - document parsing and chunk provenance;
-- retrieval correctness;
-- cue compression/length constraints;
-- privacy-mode routing;
+- exact-number/retrieval correctness;
+- cue <=3-line constraint;
+- Preserve-My-Voice preference for accepted user wording;
+- native transcript speaker mapping;
+- prohibited audience observation filtering;
+- privacy-mode routing/context manifests;
 - provider fallback behavior;
-- transcript/session deletion;
-- local listener binding and companion authentication;
+- transcript/session/project deletion;
+- renderer/preload IPC allowlist;
 - HUD visibility/state transitions;
 - latency measurement.
 
-## Performance targets
+The release gate is defined in [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md).
 
-Exact thresholds will be validated experimentally, but the product should measure at minimum:
+## Performance measurements
+
+Measure at minimum:
 
 - microphone-to-partial-transcript latency;
-- end-of-question detection latency;
+- end-of-utterance finalization latency;
 - retrieval latency;
 - question-to-first-useful-cue latency;
 - question-to-complete-cue latency;
-- memory and GPU/CPU usage during presentation mode.
+- HUD render latency;
+- memory and CPU/GPU use during presentation mode.
+
+Benchmarks must include hardware/build metadata but not confidential transcript/source content.
 
 ## Sample data
 
 Tests and demos must use synthetic or explicitly distributable sample decks and documents. Never commit customer presentations, private meeting recordings, credentials, or proprietary corpora.
 
+The P0 synthetic fixture requirements are defined in `MVP/TEST_PLAN.md`.
+
 ## Logging
 
 Logs should be useful without becoming a privacy leak.
 
-Do not log:
+Do not log by default:
 
 - provider access tokens;
 - OAuth refresh tokens;
-- raw confidential document content by default;
-- full microphone transcripts by default;
 - API keys;
-- local file contents unrelated to an explicit diagnostic export.
+- raw confidential document content;
+- complete transcripts;
+- complete remote prompts;
+- persistent voice/face biometric templates.
 
 Diagnostic exports should be explicit and reviewable by the user before sharing.
