@@ -2,83 +2,85 @@
 
 **Working title. Private repository.**
 
-Presenter Copilot is a local-first AI copilot for high-stakes presentations. It learns a presentation and its supporting material, helps the presenter rehearse against realistic audiences, and can surface minimal private cues near the webcam during the real presentation.
+Presenter Copilot is a local-first AI copilot for high-stakes presentations. It learns a presentation and its supporting material, learns how the presenter naturally explains the topic, rehearses them against realistic audiences, and can surface minimal private cues near the webcam during the real presentation.
 
-The product is intentionally **not** an AI teleprompter. The core idea is a presentation-intelligence loop:
+The product is intentionally **not** an AI teleprompter. The core loop is:
 
-**Prepare -> Rehearse -> Defend -> Present -> Learn**
+**Prepare -> Teach -> Rehearse -> Defend -> Present -> Learn**
 
-## Product thesis
+## Product model
 
-Existing tools tend to solve only one part of the problem:
+Presenter Copilot combines three distinct context layers:
 
-- speech coaching;
-- teleprompting;
-- deck generation;
-- simulated roleplay;
-- generic live AI assistance.
+- **Speaker Profile** — user-approved speaking style, preferred explanations, vocabulary, analogies, and coaching preferences.
+- **Project Brain** — deck, supporting sources, user explanations, decisions, evidence, rehearsals, questions, and answers for one presentation/project.
+- **Audience Model** — project-local roles, attributed prior questions, recurring observable concerns/question patterns, and user notes.
 
-Presenter Copilot is intended to connect those pieces around one presentation and one audience while keeping latency and sensitive data under control through local processing.
+The default style policy is **Preserve my voice**: prefer the user's own strong explanations over generic generated prose.
 
-## Core workflow
+## Core modes
 
-1. Import a deck and supporting documents.
-2. Build a local knowledge index for the presentation.
-3. Analyze likely weak points, objections, missing evidence, and audience-specific questions.
-4. Rehearse the actual presentation while the system tracks delivery and slide context.
-5. Simulate audience personas such as a CFO, CTO, customer, reviewer, or skeptical executive.
-6. During the real presentation, show only small cue cards near the webcam rather than a full script.
-7. Capture real questions and weak answers so the next rehearsal improves.
+- **Teach** — enrich the project through voice/text conversation in the user's own words.
+- **Challenge** — rehearse against grounded audience questions and follow-ups.
+- **Run** — uninterrupted presentation rehearsal with post-run debrief.
+- **Live Assist** — private webcam-adjacent source-grounded cues with an explicit push-to-assist fallback.
 
 ## Design principles
 
-- **Local first.** Audio, transcript, retrieval, and presentation state should stay on-device whenever practical.
-- **Cloud optional.** Strong remote reasoning should be an escalation path, not a requirement for every utterance.
+- **Local first.** Audio, transcript, retrieval, and presentation state stay on-device whenever practical.
+- **Cloud optional.** Remote reasoning is an escalation path, not a requirement for every utterance.
 - **Minimal HUD.** Prefer memory cues and answer scaffolds over generated paragraphs.
-- **Provider-pluggable.** Support local models, user-supplied API credentials, and officially supported agent backends where permitted.
-- **No stealth-cheating positioning.** The product is a private presenter view, not an undetectable answer machine.
-- **Source-grounded answers.** Important claims should be traceable to the deck or supporting material.
+- **Preserve the presenter.** Improve clarity/preparation without replacing the user's voice.
+- **Provider-pluggable.** Support local models, user-supplied APIs, and officially supported agent backends where permitted.
+- **Source-grounded.** Important facts remain traceable to slides, documents, user explanations, transcripts, or practiced answers.
+- **Audience evidence, not profiling.** Use observed questions/interaction patterns; do not infer hidden emotions, sensitive traits, or persistent biometric identity.
+- **No stealth-cheating positioning.** This is a private presenter view, not an undetectable answer machine.
 
 ## Initial architecture
 
 ```text
-Microphone / presentation state
-            |
-            v
-       Local VAD + ASR
-            |
-            v
-      Local transcript
-            |
-     +------+------+
-     |             |
-     v             v
-Slide context   Local RAG
-     |             |
-     +------+------+
-            v
-       Reasoning router
-        /          \
-       v            v
- Local model   Optional remote
-       \            /
-        +----------+
-             v
-       Webcam-adjacent HUD
+Speaker Profile -----------------------+
+                                       |
+Deck / docs / transcripts -> Project Brain ----+
+                                       |        |
+Audience Model ------------------------+        |
+                                                v
+Mic -> Local ASR -> transcript -> Context / retrieval
+                                                |
+                                        Reasoning router
+                                         /           \
+                                   local/retrieval   optional remote
+                                         \           /
+                                          +---------+
+                                               |
+                                               v
+                                      Webcam-adjacent HUD
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
+The frozen MVP runtime uses Electron/React/TypeScript plus a local Python core sidecar, communicating over child-process stdio. See the developer package below.
 
-## Repository status
+## Developer start here
 
-The project is currently in product/architecture planning and early prototyping. No production implementation stack has been locked yet.
+The implementation contract is [`docs/MVP/README.md`](docs/MVP/README.md).
 
-## Documentation
+Read in this order:
+
+1. [MVP specification](docs/MVP/SPEC.md)
+2. [MVP UX flows](docs/MVP/UX_FLOWS.md)
+3. [MVP architecture](docs/MVP/ARCHITECTURE.md)
+4. [MVP data model](docs/MVP/DATA_MODEL.md)
+5. [MVP interfaces/contracts](docs/MVP/INTERFACES.md)
+6. [MVP privacy & safety](docs/MVP/PRIVACY_SAFETY.md)
+7. [MVP test plan](docs/MVP/TEST_PLAN.md)
+8. [MVP implementation plan](docs/MVP/IMPLEMENTATION_PLAN.md)
+9. [MVP backlog](docs/MVP/BACKLOG.md)
+
+## Broader documentation
 
 ### Product and architecture
 
 - [Product definition](docs/PRODUCT.md)
-- [Architecture](docs/ARCHITECTURE.md)
+- [Architecture principles](docs/ARCHITECTURE.md)
 - [Privacy model](docs/PRIVACY.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Competition](docs/COMPETITION.md)
@@ -96,6 +98,10 @@ The project is currently in product/architecture planning and early prototyping.
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Licensing notes](docs/LICENSING.md)
 - [Changelog](CHANGELOG.md)
+
+## Repository status
+
+The project has a developer-ready MVP specification but no production implementation scaffold yet. The next engineering step is **Milestone 0 — repository scaffold** in `docs/MVP/IMPLEMENTATION_PLAN.md`.
 
 ## License
 
