@@ -39,9 +39,10 @@ def send_request(process: subprocess.Popen[str], request_id: str, method: str) -
     return read_message(process)
 
 
-def test_real_sidecar_lifecycle_round_trip() -> None:
+def test_real_sidecar_lifecycle_round_trip(tmp_path: Path) -> None:
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(CORE_DIR)
+    environment["PRESENTER_COPILOT_DATA_ROOT"] = str(tmp_path / "data")
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "presenter_core"],
         cwd=CORE_DIR,

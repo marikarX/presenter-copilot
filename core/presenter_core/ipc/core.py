@@ -1,13 +1,20 @@
-"""Milestone 0 core lifecycle handlers."""
+"""Core request dispatcher and M1 service composition."""
 
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Callable
+from pathlib import Path
 from time import monotonic
 from typing import Any
 
 from presenter_core import CORE_VERSION
+from presenter_core.errors import CoreDomainError, reject_unknown_fields
+from presenter_core.ingestion.service import IngestionService
+from presenter_core.project.service import ProjectService
+from presenter_core.retrieval.lexical import LexicalRetrievalService
+from presenter_core.storage.service import StorageManager
 
 from .protocol import (
     PROTOCOL_VERSION,
@@ -18,14 +25,26 @@ from .protocol import (
     make_response,
 )
 
+EventSink = Callable[[dict[str, Any]], None]
+
 
 class CoreService:
-    """Handle validated lifecycle requests without owning transport concerns."""
+    """Handle requests while keeping transport and filesystem authority separate."""
 
-    def __init__(self, clock: Callable[[], float] = monotonic) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] = monotonic,
+        data_root: str | Path | None = None,
+        event_sink: EventSink | None = None,
+    ) -> None:
         self._clock = clock
         self._started_at = clock()
         self._shutdown_requested = False
+        self._event_sink = event_sink
+        self._storage = StorageManager(data_root)
+        self._projects = ProjectService(self._storage)
+        self._ingestion = IngestionService(self._storage, self._emit_event)
+        self._retrieval = LexicalRetrievalService(self._storage)
 
     @property
     def shutdown_requested(self) -> bool:
@@ -42,9 +61,26 @@ class CoreService:
                 "methods": list(SUPPORTED_METHODS),
                 "events": list(SUPPORTED_EVENTS),
             },
-            "adapters": [],
-            "migration_status": "not_required",
+            "adapters": [
+                "pdf.pypdf",
+                "pptx.python-pptx",
+                "text.stdlib",
+                "retrieval.lexical",
+            ],
+            "migration_status": "ready",
+            "storage": {
+                "app_schema_version": self._storage.app_schema_version,
+                "project_schema_version": 1,
+            },
         }
+
+    def set_event_sink(self, event_sink: EventSink | None) -> None:
+        """Attach transport output after construction without coupling core to stdio."""
+        self._event_sink = event_sink
+
+    def close(self) -> None:
+        """Close SQLite handles before the sidecar exits."""
+        self._storage.close()
 
     def ready_event(self) -> dict[str, Any]:
         """Return the startup event sent before the first request is read."""
@@ -121,13 +157,36 @@ class CoreService:
                 details={"method": method, "supported_methods": list(SUPPORTED_METHODS)},
             )
 
-        return self._dispatch(request_id, method, params)
+        try:
+            return self._dispatch(request_id, method, params)
+        except CoreDomainError as error:
+            return make_error(
+                request_id,
+                error.code,
+                error.message,
+                retryable=error.retryable,
+                details=error.details,
+            )
+        except Exception as error:  # pragma: no cover - final request boundary guard
+            print(
+                f"presenter_core request failed: {type(error).__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return make_error(
+                request_id,
+                "INTERNAL_ERROR",
+                "The core could not complete the request.",
+                retryable=False,
+                details={},
+            )
 
     def _dispatch(self, request_id: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        del params  # Lifecycle methods do not currently accept method-specific fields.
         if method == "core.hello":
+            reject_unknown_fields(params, set())
             return make_response(request_id, result=self.metadata)
         if method == "core.health":
+            reject_unknown_fields(params, set())
             return make_response(
                 request_id,
                 result={
@@ -142,7 +201,36 @@ class CoreService:
         # The supported-method check above makes this branch unreachable unless
         # a future method is added without a handler, which should fail loudly.
         if method == "core.shutdown":
+            reject_unknown_fields(params, set())
             self._shutdown_requested = True
+            self.close()
             return make_response(request_id, result={"status": "shutting_down"})
 
+        if method == "project.create":
+            return make_response(request_id, result=self._projects.create(params))
+        if method == "project.open":
+            return make_response(request_id, result=self._projects.open(params))
+        if method == "project.list":
+            return make_response(request_id, result=self._projects.list(params))
+        if method == "project.update_settings":
+            return make_response(request_id, result=self._projects.update_settings(params))
+        if method == "project.delete":
+            return make_response(request_id, result=self._projects.delete(params))
+        if method == "source.import":
+            return make_response(request_id, result=self._ingestion.import_source(params))
+        if method == "source.list":
+            return make_response(request_id, result=self._ingestion.list_sources(params))
+        if method == "source.preview":
+            return make_response(request_id, result=self._ingestion.preview_source(params))
+        if method == "source.delete":
+            return make_response(request_id, result=self._ingestion.delete_source(params))
+        if method == "source.reindex":
+            return make_response(request_id, result=self._ingestion.reindex_source(params))
+        if method == "search.lexical":
+            return make_response(request_id, result=self._retrieval.query(params))
+
         raise AssertionError(f"supported method has no handler: {method}")
+
+    def _emit_event(self, event: str, payload: dict[str, Any]) -> None:
+        if self._event_sink is not None:
+            self._event_sink(make_event(event, payload))
