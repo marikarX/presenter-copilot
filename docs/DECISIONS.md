@@ -267,3 +267,51 @@ Reason:
 The renderer boundary is a security boundary, not only a type boundary. Parsed
 URL and frame checks prevent a future navigation, child frame, or environment
 mistake from turning a new internal capability into renderer authority.
+
+## D-021 — M1 uses explicit transactional SQLite user-version migrations
+
+**Status:** Accepted for Milestone 1
+
+Both `app.db` and each `project.db` use SQLite's integer `PRAGMA user_version`
+with a small, ordered migration table implemented in the core. Migrations run
+forward-only inside one transaction; a newer unsupported version is rejected
+without mutation.
+
+Reason:
+
+M1 needs inspectable, deterministic persistence without introducing an ORM or
+Alembic-scale dependency. The mechanism leaves a clear seam for future schema
+versions while keeping the local database authority explicit.
+
+## D-022 — Source snapshots use UUID-prefixed names and project-relative paths
+
+**Status:** Accepted for Milestone 1
+
+Imported files are hashed and copied atomically into `projects/<uuid>/sources/`
+as `<document-uuid>-<sanitized-original-name>`. The database stores only the
+project-relative snapshot path; source and project deletion resolve paths from
+trusted UUIDs through the storage layer.
+
+Reason:
+
+The original display name remains useful to the presenter, while the UUID
+prefix prevents same-name collisions. Relative-path validation and one
+authoritative delete path make traversal and cross-project cleanup errors
+mechanically testable.
+
+## D-023 — M1 parser and chunking choices favor bounded deterministic provenance
+
+**Status:** Accepted for Milestone 1
+
+M1 uses `pypdf` for page-preserving PDF extraction, `python-pptx` for slide
+text/title/notes extraction, and the Python standard library for TXT/Markdown
+sections. Chunks are created independently within each SourceUnit with a
+1,200-character ceiling, and the lexical fallback searches persisted chunks
+without embeddings or providers.
+
+Reason:
+
+These adapters are small enough for the Windows sidecar and preserve the
+source boundaries required by provenance. The unit-local chunk seam can later
+feed embedding retrieval without changing the document model or crossing a
+page/slide boundary.

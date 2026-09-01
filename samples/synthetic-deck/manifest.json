@@ -1,25 +1,30 @@
 {
   "fixture_id": "synthetic-deck",
-  "status": "skeleton",
-  "planned_assets": {
+  "status": "m1-complete",
+  "generator": "generate_fixture.py",
+  "assets": {
     "presentation": "deck/presentation.pptx",
     "supporting_documents": [
-      "supporting/cost-model.md",
+      "supporting/cost-model.pdf",
       "supporting/architecture-notes.md"
     ],
-    "transcript": "transcript/named-meeting.vtt",
     "expected": [
-      "expected/audience-mappings.json",
-      "expected/questions.json",
       "expected/retrieval-goldens.json"
     ],
-    "security": ["security/prompt-injection.md"]
+    "security": [
+      "security/prompt-injection.md",
+      "security/unsafe-member.pptx"
+    ]
   },
+  "slide_count": 22,
+  "pdf_page_count": 4,
   "required_facts": [
     "current_solution_three_year_cost",
     "proposed_solution_three_year_cost",
     "recovery_time_objective",
     "rejected_option_and_rationale",
-    "controlled_conflicting_fact"
-  ]
+    "controlled_conflicting_fact",
+    "inert_prompt_injection_text"
+  ],
+  "regenerate": "uv run --directory core --project . --locked python ../samples/synthetic-deck/generate_fixture.py"
 }

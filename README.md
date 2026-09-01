@@ -75,7 +75,7 @@ Read in this order:
 8. [MVP implementation plan](docs/MVP/IMPLEMENTATION_PLAN.md)
 9. [MVP backlog](docs/MVP/BACKLOG.md)
 
-## Run the Milestone 0 scaffold
+## Run the desktop development build
 
 Prerequisites: Node.js 22.12+, pnpm 11+, Python 3.13+, and uv. From the
 repository root:
@@ -85,10 +85,18 @@ pnpm setup
 pnpm dev
 ```
 
-The first setup downloads the pinned Electron development runtime when it is
-not already present. `pnpm dev` opens the desktop shell, which starts the
-Python core sidecar automatically. The shell should show `CORE READY`,
-protocol `1`, core version `0.1.0`, and health `OK`.
+The first setup downloads the pinned Electron development runtime and the
+locked Python parser dependencies when they are not already present. `pnpm
+dev` opens the desktop shell, which starts the Python core sidecar
+automatically. The shell should show `CORE READY`, protocol `1`, core version
+`0.1.0`, and health `OK`.
+
+Milestone 1 adds the local project vault flow: create/open a project, import
+PPTX/PDF/TXT/Markdown sources through the native file picker, inspect bounded
+slide/page/section previews with provenance, re-index from the stored snapshot,
+and delete sources or whole projects. The normal data root is
+`%LOCALAPPDATA%\PresenterCopilot` on Windows. Tests use a temporary root; a
+controlled run can set `PRESENTER_COPILOT_DATA_ROOT` explicitly.
 
 Useful root commands:
 
@@ -102,8 +110,8 @@ pnpm format:check   # Prettier plus Ruff format check
 pnpm check          # formatting, lint, typecheck, and all tests
 ```
 
-Milestone 0 intentionally does not include project storage, ingestion, ASR,
-model providers, or the real presentation HUD. See
+Milestone 1 intentionally does not include embeddings, semantic search, ASR,
+model providers, sessions, or the real presentation HUD. See
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
 commands.
 
@@ -133,9 +141,8 @@ commands.
 
 ## Repository status
 
-Milestone 0 — repository scaffold is implemented on the `feat/m0-scaffold`
-branch. The next implementation slice is Milestone 1 — local project vault and
-ingestion; it is intentionally not part of this scaffold.
+Milestone 0 — repository scaffold — is merged into `main`. The current
+implementation slice is Milestone 1 — local project vault and ingestion.
 
 ## License
 

@@ -8,6 +8,15 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ### Added
 
+- Milestone 1 local project vault with transactional app/project SQLite
+  migrations and UUID-keyed project lifecycle.
+- Project-local SHA-256 source snapshots, bounded PDF/PPTX/TXT/Markdown
+  ingestion, slide/page/section provenance, deterministic chunking, and
+  lexical exact-text retrieval.
+- Source preview, re-index, delete, project delete, restart recovery, native
+  Electron import picker, progress events, and the canonical synthetic
+  22-slide/four-page ingestion fixture.
+
 - Initial product and architecture documentation.
 - Local-first privacy model.
 - Competitive analysis and roadmap.

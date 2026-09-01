@@ -20,26 +20,26 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] B01 Implement `app.db` initialization/migrations.
-- [ ] B02 Implement project vault creation and `project.db` migrations.
-- [ ] B03 Implement ProjectService CRUD.
-- [ ] B04 Implement source snapshot hashing/path sanitization.
-- [ ] B05 Implement project delete cascade and filesystem cleanup.
-- [ ] B06 Implement session delete/source delete semantics.
-- [ ] B07 Add migration/version fixture tests.
+- [x] B01 Implement `app.db` initialization/migrations.
+- [x] B02 Implement project vault creation and `project.db` migrations.
+- [x] B03 Implement ProjectService CRUD.
+- [x] B04 Implement source snapshot hashing/path sanitization.
+- [x] B05 Implement project delete cascade and filesystem cleanup.
+- [ ] B06 Implement session delete semantics (source deletion is delivered in M1; session persistence is deferred).
+- [x] B07 Add migration/version fixture tests.
 
 ## Epic C — Ingestion and provenance
 
 ### P0
 
-- [ ] C01 PDF parser preserving pages.
-- [ ] C02 PPTX parser preserving slides and notes where available.
-- [ ] C03 TXT/Markdown parser.
-- [ ] C04 SourceUnit/chunk pipeline.
-- [ ] C05 Deduplication by source hash.
-- [ ] C06 Source preview/list/delete/re-index IPC.
-- [ ] C07 Canonical `Evidence` / `ProvenanceRef` model.
-- [ ] C08 Import security tests: zip-slip, unsafe filename, HTML/script preview.
+- [x] C01 PDF parser preserving pages.
+- [x] C02 PPTX parser preserving slides and notes where available.
+- [x] C03 TXT/Markdown parser.
+- [x] C04 SourceUnit/chunk pipeline.
+- [x] C05 Deduplication by source hash.
+- [x] C06 Source preview/list/delete/re-index IPC.
+- [x] C07 Canonical `Evidence` / `ProvenanceRef` model.
+- [x] C08 Import security tests: zip-slip, unsafe filename, HTML/script preview.
 
 ### P1
 
@@ -54,7 +54,7 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 - [ ] D02 Initial local embedding implementation.
 - [ ] D03 Persist embedding matrix/vector metadata.
 - [ ] D04 In-process cosine similarity search.
-- [ ] D05 Lexical/exact-number scoring.
+- [x] D05 Lexical/exact-number scoring.
 - [ ] D06 Current/adjacent slide boosts.
 - [ ] D07 User-preferred answer/explanation boost.
 - [ ] D08 `use_live` filter.
