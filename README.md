@@ -71,19 +71,37 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
 ## Repository status
 
-This repository currently contains product and architecture planning only. No implementation stack has been locked yet.
+The project is currently in product/architecture planning and early prototyping. No production implementation stack has been locked yet.
 
 ## Documentation
+
+### Product and architecture
 
 - [Product definition](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Privacy model](docs/PRIVACY.md)
+- [Threat model](docs/THREAT_MODEL.md)
 - [Competition](docs/COMPETITION.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decision log](docs/DECISIONS.md)
+- [Development guide](docs/DEVELOPMENT.md)
+
+### Project and community
+
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Governance](GOVERNANCE.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Licensing notes](docs/LICENSING.md)
+- [Changelog](CHANGELOG.md)
+
+## License
+
+Presenter Copilot is licensed under the [Apache License 2.0](LICENSE). Third-party models, SDKs, APIs, datasets, and dependencies remain subject to their own licenses and terms.
 
 ## Working positioning
 
 > A private, local-first AI copilot for high-stakes presentations.
 
-Public naming and licensing are intentionally undecided until competitor, trademark, domain, and open-source strategy reviews are complete.
+`Presenter Copilot` is a working project title, not a cleared public brand. Public naming should be screened across search engines, GitHub, app stores, domains, competitors, and trademarks before launch.
