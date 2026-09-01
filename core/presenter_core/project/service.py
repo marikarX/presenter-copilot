@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from pathlib import Path
 from typing import Any
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
-from presenter_core.storage.database import connect_project_database
+from presenter_core.storage.database import PROJECT_SCHEMA_VERSION, connect_project_database
 from presenter_core.storage.paths import normalize_project_id
 from presenter_core.storage.service import StorageManager
 
@@ -102,7 +101,7 @@ class ProjectService:
                         privacy_mode,
                         style_policy,
                         custom_guidance,
-                        1,
+                        PROJECT_SCHEMA_VERSION,
                     ),
                 )
                 connection.commit()
@@ -123,7 +122,7 @@ class ProjectService:
             self._storage.paths.delete_project_directory(project_id)
             raise
 
-        return {"project": self._project_dict_from_database(project_id, paths.database)}
+        return {"project": self._project_dict_from_database(project_id)}
 
     def open(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id"})
@@ -237,12 +236,14 @@ class ProjectService:
         """Reserved for symmetry; project DB connections are operation-scoped."""
 
     def _read_project(self, project_id: str) -> dict[str, Any]:
-        paths = self._storage.project_paths(project_id, require_exists=True)
-        return self._project_dict_from_database(project_id, paths.database)
+        self._storage.project_paths(project_id, require_exists=True)
+        return self._project_dict_from_database(project_id)
 
-    def _project_dict_from_database(self, project_id: str, database: Path) -> dict[str, Any]:
-        connection = connect_project_database(database)
-        try:
+    def _project_dict_from_database(self, project_id: str) -> dict[str, Any]:
+        # Existing-project reads must use the guarded storage path.  In
+        # particular, StorageManager.project_database refuses to bootstrap a
+        # missing project.db, so corruption is reported without recreating it.
+        with self._storage.project_database(project_id) as connection:
             row = connection.execute("SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
             if row is None:
                 raise CoreDomainError("PROJECT_CORRUPT", "The project record is missing.")
@@ -257,8 +258,6 @@ class ProjectService:
                 "source_count": self._count(connection, "documents"),
                 "storage_status": "ready",
             }
-        finally:
-            connection.close()
 
     def _project_id(self, params: dict[str, Any]) -> str:
         value = params.get("project_id")

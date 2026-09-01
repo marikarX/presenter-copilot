@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from presenter_core.errors import CoreDomainError
+from presenter_core.ingestion import security as ingestion_security
+from presenter_core.ingestion import service as ingestion_service_module
 from presenter_core.ingestion.chunking import MAX_CHUNK_CHARACTERS, chunk_text
-from presenter_core.ingestion.models import Evidence
+from presenter_core.ingestion.models import Evidence, ParsedSourceUnit
 from presenter_core.ingestion.parsers.pdf import PdfParser
 from presenter_core.ingestion.parsers.pptx import PptxParser
 from presenter_core.ingestion.parsers.text import TextParser
-from presenter_core.ingestion.service import provenance_label
+from presenter_core.ingestion.service import IngestionService, provenance_label
 from presenter_core.ipc.core import CoreService
 from presenter_core.storage.paths import AppPaths
 
@@ -61,6 +64,8 @@ def test_parser_adapters_preserve_boundaries_titles_and_notes() -> None:
     assert slides[7].title == "Proposed solution cost"
     assert "$980,000" in slides[7].text
     assert "Briefing note for slide 8" in slides[7].metadata["notes"]
+    assert "Briefing note for slide 8" in slides[7].search_text
+    assert "cobalt lighthouse 731" in slides[11].search_text
     assert len(pages) == 4
     assert [page.ordinal for page in pages] == [1, 2, 3, 4]
     assert "Current solution 3-year cost: $1,200,000" in pages[1].text
@@ -172,6 +177,14 @@ def test_import_snapshot_preview_provenance_deduplication_and_lexical_search(
         assert exact["results"][0]["label"] == "presentation.pptx slide 10"
         assert exact["results"][0]["fact_safe"] is True
         assert exact["latency_ms"] >= 0
+        note_only = call(
+            core,
+            "note-search",
+            "search.lexical",
+            {"project_id": project_id, "query": "cobalt lighthouse 731"},
+        )["result"]
+        assert note_only["results"][0]["label"] == "presentation.pptx slide 12"
+        assert "cobalt lighthouse 731" in note_only["results"][0]["text"]
         assert {name for name, _ in events} >= {
             "source.import_progress",
             "project.index_progress",
@@ -351,6 +364,365 @@ def test_reindex_uses_snapshot_and_source_delete_cascades_then_survives_restart(
         )
     finally:
         restarted.close()
+
+
+def test_reindex_rejects_changed_snapshot_and_retains_previous_content(tmp_path: Path) -> None:
+    external = tmp_path / "authoritative.txt"
+    external.write_text("Original evidence phrase 482.", encoding="utf-8")
+    data_root = tmp_path / "data"
+    core = CoreService(data_root=data_root)
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        document_id = imported["document"]["id"]
+        snapshot = (
+            data_root / "projects" / project_id / "sources" / imported["document"]["snapshot_name"]
+        )
+        before_preview = call(
+            core,
+            "before-preview",
+            "source.preview",
+            {"project_id": project_id, "document_id": document_id},
+        )["result"]
+        with sqlite3.connect(data_root / "projects" / project_id / "project.db") as database:
+            before_chunks = database.execute(
+                "SELECT id, text FROM chunks ORDER BY chunk_index"
+            ).fetchall()
+
+        snapshot.write_text("Tampered evidence phrase 913.", encoding="utf-8")
+        failed = call(
+            core,
+            "changed-snapshot",
+            "source.reindex",
+            {"project_id": project_id, "document_id": document_id},
+        )
+        assert failed["error"]["code"] == "SOURCE_REINDEX_FAILED"
+        assert failed["error"]["details"]["cause_code"] == "SOURCE_SNAPSHOT_CHANGED"
+
+        after_preview = call(
+            core,
+            "after-preview",
+            "source.preview",
+            {"project_id": project_id, "document_id": document_id},
+        )["result"]
+        assert after_preview["units"] == before_preview["units"]
+        with sqlite3.connect(data_root / "projects" / project_id / "project.db") as database:
+            after_chunks = database.execute(
+                "SELECT id, text FROM chunks ORDER BY chunk_index"
+            ).fetchall()
+            stored_sha = database.execute(
+                "SELECT sha256 FROM documents WHERE id = ?", (document_id,)
+            ).fetchone()[0]
+        assert after_chunks == before_chunks
+        assert stored_sha == imported["document"]["sha256"]
+    finally:
+        core.close()
+
+
+def test_unchanged_reindex_preserves_derived_ids_and_parser_metadata(tmp_path: Path) -> None:
+    external = tmp_path / "stable.txt"
+    external.write_text("Stable retrieval phrase 2718.", encoding="utf-8")
+    data_root = tmp_path / "data"
+    core = CoreService(data_root=data_root)
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        document_id = imported["document"]["id"]
+        before_preview = call(
+            core,
+            "before-preview",
+            "source.preview",
+            {"project_id": project_id, "document_id": document_id},
+        )["result"]
+        before_search = call(
+            core,
+            "before-search",
+            "search.lexical",
+            {"project_id": project_id, "query": "Stable retrieval phrase 2718"},
+        )["result"]["results"]
+        with sqlite3.connect(data_root / "projects" / project_id / "project.db") as database:
+            before_chunks = database.execute(
+                "SELECT id, source_unit_id, chunk_index, text FROM chunks ORDER BY chunk_index"
+            ).fetchall()
+        reindexed = call(
+            core,
+            "stable-reindex",
+            "source.reindex",
+            {"project_id": project_id, "document_id": document_id},
+        )
+        assert reindexed["ok"] is True
+        after_preview = call(
+            core,
+            "after-preview",
+            "source.preview",
+            {"project_id": project_id, "document_id": document_id},
+        )["result"]
+        after_search = call(
+            core,
+            "after-search",
+            "search.lexical",
+            {"project_id": project_id, "query": "Stable retrieval phrase 2718"},
+        )["result"]["results"]
+        with sqlite3.connect(data_root / "projects" / project_id / "project.db") as database:
+            after_chunks = database.execute(
+                "SELECT id, source_unit_id, chunk_index, text FROM chunks ORDER BY chunk_index"
+            ).fetchall()
+        assert [unit["id"] for unit in after_preview["units"]] == [
+            unit["id"] for unit in before_preview["units"]
+        ]
+        assert [result["evidence_id"] for result in after_search] == [
+            result["evidence_id"] for result in before_search
+        ]
+        assert [result["source_unit_id"] for result in after_search] == [
+            result["source_unit_id"] for result in before_search
+        ]
+        assert after_chunks == before_chunks
+        source = call(core, "source-list", "source.list", {"project_id": project_id})["result"][
+            "sources"
+        ][0]
+        assert source["parser_id"] == "text.stdlib"
+        assert source["metadata"]["parser"] == "text.stdlib"
+    finally:
+        core.close()
+
+
+def test_reindex_records_the_parser_identity_actually_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    external = tmp_path / "parser-version.txt"
+    external.write_text("Parser version evidence.", encoding="utf-8")
+
+    class ReplacementParser:
+        parser_id = "text.stdlib.v2"
+
+        def parse(self, _path: Path) -> list[ParsedSourceUnit]:
+            return [
+                ParsedSourceUnit(
+                    unit_type="section",
+                    ordinal=1,
+                    title=None,
+                    text="Parser version evidence.",
+                    metadata={"parser": self.parser_id},
+                )
+            ]
+
+    replacement = ReplacementParser()
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        document_id = imported["document"]["id"]
+        assert imported["document"]["parser_id"] == "text.stdlib"
+        monkeypatch.setattr(
+            ingestion_service_module, "parser_for", lambda _source_type: replacement
+        )
+        reindexed = call(
+            core,
+            "parser-version-reindex",
+            "source.reindex",
+            {"project_id": project_id, "document_id": document_id},
+        )
+        assert reindexed["ok"] is True
+        source = call(core, "parser-version-list", "source.list", {"project_id": project_id})[
+            "result"
+        ]["sources"][0]
+        assert source["parser_id"] == replacement.parser_id
+        assert source["metadata"]["parser"] == replacement.parser_id
+    finally:
+        core.close()
+
+
+def test_import_preflights_the_copied_snapshot_before_parser_consumption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    external = tmp_path / "preflight.txt"
+    external.write_text("Copied snapshot is the parser subject.", encoding="utf-8")
+    observed: list[Path] = []
+    original_preflight = ingestion_service_module.preflight_source
+
+    def recording_preflight(path: Path, source_type: str) -> int:
+        observed.append(path)
+        return original_preflight(path, source_type)
+
+    monkeypatch.setattr(ingestion_service_module, "preflight_source", recording_preflight)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        snapshot = (
+            tmp_path
+            / "data"
+            / "projects"
+            / project_id
+            / "sources"
+            / imported["document"]["snapshot_name"]
+        ).resolve()
+        assert snapshot in observed
+    finally:
+        core.close()
+
+
+def test_parser_consumption_is_immediately_preflighted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "authoritative.txt"
+    snapshot.write_text("Parser subject.", encoding="utf-8")
+    order: list[tuple[str, Path]] = []
+    original_preflight = ingestion_service_module.preflight_source
+
+    def recording_preflight(path: Path, source_type: str) -> int:
+        order.append(("preflight", path))
+        return original_preflight(path, source_type)
+
+    class RecordingParser:
+        parser_id = "test.parser"
+
+        def parse(self, path: Path) -> list[Any]:
+            order.append(("parse", path))
+            return []
+
+    monkeypatch.setattr(ingestion_service_module, "preflight_source", recording_preflight)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        core._ingestion._parse_snapshot(  # type: ignore[attr-defined]
+            snapshot, "txt", parser=RecordingParser()
+        )
+        assert order == [("preflight", snapshot), ("parse", snapshot)]
+    finally:
+        core.close()
+
+
+def test_speaker_notes_count_toward_extracted_text_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slide = PptxParser().parse(FIXTURE_ROOT / "deck" / "presentation.pptx")[11]
+    assert slide.search_text is not None
+    assert len(slide.search_text) > len(slide.text)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        monkeypatch.setattr(
+            ingestion_service_module,
+            "MAX_EXTRACTED_TEXT_CHARS",
+            len(slide.text) + 1,
+        )
+        with pytest.raises(CoreDomainError) as error:
+            core._ingestion._validate_parsed_units([slide])  # type: ignore[attr-defined]
+        assert error.value.code == "SOURCE_PARSE_FAILED"
+    finally:
+        core.close()
+
+
+def test_source_delete_failures_are_structured_retryable_and_recoverable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    external = tmp_path / "delete.txt"
+    external.write_text("Delete failure recovery.", encoding="utf-8")
+    data_root = tmp_path / "data"
+    core = CoreService(data_root=data_root)
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        document_id = imported["document"]["id"]
+        snapshot = (
+            data_root / "projects" / project_id / "sources" / imported["document"]["snapshot_name"]
+        )
+
+        def fail_database_delete(
+            _service: IngestionService, _project_id: str, _document_id: str
+        ) -> None:
+            raise sqlite3.OperationalError("injected commit failure")
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(IngestionService, "_delete_document_record", fail_database_delete)
+            failed = call(
+                core,
+                "delete-db-failure",
+                "source.delete",
+                {"project_id": project_id, "document_id": document_id},
+            )
+        assert failed["error"]["code"] == "SOURCE_DELETE_FAILED"
+        assert failed["error"]["retryable"] is True
+        assert not snapshot.exists()
+        assert call(core, "after-db-failure", "source.list", {"project_id": project_id})["result"][
+            "sources"
+        ]
+        assert (
+            call(
+                core,
+                "delete-db-retry",
+                "source.delete",
+                {"project_id": project_id, "document_id": document_id},
+            )["result"]["deleted"]
+            is True
+        )
+    finally:
+        core.close()
+
+
+def test_source_delete_filesystem_failure_is_structured_and_retryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    external = tmp_path / "delete-filesystem.txt"
+    external.write_text("Filesystem failure recovery.", encoding="utf-8")
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core)
+        imported = import_source(core, project_id, external)
+        document_id = imported["document"]["id"]
+
+        def fail_snapshot_remove(_path: Path) -> None:
+            raise CoreDomainError("SOURCE_SNAPSHOT_FAILED", "injected snapshot failure")
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(
+                ingestion_service_module, "_remove_snapshot", fail_snapshot_remove
+            )
+            failed = call(
+                core,
+                "delete-fs-failure",
+                "source.delete",
+                {"project_id": project_id, "document_id": document_id},
+            )
+        assert failed["error"]["code"] == "SOURCE_DELETE_FAILED"
+        assert failed["error"]["retryable"] is True
+        assert call(core, "after-fs-failure", "source.list", {"project_id": project_id})["result"][
+            "sources"
+        ]
+        assert (
+            call(
+                core,
+                "delete-fs-retry",
+                "source.delete",
+                {"project_id": project_id, "document_id": document_id},
+            )["result"]["deleted"]
+            is True
+        )
+    finally:
+        core.close()
+
+
+def test_pptx_archive_entry_and_expanded_size_limits_are_enforced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    too_many = tmp_path / "too-many.pptx"
+    with zipfile.ZipFile(too_many, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("ppt/presentation.xml", "<presentation/>")
+    monkeypatch.setattr(ingestion_security, "MAX_ARCHIVE_ENTRIES", 1)
+    with pytest.raises(CoreDomainError) as entry_error:
+        ingestion_security.preflight_pptx_archive(too_many)
+    assert entry_error.value.code == "SOURCE_ARCHIVE_UNSAFE"
+
+    expanded = tmp_path / "too-large-expanded.pptx"
+    with zipfile.ZipFile(expanded, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("ppt/presentation.xml", "<presentation/>")
+        archive.writestr("ppt/large.xml", "0123456789")
+    monkeypatch.setattr(ingestion_security, "MAX_ARCHIVE_ENTRIES", 2_048)
+    monkeypatch.setattr(ingestion_security, "MAX_ARCHIVE_EXPANDED_BYTES", 5)
+    with pytest.raises(CoreDomainError) as expanded_error:
+        ingestion_security.preflight_pptx_archive(expanded)
+    assert expanded_error.value.code == "SOURCE_ARCHIVE_UNSAFE"
 
 
 def test_chunking_never_crosses_units_and_provenance_is_canonical() -> None:

@@ -43,7 +43,16 @@ class StorageManager:
         """Open a trusted project DB for one bounded operation."""
         normalized_id = normalize_project_id(project_id)
         paths = self.project_paths(normalized_id, require_exists=True)
-        if not paths.database.is_file():
+        if (
+            paths.database.is_symlink()
+            or not paths.database.is_file()
+            or paths.database.resolve().parent != paths.root.resolve()
+        ):
+            if paths.database.is_symlink() or paths.database.exists():
+                raise CoreDomainError(
+                    "PROJECT_PATH_UNSAFE",
+                    "The project database path is not trusted.",
+                )
             raise CoreDomainError("PROJECT_CORRUPT", "The project database is missing.")
 
         connection = connect_project_database(paths.database)

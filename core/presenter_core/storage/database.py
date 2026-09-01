@@ -191,7 +191,7 @@ def connect_app_database(path: str | Path) -> sqlite3.Connection:
     _migrate_database(
         database_path,
         scope="app",
-        migrations=((1, _migrate_app_v1),),
+        migrations=((APP_SCHEMA_VERSION, _migrate_app_v1),),
         latest_version=APP_SCHEMA_VERSION,
     )
     connection = sqlite3.connect(database_path)
@@ -206,7 +206,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
     _migrate_database(
         database_path,
         scope="project",
-        migrations=((1, _migrate_project_v1),),
+        migrations=((PROJECT_SCHEMA_VERSION, _migrate_project_v1),),
         latest_version=PROJECT_SCHEMA_VERSION,
     )
     connection = sqlite3.connect(database_path)

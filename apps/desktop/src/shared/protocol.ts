@@ -48,6 +48,18 @@ export interface CoreError {
   details: JsonObject;
 }
 
+export interface InvokeSuccess<T> {
+  ok: true;
+  result: T;
+}
+
+export interface InvokeFailure {
+  ok: false;
+  error: CoreError;
+}
+
+export type InvokeResult<T = unknown> = InvokeSuccess<T> | InvokeFailure;
+
 export interface SuccessResponse<T = unknown> {
   protocol_version: typeof PROTOCOL_VERSION;
   type: "response";
@@ -90,18 +102,78 @@ export interface CoreMetadata {
   };
 }
 
-export interface ProjectSummary {
+interface ProjectSummaryCommon {
   id: string;
   name: string;
   created_at: string;
   updated_at: string;
   last_opened_at?: string | null;
+}
+
+export interface ReadyProjectSummary extends ProjectSummaryCommon {
+  storage_status: "ready";
   privacy_mode: string;
   default_style_policy: string;
   custom_style_guidance: string | null;
   source_count: number;
-  storage_status: string;
-  storage_error_code?: string;
+}
+
+export interface UnavailableProjectSummary extends ProjectSummaryCommon {
+  storage_status: "unavailable";
+  storage_error_code: string;
+}
+
+export type ProjectSummary = ReadyProjectSummary | UnavailableProjectSummary;
+
+export function isCoreError(value: unknown): value is CoreError {
+  return (
+    isJsonObject(value) &&
+    typeof value.code === "string" &&
+    typeof value.message === "string" &&
+    typeof value.retryable === "boolean" &&
+    isJsonObject(value.details)
+  );
+}
+
+export function isReadyProjectSummary(
+  value: unknown,
+): value is ReadyProjectSummary {
+  return (
+    isJsonObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string" &&
+    value.storage_status === "ready" &&
+    typeof value.privacy_mode === "string" &&
+    typeof value.default_style_policy === "string" &&
+    (value.custom_style_guidance === null ||
+      typeof value.custom_style_guidance === "string") &&
+    typeof value.source_count === "number"
+  );
+}
+
+export function isUnavailableProjectSummary(
+  value: unknown,
+): value is UnavailableProjectSummary {
+  return (
+    isJsonObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string" &&
+    value.storage_status === "unavailable" &&
+    typeof value.storage_error_code === "string"
+  );
+}
+
+export function isProjectSummary(value: unknown): value is ProjectSummary {
+  return isReadyProjectSummary(value) || isUnavailableProjectSummary(value);
+}
+
+export function unwrapInvokeResult<T>(response: InvokeResult<T>): T {
+  if (response.ok) return response.result;
+  throw response.error;
 }
 
 export interface SourceSummary {
@@ -177,8 +249,8 @@ export interface PresenterCopilotApi {
     request<T = unknown>(
       method: RendererCoreMethod,
       params?: JsonObject,
-    ): Promise<T>;
-    getStatus(): Promise<CoreStatus>;
+    ): Promise<InvokeResult<T>>;
+    getStatus(): Promise<InvokeResult<CoreStatus>>;
     onEvent(listener: (event: EventEnvelope) => void): () => void;
     onStatus(listener: (status: CoreStatus) => void): () => void;
   };
@@ -186,7 +258,7 @@ export interface PresenterCopilotApi {
     pickAndImport(
       projectId: string,
       kind?: "presentation" | "supporting",
-    ): Promise<ImportSourceResult>;
+    ): Promise<InvokeResult<ImportSourceResult>>;
   };
 }
 

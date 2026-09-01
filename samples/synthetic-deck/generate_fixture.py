@@ -54,7 +54,12 @@ def generate_pptx(path: Path) -> None:
         notes.text = (
             f"Briefing note for slide {ordinal}: connect the decision to evidence before moving on."
             if ordinal == 8
-            else f"Synthetic presenter note for slide {ordinal}."
+            else (
+                "Synthetic presenter note for slide 12. Note-only retrieval phrase: "
+                "cobalt lighthouse 731."
+                if ordinal == 12
+                else f"Synthetic presenter note for slide {ordinal}."
+            )
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     presentation.save(path)
@@ -147,6 +152,10 @@ def generate_expected(path: Path) -> None:
                     {"query": "15 minutes", "label": "presentation.pptx slide 10"},
                     {"query": "Rejected option: rebuild", "label": "presentation.pptx slide 18"},
                     {"query": "Current solution 3-year cost", "label": "cost-model.pdf p.2"},
+                    {
+                        "query": "cobalt lighthouse 731",
+                        "label": "presentation.pptx slide 12",
+                    },
                 ],
             },
             indent=2,

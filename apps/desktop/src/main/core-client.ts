@@ -7,6 +7,7 @@ import {
 
 import {
   isCoreMetadata,
+  isCoreError,
   isJsonObject,
   PROTOCOL_VERSION,
   type CoreError,
@@ -702,14 +703,4 @@ export class CoreProcessClient {
       }
     }
   }
-}
-
-function isCoreError(value: unknown): value is CoreError {
-  return (
-    isJsonObject(value) &&
-    typeof value.code === "string" &&
-    typeof value.message === "string" &&
-    typeof value.retryable === "boolean" &&
-    isJsonObject(value.details)
-  );
 }

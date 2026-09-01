@@ -8,13 +8,24 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ParsedSourceUnit:
-    """Parser output before it is assigned persistent UUIDs."""
+    """Parser output before it is assigned persistent UUIDs.
+
+    ``text`` is the bounded display text.  Parsers may provide a separate
+    index text when useful source material (for example PPTX speaker notes)
+    should remain searchable without being duplicated in the preview body.
+    """
 
     unit_type: str
     ordinal: int | None
     title: str | None
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    search_text: str | None = None
+
+    @property
+    def index_text(self) -> str:
+        """Return the text that should be chunked for retrieval."""
+        return self.search_text if self.search_text is not None else self.text
 
 
 @dataclass(frozen=True)

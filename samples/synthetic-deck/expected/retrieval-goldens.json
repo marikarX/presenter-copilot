@@ -16,6 +16,10 @@
     {
       "query": "Current solution 3-year cost",
       "label": "cost-model.pdf p.2"
+    },
+    {
+      "query": "cobalt lighthouse 731",
+      "label": "presentation.pptx slide 12"
     }
   ]
 }

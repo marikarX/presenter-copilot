@@ -6,6 +6,7 @@ import type {
   EventEnvelope,
   JsonObject,
   ImportSourceResult,
+  InvokeResult,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -14,14 +15,16 @@ const api: PresenterCopilotApi = {
     request<T = unknown>(
       method: RendererCoreMethod,
       params?: JsonObject,
-    ): Promise<T> {
+    ): Promise<InvokeResult<T>> {
       return ipcRenderer.invoke("core:request", {
         method,
         params: params ?? {},
-      }) as Promise<T>;
+      }) as Promise<InvokeResult<T>>;
     },
-    getStatus(): Promise<CoreStatus> {
-      return ipcRenderer.invoke("core:get-status") as Promise<CoreStatus>;
+    getStatus(): Promise<InvokeResult<CoreStatus>> {
+      return ipcRenderer.invoke("core:get-status") as Promise<
+        InvokeResult<CoreStatus>
+      >;
     },
     onEvent(listener: (event: EventEnvelope) => void): () => void {
       const handler = (
@@ -42,11 +45,11 @@ const api: PresenterCopilotApi = {
     pickAndImport(
       projectId: string,
       kind: "presentation" | "supporting" = "supporting",
-    ): Promise<ImportSourceResult> {
+    ): Promise<InvokeResult<ImportSourceResult>> {
       return ipcRenderer.invoke("source:pick-and-import", {
         project_id: projectId,
         kind,
-      }) as Promise<ImportSourceResult>;
+      }) as Promise<InvokeResult<ImportSourceResult>>;
     },
   },
 };

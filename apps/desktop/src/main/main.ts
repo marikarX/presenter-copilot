@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreProcessClient, toCoreError } from "./core-client";
+import { invokeResult } from "./invoke-result";
 import { createSidecarCommand } from "./sidecar-command";
 import {
   isCoreMetadata,
@@ -152,43 +153,48 @@ function assertTrustedRendererSender(
 function registerIpc(rendererPolicy: RendererValidationOptions): void {
   ipcMain.handle("core:get-status", (event) => {
     assertTrustedRendererSender(event, rendererPolicy);
-    return requireClient().getStatus();
+    return invokeResult(() => requireClient().getStatus());
   });
   ipcMain.handle("core:request", async (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
-    const request = validateRendererRequest(value);
-    const timeoutMs = request.method === "source.reindex" ? 60_000 : undefined;
-    return timeoutMs === undefined
-      ? requireClient().request(request.method, request.params)
-      : requireClient().request(request.method, request.params, timeoutMs);
+    return invokeResult(async () => {
+      const request = validateRendererRequest(value);
+      const timeoutMs =
+        request.method === "source.reindex" ? 60_000 : undefined;
+      return timeoutMs === undefined
+        ? requireClient().request(request.method, request.params)
+        : requireClient().request(request.method, request.params, timeoutMs);
+    });
   });
   ipcMain.handle("source:pick-and-import", async (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
-    const request = validateImportPickerRequest(value);
-    const selection = await dialog.showOpenDialog({
-      title: "Import presentation source",
-      properties: ["openFile"],
-      filters: [
-        {
-          name: "Supported sources",
-          extensions: ["pdf", "pptx", "txt", "md", "markdown"],
-        },
-      ],
-    });
-    if (selection.canceled || selection.filePaths.length === 0)
-      return { cancelled: true };
+    return invokeResult(async () => {
+      const request = validateImportPickerRequest(value);
+      const selection = await dialog.showOpenDialog({
+        title: "Import presentation source",
+        properties: ["openFile"],
+        filters: [
+          {
+            name: "Supported sources",
+            extensions: ["pdf", "pptx", "txt", "md", "markdown"],
+          },
+        ],
+      });
+      if (selection.canceled || selection.filePaths.length === 0)
+        return { cancelled: true };
 
-    // The selected absolute path is intentionally consumed in main and is
-    // never returned to the renderer or placed in an event payload.
-    return requireClient().request(
-      "source.import",
-      {
-        project_id: request.projectId,
-        kind: request.kind,
-        path: selection.filePaths[0],
-      },
-      60_000,
-    );
+      // The selected absolute path is intentionally consumed in main and is
+      // never returned to the renderer or placed in an event payload.
+      return requireClient().request(
+        "source.import",
+        {
+          project_id: request.projectId,
+          kind: request.kind,
+          path: selection.filePaths[0],
+        },
+        60_000,
+      );
+    });
   });
 }
 

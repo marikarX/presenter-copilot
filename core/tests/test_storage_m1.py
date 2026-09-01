@@ -108,6 +108,19 @@ def test_project_settings_restart_and_delete_are_vault_scoped(tmp_path: Path) ->
     assert (project_root / "project.db").is_file()
     assert (project_root / "sources").is_dir()
     assert not (project_root / "extracted").exists()
+    project_database = sqlite3.connect(project_root / "project.db")
+    try:
+        assert (
+            project_database.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION
+        )
+        assert (
+            project_database.execute(
+                "SELECT schema_version FROM project WHERE id = ?", (project_id,)
+            ).fetchone()[0]
+            == PROJECT_SCHEMA_VERSION
+        )
+    finally:
+        project_database.close()
 
     updated = call(
         core,
@@ -150,6 +163,40 @@ def test_project_settings_restart_and_delete_are_vault_scoped(tmp_path: Path) ->
     idempotent = call(restarted, "delete-again", "project.delete", {"project_id": project_id})
     assert idempotent["result"] == {"project_id": project_id, "deleted": False}
     restarted.close()
+
+
+def test_missing_project_database_is_reported_without_recreation_and_does_not_hide_healthy_projects(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "data"
+    first = CoreService(data_root=data_root)
+    corrupt_id = call(first, "create-corrupt", "project.create", {"name": "Corrupt vault"})[
+        "result"
+    ]["project"]["id"]
+    healthy_id = call(first, "create-healthy", "project.create", {"name": "Healthy vault"})[
+        "result"
+    ]["project"]["id"]
+    corrupt_database = data_root / "projects" / corrupt_id / "project.db"
+    assert corrupt_database.is_file()
+    first.close()
+    corrupt_database.unlink()
+
+    second = CoreService(data_root=data_root)
+    try:
+        listed = call(second, "list", "project.list", {})["result"]["projects"]
+        by_id = {project["id"]: project for project in listed}
+        assert by_id[corrupt_id]["storage_status"] == "unavailable"
+        assert by_id[corrupt_id]["storage_error_code"] == "PROJECT_CORRUPT"
+        assert by_id[healthy_id]["storage_status"] == "ready"
+        assert not corrupt_database.exists()
+
+        healthy_open = call(second, "healthy-open", "project.open", {"project_id": healthy_id})
+        assert healthy_open["ok"] is True
+        corrupt_open = call(second, "corrupt-open", "project.open", {"project_id": corrupt_id})
+        assert corrupt_open["error"]["code"] == "PROJECT_CORRUPT"
+        assert not corrupt_database.exists()
+    finally:
+        second.close()
 
 
 def test_project_open_and_delete_reject_a_tampered_registry_path(tmp_path: Path) -> None:

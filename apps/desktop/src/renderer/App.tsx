@@ -5,10 +5,13 @@ import {
   type CoreStatus,
   type EventEnvelope,
   type HealthResult,
-  type ImportSourceResult,
+  type JsonObject,
   type ProjectSummary,
+  type ReadyProjectSummary,
+  type RendererCoreMethod,
   type SourcePreviewResult,
   type SourceSummary,
+  unwrapInvokeResult,
 } from "../shared/protocol";
 
 const initialStatus: CoreStatus = {
@@ -20,8 +23,17 @@ const initialStatus: CoreStatus = {
 };
 
 type ProjectListResult = { projects: ProjectSummary[] };
-type ProjectResult = { project: ProjectSummary };
+type ProjectResult = { project: ReadyProjectSummary };
 type SourceListResult = { sources: SourceSummary[] };
+
+function requestCore<T>(
+  method: RendererCoreMethod,
+  params?: JsonObject,
+): Promise<T> {
+  return window.presenterCopilot.core
+    .request<T>(method, params)
+    .then(unwrapInvokeResult);
+}
 
 function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null) {
@@ -69,8 +81,7 @@ export function App() {
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
     try {
-      const result =
-        await window.presenterCopilot.core.request<HealthResult>("core.health");
+      const result = await requestCore<HealthResult>("core.health");
       if (!isHealthResult(result))
         throw new Error("Core returned an invalid health payload.");
       setHealth(result);
@@ -82,15 +93,16 @@ export function App() {
 
   const loadProjects = useCallback(async () => {
     try {
-      const result =
-        await window.presenterCopilot.core.request<ProjectListResult>(
-          "project.list",
-        );
+      const result = await requestCore<ProjectListResult>("project.list");
       setProjects(result.projects);
       setSelectedProject((current) =>
         current
-          ? (result.projects.find((project) => project.id === current.id) ??
-            null)
+          ? (() => {
+              const project = result.projects.find(
+                (candidate) => candidate.id === current.id,
+              );
+              return project?.storage_status === "ready" ? project : null;
+            })()
           : null,
       );
     } catch (error) {
@@ -99,10 +111,9 @@ export function App() {
   }, []);
 
   const loadSources = useCallback(async (projectId: string) => {
-    const result = await window.presenterCopilot.core.request<SourceListResult>(
-      "source.list",
-      { project_id: projectId },
-    );
+    const result = await requestCore<SourceListResult>("source.list", {
+      project_id: projectId,
+    });
     setSources(result.sources);
   }, []);
 
@@ -135,12 +146,18 @@ export function App() {
         if (event.event === "project.index_ready") setProgress(null);
       },
     );
-    void window.presenterCopilot.core.getStatus().then((currentStatus) => {
-      if (!mounted) return;
-      setStatus(currentStatus);
-      if (currentStatus.health) setHealth(currentStatus.health);
-      if (currentStatus.state === "ready") setLastEvent("core.ready");
-    });
+    void window.presenterCopilot.core
+      .getStatus()
+      .then(unwrapInvokeResult)
+      .then((currentStatus) => {
+        if (!mounted) return;
+        setStatus(currentStatus);
+        if (currentStatus.health) setHealth(currentStatus.health);
+        if (currentStatus.state === "ready") setLastEvent("core.ready");
+      })
+      .catch((error) => {
+        if (mounted) setNotice(errorMessage(error));
+      });
 
     return () => {
       mounted = false;
@@ -161,11 +178,9 @@ export function App() {
       setBusy("open-project");
       setNotice(null);
       try {
-        const result =
-          await window.presenterCopilot.core.request<ProjectResult>(
-            "project.open",
-            { project_id: project.id },
-          );
+        const result = await requestCore<ProjectResult>("project.open", {
+          project_id: project.id,
+        });
         setSelectedProject(result.project);
         setProjectName(result.project.name);
         setPrivacyMode(result.project.privacy_mode);
@@ -188,10 +203,9 @@ export function App() {
     setBusy("create-project");
     setNotice(null);
     try {
-      const result = await window.presenterCopilot.core.request<ProjectResult>(
-        "project.create",
-        { name: newProjectName.trim() },
-      );
+      const result = await requestCore<ProjectResult>("project.create", {
+        name: newProjectName.trim(),
+      });
       setSelectedProject(result.project);
       setProjectName(result.project.name);
       setPrivacyMode(result.project.privacy_mode);
@@ -213,7 +227,7 @@ export function App() {
     setBusy("save-settings");
     setNotice(null);
     try {
-      const result = await window.presenterCopilot.core.request<ProjectResult>(
+      const result = await requestCore<ProjectResult>(
         "project.update_settings",
         {
           project_id: selectedProject.id,
@@ -247,11 +261,9 @@ export function App() {
     setNotice(null);
     setProgress("snapshot · waiting for selection");
     try {
-      const result: ImportSourceResult =
-        await window.presenterCopilot.source.pickAndImport(
-          selectedProject.id,
-          importKind,
-        );
+      const result = await window.presenterCopilot.source
+        .pickAndImport(selectedProject.id, importKind)
+        .then(unwrapInvokeResult);
       if (result.cancelled) {
         setProgress(null);
         return;
@@ -278,16 +290,15 @@ export function App() {
       setBusy(`preview-${source.id}`);
       setNotice(null);
       try {
-        const result =
-          await window.presenterCopilot.core.request<SourcePreviewResult>(
-            "source.preview",
-            {
-              project_id: selectedProject.id,
-              document_id: source.id,
-              offset: 0,
-              limit: 25,
-            },
-          );
+        const result = await requestCore<SourcePreviewResult>(
+          "source.preview",
+          {
+            project_id: selectedProject.id,
+            document_id: source.id,
+            offset: 0,
+            limit: 25,
+          },
+        );
         setPreview(result);
       } catch (error) {
         setNotice(errorMessage(error));
@@ -304,7 +315,7 @@ export function App() {
       setBusy(`reindex-${source.id}`);
       setNotice(null);
       try {
-        await window.presenterCopilot.core.request("source.reindex", {
+        await requestCore("source.reindex", {
           project_id: selectedProject.id,
           document_id: source.id,
         });
@@ -331,7 +342,7 @@ export function App() {
       setBusy(`delete-${source.id}`);
       setNotice(null);
       try {
-        await window.presenterCopilot.core.request("source.delete", {
+        await requestCore("source.delete", {
           project_id: selectedProject.id,
           document_id: source.id,
         });
@@ -364,7 +375,7 @@ export function App() {
     setBusy("delete-project");
     setNotice(null);
     try {
-      await window.presenterCopilot.core.request("project.delete", {
+      await requestCore("project.delete", {
         project_id: selectedProject.id,
       });
       setSelectedProject(null);
@@ -490,7 +501,9 @@ export function App() {
               >
                 <span className="project-item-name">{project.name}</span>
                 <span className="project-item-meta">
-                  {project.source_count ?? 0} sources · {project.storage_status}
+                  {project.storage_status === "ready"
+                    ? `${project.source_count} sources · ready`
+                    : `unavailable · ${project.storage_error_code}`}
                 </span>
               </button>
             ))}

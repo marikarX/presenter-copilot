@@ -25,7 +25,7 @@ const readyMessage: EventEnvelope = {
       events: ["core.ready", "core.error"],
     },
     adapters: [],
-    migration_status: "not_required",
+    migration_status: "ready",
   },
 };
 

@@ -14,6 +14,7 @@ from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.project.service import ProjectService
 from presenter_core.retrieval.lexical import LexicalRetrievalService
+from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
 from presenter_core.storage.service import StorageManager
 
 from .protocol import (
@@ -70,7 +71,7 @@ class CoreService:
             "migration_status": "ready",
             "storage": {
                 "app_schema_version": self._storage.app_schema_version,
-                "project_schema_version": 1,
+                "project_schema_version": PROJECT_SCHEMA_VERSION,
             },
         }
 

@@ -307,7 +307,9 @@ M1 uses `pypdf` for page-preserving PDF extraction, `python-pptx` for slide
 text/title/notes extraction, and the Python standard library for TXT/Markdown
 sections. Chunks are created independently within each SourceUnit with a
 1,200-character ceiling, and the lexical fallback searches persisted chunks
-without embeddings or providers.
+without embeddings or providers. PPTX visible text remains the display body;
+speaker notes are retained in metadata and appended to the same slide's
+searchable chunk text without creating a second provenance unit.
 
 Reason:
 
@@ -315,3 +317,20 @@ These adapters are small enough for the Windows sidecar and preserve the
 source boundaries required by provenance. The unit-local chunk seam can later
 feed embedding retrieval without changing the document model or crossing a
 page/slide boundary.
+
+## D-024 — Privileged Electron invokes return serializable result envelopes
+
+**Status:** Accepted for the M1 correction pass
+
+Electron main-process handlers that call the Python core return a plain
+`{ok: true, result}` or `{ok: false, error}` envelope. The error branch carries
+the canonical `code`, `message`, `retryable`, and `details` fields; sender
+validation remains a hard rejection before the handler enters the envelope
+helper.
+
+Reason:
+
+Electron IPC does not preserve arbitrary custom properties on rejected Error
+objects. Returning structured data keeps core-domain errors reliable in the
+renderer without expanding renderer authority or creating a second error
+model.

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -18,6 +19,7 @@ from presenter_core.storage.service import StorageManager
 
 from .chunking import chunk_text
 from .models import Evidence, ParsedSourceUnit
+from .parsers.base import SourceParser
 from .parsers.registry import parser_for
 from .security import (
     MAX_EXTRACTED_TEXT_CHARS,
@@ -53,6 +55,7 @@ class IngestionService:
         external_path = self._external_path(params)
         source_type = source_type_for_path(external_path)
         kind = self._kind(params, source_type)
+        parser = parser_for(source_type)
         source_directory = self._storage.paths.safe_sources_directory(project_id, create=True)
 
         size_bytes = preflight_source(external_path, source_type)
@@ -88,6 +91,9 @@ class IngestionService:
                     retryable=True,
                     details={},
                 )
+            # The copied file, rather than the user-selected path, is the
+            # security subject for the parser that follows.
+            preflight_source(snapshot, source_type)
         except CoreDomainError:
             _remove_snapshot(snapshot)
             raise
@@ -120,13 +126,13 @@ class IngestionService:
                         relative_snapshot,
                         sha256,
                         MIME_TYPES[source_type],
-                        parser_for(source_type).parser_id,
+                        parser.parser_id,
                         imported_at,
                         size_bytes,
                         json.dumps(
                             {
                                 "source_type": source_type,
-                                "parser": parser_for(source_type).parser_id,
+                                "parser": parser.parser_id,
                             },
                             ensure_ascii=False,
                             separators=(",", ":"),
@@ -141,7 +147,7 @@ class IngestionService:
 
         self._emit_progress(project_id, document_id, "parse", 0, 1, "started")
         try:
-            parsed_units = self._parse_snapshot(snapshot, source_type)
+            parsed_units = self._parse_snapshot(snapshot, source_type, parser=parser)
             self._validate_parsed_units(parsed_units)
         except CoreDomainError as error:
             self._mark_document_error(project_id, document_id, error.code, error.message)
@@ -227,16 +233,55 @@ class IngestionService:
         document_id = self._document_id(params)
         with self._storage.project_database(project_id) as connection:
             document = self._document_row(connection, document_id)
-            snapshot = None
+        try:
             if document["local_snapshot_path"]:
                 snapshot = self._storage.paths.snapshot_path(
                     project_id,
                     document["local_snapshot_path"],
                 )
+                # Filesystem cleanup intentionally precedes the DB commit. If
+                # the DB operation fails, the retained document row makes a
+                # retry able to finish the cleanup even though the snapshot
+                # is already absent.
                 _remove_snapshot(snapshot)
-            connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
-            connection.commit()
+            self._delete_document_record(project_id, document_id)
+        except CoreDomainError as error:
+            if error.code == "SOURCE_DELETE_FAILED":
+                raise
+            raise CoreDomainError(
+                "SOURCE_DELETE_FAILED",
+                "The source could not be deleted; retry to complete cleanup.",
+                retryable=True,
+                details={"cause_code": error.code},
+            ) from error
+        except (OSError, sqlite3.Error) as error:
+            raise CoreDomainError(
+                "SOURCE_DELETE_FAILED",
+                "The source could not be deleted; retry to complete cleanup.",
+                retryable=True,
+                details={"cause_code": type(error).__name__},
+            ) from error
+        except Exception as error:
+            raise CoreDomainError(
+                "SOURCE_DELETE_FAILED",
+                "The source could not be deleted; retry to complete cleanup.",
+                retryable=True,
+                details={},
+            ) from error
         return {"project_id": project_id, "document_id": document_id, "deleted": True}
+
+    def _delete_document_record(self, project_id: str, document_id: str) -> None:
+        with self._storage.project_database(project_id) as connection:
+            cursor = connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            if cursor.rowcount != 1:
+                connection.rollback()
+                raise CoreDomainError(
+                    "SOURCE_DELETE_FAILED",
+                    "The source record could not be deleted.",
+                    retryable=True,
+                    details={},
+                )
+            connection.commit()
 
     def reindex_source(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "document_id"})
@@ -244,6 +289,8 @@ class IngestionService:
         document_id = self._document_id(params)
         with self._storage.project_database(project_id) as connection:
             document = self._document_row(connection, document_id)
+        source_type = _source_type_from_mime(document["mime_type"])
+        parser = parser_for(source_type)
         self._emit_progress(project_id, document_id, "parse", 0, 1, "started")
         try:
             relative_path = document["local_snapshot_path"]
@@ -252,9 +299,15 @@ class IngestionService:
             snapshot = self._storage.paths.snapshot_path(
                 project_id, relative_path, require_exists=True
             )
-            source_type = _source_type_from_mime(document["mime_type"])
             preflight_source(snapshot, source_type)
-            parsed_units = self._parse_snapshot(snapshot, source_type)
+            snapshot_sha256 = _sha256_file(snapshot)
+            if snapshot_sha256 != document["sha256"]:
+                raise CoreDomainError(
+                    "SOURCE_SNAPSHOT_CHANGED",
+                    "The stored source snapshot no longer matches its imported hash.",
+                    details={},
+                )
+            parsed_units = self._parse_snapshot(snapshot, source_type, parser=parser)
             self._validate_parsed_units(parsed_units)
         except CoreDomainError as error:
             raise CoreDomainError(
@@ -277,10 +330,14 @@ class IngestionService:
                     """
                     UPDATE documents
                     SET parse_status = 'ready', parse_error_code = NULL,
-                        parse_error_message = NULL
+                        parse_error_message = NULL, parser_id = ?, metadata_json = ?
                     WHERE id = ?
                     """,
-                    (document_id,),
+                    (
+                        parser.parser_id,
+                        _parser_metadata(document["metadata_json"], source_type, parser.parser_id),
+                        document_id,
+                    ),
                 )
                 connection.commit()
                 document = self._document_row(connection, document_id)
@@ -302,8 +359,17 @@ class IngestionService:
             "status": "ready",
         }
 
-    def _parse_snapshot(self, snapshot: Path, source_type: str) -> list[ParsedSourceUnit]:
-        parser = parser_for(source_type)
+    def _parse_snapshot(
+        self,
+        snapshot: Path,
+        source_type: str,
+        *,
+        parser: SourceParser | None = None,
+    ) -> list[ParsedSourceUnit]:
+        # Keep the security check immediately adjacent to parser consumption;
+        # callers may also preflight earlier for clearer lifecycle stages.
+        preflight_source(snapshot, source_type)
+        parser = parser or parser_for(source_type)
         return parser.parse(snapshot)
 
     def _validate_parsed_units(self, units: list[ParsedSourceUnit]) -> None:
@@ -323,7 +389,11 @@ class IngestionService:
                 raise CoreDomainError(
                     "SOURCE_PARSE_FAILED", "The parser returned invalid source data."
                 )
-            total_text += len(unit.text)
+            if unit.search_text is not None and not isinstance(unit.search_text, str):
+                raise CoreDomainError(
+                    "SOURCE_PARSE_FAILED", "The parser returned invalid source data."
+                )
+            total_text += len(unit.index_text)
             if total_text > MAX_EXTRACTED_TEXT_CHARS:
                 raise CoreDomainError(
                     "SOURCE_PARSE_FAILED",
@@ -339,8 +409,8 @@ class IngestionService:
         unit_rows: list[tuple[Any, ...]] = []
         chunk_rows: list[tuple[Any, ...]] = []
         now = utc_now()
-        for unit in units:
-            unit_id = str(uuid.uuid4())
+        for structural_index, unit in enumerate(units):
+            unit_id = _source_unit_id(document_id, unit, structural_index)
             unit_rows.append(
                 (
                     unit_id,
@@ -357,10 +427,10 @@ class IngestionService:
                     ),
                 )
             )
-            for chunk in chunk_text(unit.text):
+            for chunk in chunk_text(unit.index_text):
                 chunk_rows.append(
                     (
-                        str(uuid.uuid4()),
+                        _chunk_id(unit_id, chunk.chunk_index, chunk.text),
                         unit_id,
                         chunk.chunk_index,
                         chunk.text,
@@ -668,6 +738,42 @@ def provenance_label(original_name: str, unit_type: str, ordinal: int | None) ->
     else:
         location = unit_type
     return f"{name} {location}"
+
+
+def _source_unit_id(document_id: str, unit: ParsedSourceUnit, structural_index: int) -> str:
+    """Derive a stable unit identity from document structure, not wall time."""
+    ordinal = "" if unit.ordinal is None else str(unit.ordinal)
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"presenter-copilot:source-unit:{document_id}:{structural_index}:"
+            f"{unit.unit_type}:{ordinal}",
+        )
+    )
+
+
+def _chunk_id(source_unit_id: str, chunk_index: int, text: str) -> str:
+    """Derive a stable chunk identity while changing it when content changes."""
+    fingerprint = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"presenter-copilot:chunk:{source_unit_id}:{chunk_index}:{fingerprint}",
+        )
+    )
+
+
+def _parser_metadata(metadata_json: Any, source_type: str, parser_id: str) -> str:
+    """Synchronize persisted parser identity without retaining malformed JSON."""
+    try:
+        metadata = json.loads(metadata_json)
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata["source_type"] = source_type
+    metadata["parser"] = parser_id
+    return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def _sha256_file(path: Path) -> str:

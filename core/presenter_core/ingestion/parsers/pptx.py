@@ -27,6 +27,8 @@ class PptxParser:
                 metadata: dict[str, Any] = {"parser": self.parser_id}
                 if notes:
                     metadata["notes"] = notes
+                    metadata["notes_searchable"] = True
+                search_text = self._search_text(visible_text, notes)
                 units.append(
                     ParsedSourceUnit(
                         unit_type="slide",
@@ -34,6 +36,7 @@ class PptxParser:
                         title=title,
                         text=visible_text,
                         metadata=metadata,
+                        search_text=search_text,
                     )
                 )
             return units
@@ -84,3 +87,11 @@ class PptxParser:
             return normalize_text(text_frame.text) if text_frame else ""
         except (AttributeError, ValueError):
             return ""
+
+    @staticmethod
+    def _search_text(visible_text: str, notes: str) -> str:
+        if not notes:
+            return visible_text
+        if not visible_text:
+            return f"Speaker notes:\n{notes}"
+        return f"{visible_text}\n\nSpeaker notes:\n{notes}"
