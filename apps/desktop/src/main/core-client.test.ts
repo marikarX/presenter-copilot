@@ -25,7 +25,7 @@ const readyMessage: EventEnvelope = {
       events: ["core.ready", "core.error"],
     },
     adapters: [],
-    migration_status: "not_required",
+    migration_status: "ready",
   },
 };
 
@@ -97,6 +97,10 @@ afterEach(() => vi.useRealTimers());
 describe("CoreProcessClient", () => {
   it("keeps renderer authority explicit instead of deriving it from core methods", () => {
     expect(isRendererCoreMethod("core.health")).toBe(true);
+    expect(isRendererCoreMethod("project.create")).toBe(true);
+    expect(isRendererCoreMethod("source.preview")).toBe(true);
+    expect(isRendererCoreMethod("source.import")).toBe(false);
+    expect(isRendererCoreMethod("search.lexical")).toBe(false);
     expect(isRendererCoreMethod("core.hello")).toBe(false);
     expect(isRendererCoreMethod("core.shutdown")).toBe(false);
   });

@@ -30,7 +30,7 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
-## Milestone 0 setup and commands
+## Milestone 1 setup and commands
 
 The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
 3.13, and uv. Install the locked JavaScript and Python environments from the
@@ -42,8 +42,8 @@ pnpm setup
 
 `pnpm setup` runs `pnpm install --frozen-lockfile`, makes sure the pinned
 Electron development binary is available, and runs `uv sync --project core
---locked`. The Python runtime has no feature dependencies yet; its locked dev
-tools are pytest, Ruff, and mypy.
+--locked`. The locked Python environment includes the M1 `pypdf` and
+`python-pptx` parser adapters plus pytest, Ruff, and mypy.
 
 Run the desktop shell:
 
@@ -70,7 +70,8 @@ pnpm core:dev
 ```
 
 `pnpm test` includes the TypeScript Electron-side client tests, Python
-protocol tests, and an integration test that spawns the real Python sidecar.
+storage/parser/IPC tests, and integration tests that spawn the real Python
+sidecar across a restart.
 `pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
 bundle Python into an installer; release bundling is a later packaging slice.
 
@@ -134,12 +135,21 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## Scaffold boundary
+## Milestone 1 boundary
 
-The current implementation stops at the repository scaffold and lifecycle
-contract. It does not create SQLite state, import sources, load ASR models,
-call providers, or expose the real HUD. Those features must land behind the
-interfaces and milestones defined in `docs/MVP/`.
+The current implementation includes the local project vault and ingestion
+vertical slice: app/project SQLite migrations, UUID-keyed project directories,
+source snapshots, PDF/PPTX/TXT/Markdown parsing, SourceUnits, deterministic
+unit-local chunks, provenance-backed previews, source deletion/re-indexing, and
+lexical retrieval. It does not load ASR models, call providers, create
+embeddings, persist sessions, or expose the real HUD. Those features remain
+behind the interfaces and later milestones defined in `docs/MVP/`.
+
+The Python core resolves one authoritative data root. Set
+`PRESENTER_COPILOT_DATA_ROOT` for controlled tests or local integration runs;
+do not point tests at the developer's real Local AppData. The renderer has no
+path input for imports: Electron main opens the native picker and passes the
+selected path only to the trusted core request.
 
 ## Expected architecture boundaries
 
@@ -164,6 +174,7 @@ Implementation must preserve separable modules for:
 Before broad feature work, automate behavior that is easy to regress and expensive to discover manually:
 
 - document parsing and chunk provenance;
+- project/source deletion and restart recovery;
 - exact-number/retrieval correctness;
 - cue <=3-line constraint;
 - Preserve-My-Voice preference for accepted user wording;

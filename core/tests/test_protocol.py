@@ -17,7 +17,7 @@ def request(request_id: str, method: str, *, protocol_version: int = 1) -> dict[
     }
 
 
-def test_shared_examples_have_protocol_v1_envelopes() -> None:
+def test_shared_examples_have_protocol_v1_envelopes(tmp_path: Path) -> None:
     fixture_path = Path(__file__).parents[2] / "shared" / "schemas" / "protocol-v1.examples.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
 
@@ -26,27 +26,39 @@ def test_shared_examples_have_protocol_v1_envelopes() -> None:
         assert message["protocol_version"] == 1
         assert message["type"] in {"request", "response", "event"}
 
-    ready = CoreService().ready_event()
+    core = CoreService(data_root=tmp_path / "data")
+    ready = core.ready_event()
+    core.close()
     assert ready == fixture["messages"][1]
 
 
-def test_core_hello_exposes_only_milestone_zero_capabilities() -> None:
-    response = CoreService().handle_message(request("hello", "core.hello"))
+def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    response = core.handle_message(request("hello", "core.hello"))
+    core.close()
 
     assert response["ok"] is True
     result = response["result"]
     assert result["protocol_version"] == 1
     assert result["core_version"] == "0.1.0"
-    assert result["capabilities"]["methods"] == ["core.hello", "core.health", "core.shutdown"]
-    assert result["capabilities"]["events"] == ["core.ready", "core.error"]
-    assert result["adapters"] == []
-    assert result["migration_status"] == "not_required"
+    assert "project.create" in result["capabilities"]["methods"]
+    assert "source.import" in result["capabilities"]["methods"]
+    assert "search.lexical" in result["capabilities"]["methods"]
+    assert "source.import_progress" in result["capabilities"]["events"]
+    assert result["adapters"] == [
+        "pdf.pypdf",
+        "pptx.python-pptx",
+        "text.stdlib",
+        "retrieval.lexical",
+    ]
+    assert result["migration_status"] == "ready"
+    assert result["storage"] == {"app_schema_version": 1, "project_schema_version": 1}
 
 
-def test_core_health_is_successful() -> None:
-    response = CoreService(clock=lambda: 10.0).handle_message(
-        request("00000000-0000-0000-0000-000000000002", "core.health")
-    )
+def test_core_health_is_successful(tmp_path: Path) -> None:
+    core = CoreService(clock=lambda: 10.0, data_root=tmp_path / "data")
+    response = core.handle_message(request("00000000-0000-0000-0000-000000000002", "core.health"))
+    core.close()
 
     assert response == {
         "protocol_version": 1,
@@ -67,8 +79,8 @@ def test_core_health_is_successful() -> None:
     assert response == fixture["messages"][4]
 
 
-def test_core_shutdown_marks_server_for_clean_exit() -> None:
-    core = CoreService()
+def test_core_shutdown_marks_server_for_clean_exit(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
     response = core.handle_message(request("shutdown", "core.shutdown"))
 
     assert response["ok"] is True
@@ -76,16 +88,20 @@ def test_core_shutdown_marks_server_for_clean_exit() -> None:
     assert core.shutdown_requested is True
 
 
-def test_malformed_json_returns_structured_error_without_raising() -> None:
-    response = CoreService().handle_line('{"protocol_version":')
+def test_malformed_json_returns_structured_error_without_raising(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    response = core.handle_line('{"protocol_version":')
+    core.close()
 
     assert response["ok"] is False
     assert response["request_id"] is None
     assert response["error"]["code"] == "MALFORMED_JSON"
 
 
-def test_unknown_method_returns_structured_error() -> None:
-    response = CoreService().handle_message(request("unknown", "core.nope"))
+def test_unknown_method_returns_structured_error(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    response = core.handle_message(request("unknown", "core.nope"))
+    core.close()
 
     assert response["request_id"] == "unknown"
     assert response["ok"] is False
@@ -95,13 +111,30 @@ def test_unknown_method_returns_structured_error() -> None:
         "retryable": False,
         "details": {
             "method": "core.nope",
-            "supported_methods": ["core.hello", "core.health", "core.shutdown"],
+            "supported_methods": [
+                "core.hello",
+                "core.health",
+                "core.shutdown",
+                "project.create",
+                "project.open",
+                "project.list",
+                "project.update_settings",
+                "project.delete",
+                "source.import",
+                "source.list",
+                "source.preview",
+                "source.delete",
+                "source.reindex",
+                "search.lexical",
+            ],
         },
     }
 
 
-def test_incompatible_protocol_is_rejected_and_request_id_is_preserved() -> None:
-    response = CoreService().handle_message(request("version", "core.health", protocol_version=99))
+def test_incompatible_protocol_is_rejected_and_request_id_is_preserved(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    response = core.handle_message(request("version", "core.health", protocol_version=99))
+    core.close()
 
     assert response["request_id"] == "version"
     assert response["ok"] is False

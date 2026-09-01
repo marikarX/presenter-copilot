@@ -1,0 +1,102 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> /MediaBox [0 0 612 792] /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 160 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Synthetic cost model) Tj
+0 -24 Td
+(All values are fictional test data.) Tj
+0 -24 Td
+(Decision: proposed regional design.) Tj
+0 -24 Td
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> /MediaBox [0 0 612 792] /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 180 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Current solution) Tj
+0 -24 Td
+(Current solution 3-year cost: $1,200,000.) Tj
+0 -24 Td
+(Recovery is simpler to operate but slower to restore.) Tj
+0 -24 Td
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> /MediaBox [0 0 612 792] /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 189 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Proposed solution) Tj
+0 -24 Td
+(Proposed solution 3-year cost: $980,000.) Tj
+0 -24 Td
+(The proposal retires duplicate tooling and automates recovery.) Tj
+0 -24 Td
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 3 0 R >> >> /MediaBox [0 0 612 792] /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 276 >>
+stream
+BT
+/F1 12 Tf
+72 720 Td
+(Supporting assumptions) Tj
+0 -24 Td
+(The architecture notes use a 30 minute recovery estimate for a conservative exercise.) Tj
+0 -24 Td
+(This conflicts with the deck target RTO of 15 minutes and must remain visible as a source conflict.) Tj
+0 -24 Td
+ET
+endstream
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000140 00000 n 
+0000000210 00000 n 
+0000000336 00000 n 
+0000000547 00000 n 
+0000000673 00000 n 
+0000000904 00000 n 
+0000001030 00000 n 
+0000001270 00000 n 
+0000001398 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R >>
+startxref
+1726
+%%EOF

@@ -14,7 +14,8 @@ class SidecarServer:
     def __init__(self, stdin: TextIO, stdout: TextIO, core: CoreService | None = None) -> None:
         self._stdin = stdin
         self._stdout = stdout
-        self._core = core or CoreService()
+        self._core = core or CoreService(event_sink=self._write)
+        self._core.set_event_sink(self._write)
 
     def run(self) -> int:
         """Emit readiness, process requests, and stop after a graceful shutdown."""
@@ -38,6 +39,8 @@ class SidecarServer:
                     break
         except BrokenPipeError:
             return 0
+        finally:
+            self._core.close()
         return 0
 
     def _write(self, message: dict[str, object]) -> None:

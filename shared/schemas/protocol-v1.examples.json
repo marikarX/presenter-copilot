@@ -16,11 +16,42 @@
         "protocol_version": 1,
         "core_version": "0.1.0",
         "capabilities": {
-          "methods": ["core.hello", "core.health", "core.shutdown"],
-          "events": ["core.ready", "core.error"]
+          "methods": [
+            "core.hello",
+            "core.health",
+            "core.shutdown",
+            "project.create",
+            "project.open",
+            "project.list",
+            "project.update_settings",
+            "project.delete",
+            "source.import",
+            "source.list",
+            "source.preview",
+            "source.delete",
+            "source.reindex",
+            "search.lexical"
+          ],
+          "events": [
+            "core.ready",
+            "core.error",
+            "source.import_progress",
+            "source.import_error",
+            "project.index_progress",
+            "project.index_ready"
+          ]
         },
-        "adapters": [],
-        "migration_status": "not_required"
+        "adapters": [
+          "pdf.pypdf",
+          "pptx.python-pptx",
+          "text.stdlib",
+          "retrieval.lexical"
+        ],
+        "migration_status": "ready",
+        "storage": {
+          "app_schema_version": 1,
+          "project_schema_version": 1
+        }
       }
     },
     {
@@ -42,11 +73,42 @@
         "protocol_version": 1,
         "core_version": "0.1.0",
         "capabilities": {
-          "methods": ["core.hello", "core.health", "core.shutdown"],
-          "events": ["core.ready", "core.error"]
+          "methods": [
+            "core.hello",
+            "core.health",
+            "core.shutdown",
+            "project.create",
+            "project.open",
+            "project.list",
+            "project.update_settings",
+            "project.delete",
+            "source.import",
+            "source.list",
+            "source.preview",
+            "source.delete",
+            "source.reindex",
+            "search.lexical"
+          ],
+          "events": [
+            "core.ready",
+            "core.error",
+            "source.import_progress",
+            "source.import_error",
+            "project.index_progress",
+            "project.index_ready"
+          ]
         },
-        "adapters": [],
-        "migration_status": "not_required"
+        "adapters": [
+          "pdf.pypdf",
+          "pptx.python-pptx",
+          "text.stdlib",
+          "retrieval.lexical"
+        ],
+        "migration_status": "ready",
+        "storage": {
+          "app_schema_version": 1,
+          "project_schema_version": 1
+        }
       }
     },
     {
@@ -72,6 +134,26 @@
         "message": "Unknown method: example.unknown",
         "retryable": false,
         "details": {}
+      }
+    },
+    {
+      "protocol_version": 1,
+      "type": "request",
+      "request_id": "00000000-0000-0000-0000-000000000004",
+      "method": "project.list",
+      "params": {}
+    },
+    {
+      "protocol_version": 1,
+      "type": "event",
+      "event": "source.import_progress",
+      "payload": {
+        "project_id": "00000000-0000-4000-8000-000000000005",
+        "document_id": "00000000-0000-4000-8000-000000000006",
+        "stage": "parse",
+        "completed": 1,
+        "total": 1,
+        "status": "complete"
       }
     }
   ]

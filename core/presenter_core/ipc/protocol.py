@@ -17,8 +17,26 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "core.hello",
     "core.health",
     "core.shutdown",
+    "project.create",
+    "project.open",
+    "project.list",
+    "project.update_settings",
+    "project.delete",
+    "source.import",
+    "source.list",
+    "source.preview",
+    "source.delete",
+    "source.reindex",
+    "search.lexical",
 )
-SUPPORTED_EVENTS: Final[tuple[str, ...]] = ("core.ready", "core.error")
+SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
+    "core.ready",
+    "core.error",
+    "source.import_progress",
+    "source.import_error",
+    "project.index_progress",
+    "project.index_ready",
+)
 
 
 def make_response(
