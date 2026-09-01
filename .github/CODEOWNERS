@@ -1,0 +1,8 @@
+# Default owner for all repository changes.
+* @marikarX
+
+# Security/privacy-sensitive areas.
+/SECURITY.md @marikarX
+/docs/PRIVACY.md @marikarX
+/docs/THREAT_MODEL.md @marikarX
+/docs/ARCHITECTURE.md @marikarX
