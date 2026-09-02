@@ -222,10 +222,12 @@ Default logs must not include:
 
 M4 transcript import, speaker mapping, extraction, and review logs contain
 only event names, bounded counts, IDs, statuses, and error codes. They never
-log full transcript text or raw transcript payloads. AudienceContextBuilder
-labels profile notes as user-supplied content and includes only active profiles
-and active, evidence-valid observations; pending, rejected, stale, unresolved,
-and evidence-less source-derived rows are excluded.
+log full transcript text or raw transcript payloads. The same prohibited
+sensitive/hidden-trait policy applies to profile notes and observation text at
+write time and again at context assembly. AudienceContextBuilder labels
+profile notes as user-supplied content and includes only active profiles and
+active, evidence-valid observations; pending, rejected, stale, unresolved, and
+evidence-less source-derived rows are excluded.
 
 User-requested diagnostic export must be previewable/redactable before sharing.
 

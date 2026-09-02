@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from presenter_core.audience.context import (
+    MAX_AUDIENCE_CONTEXT_CHARS,
+    MAX_CONTEXT_EVIDENCE_PER_OBSERVATION,
+    MAX_CONTEXT_OBSERVATIONS_PER_PROFILE,
+    MAX_CONTEXT_PROFILES,
+)
+from presenter_core.audience.extraction import extract_observable_patterns
+from presenter_core.audience.models import (
+    MAX_CANDIDATES_PER_PROFILE,
+    MAX_EVIDENCE_PER_ITEM,
+    MAX_EXTRACTION_SEGMENTS,
+    MAX_OBSERVATIONS_PER_PROFILE,
+    MAX_PROFILE_COUNT,
+)
 from presenter_core.errors import CoreDomainError
 from presenter_core.ipc.core import CoreService
+from presenter_core.project.service import utc_now
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
 from presenter_core.transcript.parsers import (
     NamedTextTranscriptParser,
@@ -126,6 +143,69 @@ def list_observations(core: CoreService, project_id: str) -> dict[str, Any]:
     )
     assert response["ok"] is True, response
     return response["result"]
+
+
+def seed_transcript_segments(
+    core: CoreService, project_id: str, profile_id: str, counts: list[int]
+) -> list[str]:
+    document_ids: list[str] = []
+    with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+        for document_index, segment_count in enumerate(counts):
+            document_id = str(uuid.uuid4())
+            document_ids.append(document_id)
+            connection.execute(
+                """
+                INSERT INTO documents (
+                    id, project_id, kind, original_name, local_snapshot_path, source_uri,
+                    sha256, mime_type, parser_id, imported_at, parse_status, parse_error_code,
+                    parse_error_message, byte_size, metadata_json
+                ) VALUES (?, ?, 'transcript', ?, NULL, NULL, ?, 'text/plain',
+                          'transcript.named-text', ?, 'ready', NULL, NULL, 0, '{}')
+                """,
+                (
+                    document_id,
+                    project_id,
+                    f"synthetic-{document_index}.txt",
+                    hashlib.sha256(document_id.encode("ascii")).hexdigest(),
+                    utc_now(),
+                ),
+            )
+            source_rows = []
+            for ordinal in range(1, segment_count + 1):
+                source_rows.append(
+                    (
+                        str(uuid.uuid4()),
+                        document_id,
+                        "transcript_segment",
+                        ordinal,
+                        None,
+                        None,
+                        None,
+                        "Jane Smith",
+                        f"What is the schedule for item {ordinal}?",
+                        "{}",
+                    )
+                )
+            connection.executemany(
+                """
+                INSERT INTO source_units (
+                    id, document_id, unit_type, ordinal, title, start_ms, end_ms,
+                    speaker_label, text, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                source_rows,
+            )
+            connection.execute(
+                """
+                INSERT INTO transcript_speaker_maps (
+                    id, document_id, native_speaker_label, audience_profile_id,
+                    mapped_by, created_at
+                ) VALUES (?, ?, 'Jane Smith', ?, 'user', ?)
+                """,
+                (str(uuid.uuid4()), document_id, profile_id, utc_now()),
+            )
+        connection.commit()
+    return document_ids
 
 
 def test_transcript_adapters_preserve_metadata_and_reject_ambiguous_json(tmp_path: Path) -> None:
@@ -571,6 +651,16 @@ def test_rejected_candidate_is_deduped_and_profile_delete_unresolves_speaker(
         "Robert seems happy.",
         "Jane may lie about the budget.",
         "Robert has union membership.",
+        "Jane is pregnant.",
+        "Jane mentioned pregnancy.",
+        "Robert has diabetes.",
+        "Robert is diabetic.",
+        "Jane has cancer.",
+        "Jane has political beliefs that affect this.",
+        "Jane is politically active.",
+        "Robert seems nervous.",
+        "Jane appears worried.",
+        "Robert is scared.",
     ],
 )
 def test_observation_policy_rejects_prohibited_categories(tmp_path: Path, text: str) -> None:
@@ -793,5 +883,592 @@ def test_profile_crud_disable_context_user_observation_and_project_delete(
         assert deleted["ok"] is True, deleted
         assert not project_root.exists()
         assert call(core, "list-after-m4-delete", "project.list", {})["result"]["projects"] == []
+    finally:
+        core.close()
+
+
+def test_extraction_requires_question_like_evidence_and_uses_calibrated_wording() -> None:
+    declarative_units = [
+        {"id": "1", "text": "Cost is approved."},
+        {"id": "2", "text": "Budget is fixed."},
+        {"id": "3", "text": "This test fails on Windows."},
+        {"id": "4", "text": "The backup job fails sometimes."},
+        {"id": "5", "text": "Ownership is assigned."},
+        {"id": "6", "text": "The owner for migration is documented."},
+    ]
+    assert extract_observable_patterns(declarative_units) == []
+
+    generic_cost = extract_observable_patterns(
+        [
+            {"id": "1", "text": "What is the cost?"},
+            {"id": "2", "text": "Can you explain the budget?"},
+        ]
+    )
+    cost_proposal = next(
+        item for item in generic_cost if item.observation_type == "question_pattern"
+    )
+    assert cost_proposal.proposed_text == "Repeatedly asks about cost or budget."
+    assert cost_proposal.matched_segment_count == 2
+    assert cost_proposal.evidence_ids == ("1", "2")
+
+    explicit_cost = extract_observable_patterns(
+        [
+            {"id": "1", "text": "What is the status-quo cost?"},
+            {"id": "2", "text": "How does this cost compare with the baseline?"},
+        ]
+    )
+    assert next(
+        item for item in explicit_cost if item.observation_type == "question_pattern"
+    ).proposed_text == ("Repeatedly asks for status-quo cost comparisons.")
+
+    rollback_only = extract_observable_patterns(
+        [
+            {"id": "1", "text": "Can we roll back safely?"},
+            {"id": "2", "text": "What happens during rollback?"},
+        ]
+    )
+    assert next(
+        item for item in rollback_only if item.observation_type == "question_pattern"
+    ).proposed_text == ("Repeatedly asks about rollback.")
+
+    rollback_and_failure = extract_observable_patterns(
+        [
+            {"id": "1", "text": "What happens if rollback fails?"},
+            {"id": "2", "text": "Which failure modes remain?"},
+        ]
+    )
+    assert (
+        next(
+            item for item in rollback_and_failure if item.observation_type == "question_pattern"
+        ).proposed_text
+        == "Repeatedly asks about rollback or failure modes."
+    )
+
+    schedule_generic = extract_observable_patterns(
+        [
+            {"id": "1", "text": "What is the schedule?"},
+            {"id": "2", "text": "When is the timeline?"},
+        ]
+    )
+    assert next(
+        item for item in schedule_generic if item.observation_type == "question_pattern"
+    ).proposed_text == ("Repeatedly asks about schedule or timeline.")
+
+    schedule_challenge = extract_observable_patterns(
+        [
+            {"id": "1", "text": "Why is the schedule assumption unrealistic?"},
+            {"id": "2", "text": "Could the timeline assumption be too aggressive?"},
+        ]
+    )
+    assert next(
+        item for item in schedule_challenge if item.observation_type == "question_pattern"
+    ).proposed_text == ("Repeatedly challenges schedule assumptions.")
+
+
+def test_unicode_speaker_labels_and_mixed_vtt_fail_closed(tmp_path: Path) -> None:
+    srt = tmp_path / "unicode.srt"
+    srt.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nJosé Álvarez: What is the cost?\n\n"
+        "2\n00:00:03,000 --> 00:00:04,000\nМария Иванова: Who owns the rollout?\n\n"
+        "3\n00:00:05,000 --> 00:00:06,000\n张伟: What is the timeline?\n",
+        encoding="utf-8",
+    )
+    srt_units = SrtParser().parse(srt)
+    assert [unit.speaker_label for unit in srt_units] == [
+        "José Álvarez",
+        "Мария Иванова",
+        "张伟",
+    ]
+
+    named = tmp_path / "unicode.txt"
+    named.write_text(
+        "[00:00:01.000 --> 00:00:02.000] Mārtiņš Bērziņš: Show me the data.\n",
+        encoding="utf-8",
+    )
+    named_unit = NamedTextTranscriptParser().parse(named)[0]
+    assert named_unit.speaker_label == "Mārtiņš Bērziņš"
+
+    mixed = tmp_path / "mixed.vtt"
+    mixed.write_text(
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+        "<v José Álvarez>First speaker.</v> <v Мария Иванова>Second speaker.</v>\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(CoreDomainError, match="multiple speaker labels") as error:
+        WebVttParser().parse(mixed)
+    assert error.value.code == "SOURCE_PARSE_FAILED"
+
+    repeated = tmp_path / "repeated.vtt"
+    repeated.write_text(
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+        "<v 张伟>First part.</v> <v 张伟>Second part.</v>\n",
+        encoding="utf-8",
+    )
+    repeated_unit = WebVttParser().parse(repeated)[0]
+    assert repeated_unit.speaker_label == "张伟"
+    assert repeated_unit.text == "First part. Second part."
+
+
+def test_profile_notes_and_legacy_observations_are_policy_checked_in_context(
+    tmp_path: Path,
+) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core, "M4 context policy")
+        unsafe_notes = [
+            "Jane is probably Republican.",
+            "Robert seems depressed.",
+            "Jane has diabetes.",
+        ]
+        for index, notes in enumerate(unsafe_notes):
+            response = call(
+                core,
+                f"unsafe-profile-notes-{index}",
+                "audience.create",
+                {
+                    "project_id": project_id,
+                    "display_name": f"Unsafe Notes {index}",
+                    "user_notes": notes,
+                },
+            )
+            assert response["ok"] is False
+            assert response["error"]["code"] == "AUDIENCE_OBSERVATION_PROHIBITED"
+
+        created = call(
+            core,
+            "safe-profile-notes",
+            "audience.create",
+            {
+                "project_id": project_id,
+                "display_name": "Safe Notes",
+                "user_notes": "Owns final budget approval.",
+            },
+        )
+        assert created["ok"] is True, created
+        profile = created["result"]["profile"]
+        profile_id = profile["id"]
+
+        safe_context = call(
+            core,
+            "safe-notes-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert safe_context["ok"] is True, safe_context
+        assert safe_context["result"]["profiles"][0]["user_supplied_notes"] == (
+            "Owns final budget approval."
+        )
+
+        update = call(
+            core,
+            "unsafe-profile-update",
+            "audience.update",
+            {
+                "project_id": project_id,
+                "audience_profile_id": profile_id,
+                "user_notes": "Robert seems nervous.",
+            },
+        )
+        assert update["ok"] is False
+        assert update["error"]["code"] == "AUDIENCE_OBSERVATION_PROHIBITED"
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            connection.execute(
+                "UPDATE audience_profiles SET user_notes = ? WHERE id = ?",
+                ("Robert seems nervous.", profile_id),
+            )
+            connection.commit()
+        legacy_notes = call(
+            core,
+            "legacy-unsafe-notes-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert legacy_notes["ok"] is False
+        assert legacy_notes["error"]["code"] == "AUDIENCE_OBSERVATION_PROHIBITED"
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            connection.execute(
+                "UPDATE audience_profiles SET user_notes = ? WHERE id = ?",
+                ("Owns final budget approval.", profile_id),
+            )
+            connection.commit()
+        observation = call(
+            core,
+            "safe-observation",
+            "audience.create_observation",
+            {
+                "project_id": project_id,
+                "audience_profile_id": profile_id,
+                "observation_type": "topic_interest",
+                "text": "Asks about project risks.",
+            },
+        )
+        assert observation["ok"] is True, observation
+        observation_id = observation["result"]["observation"]["id"]
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            connection.execute(
+                "UPDATE audience_observations SET text = ? WHERE id = ?",
+                ("Robert seems nervous.", observation_id),
+            )
+            connection.commit()
+        legacy_observation = call(
+            core,
+            "legacy-unsafe-observation-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert legacy_observation["ok"] is False
+        assert legacy_observation["error"]["code"] == "AUDIENCE_OBSERVATION_PROHIBITED"
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            connection.execute(
+                "UPDATE audience_observations SET text = ?, sensitive_trait = 1 WHERE id = ?",
+                ("Asks about project risks.", observation_id),
+            )
+            connection.commit()
+        sensitive_context = call(
+            core,
+            "sensitive-observation-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert sensitive_context["ok"] is True, sensitive_context
+        assert sensitive_context["result"]["profiles"][0]["observations"] == []
+    finally:
+        core.close()
+
+
+def test_safe_observable_audience_statements_remain_allowed(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core, "M4 safe statements")
+        profile = create_profile(core, project_id, "Safe Statements")
+        for index, text in enumerate(
+            [
+                "Jane asks about project risk.",
+                "Robert asks what happens if rollback fails.",
+                "Jane requests concise answers.",
+            ]
+        ):
+            response = call(
+                core,
+                f"safe-observation-{index}",
+                "audience.create_observation",
+                {
+                    "project_id": project_id,
+                    "audience_profile_id": profile["id"],
+                    "observation_type": "interaction_pattern",
+                    "text": text,
+                },
+            )
+            assert response["ok"] is True, response
+    finally:
+        core.close()
+
+
+def test_extraction_and_evidence_limits_are_reported_and_bounded(tmp_path: Path) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+    )
+    try:
+        project_id = create_project(core, "M4 extraction bounds")
+        profile = create_profile(core, project_id, "Extraction Bounds")
+        document_ids = seed_transcript_segments(
+            core, project_id, profile["id"], [MAX_EXTRACTION_SEGMENTS // 2 + 1] * 2
+        )
+
+        too_large = call(
+            core,
+            "too-large-extraction",
+            "audience.extract_observations",
+            {"project_id": project_id, "audience_profile_id": profile["id"]},
+        )
+        assert too_large["ok"] is False
+        assert too_large["error"]["code"] == "AUDIENCE_EXTRACTION_TOO_LARGE"
+        assert too_large["error"]["details"]["max_segments"] == MAX_EXTRACTION_SEGMENTS
+
+        filtered = call(
+            core,
+            "bounded-extraction",
+            "audience.extract_observations",
+            {
+                "project_id": project_id,
+                "audience_profile_id": profile["id"],
+                "document_ids": [document_ids[0]],
+            },
+        )
+        assert filtered["ok"] is True, filtered
+        result = filtered["result"]
+        assert result["matched_segment_count"] == MAX_EXTRACTION_SEGMENTS // 2 + 1
+        assert result["evidence_segment_count"] == MAX_EVIDENCE_PER_ITEM
+        assert len(result["candidates"]) == 1
+        assert len(result["candidates"][0]["evidence"]) == MAX_EVIDENCE_PER_ITEM
+        assert result["candidates"][0]["evidence_segment_count"] == MAX_EVIDENCE_PER_ITEM
+    finally:
+        core.close()
+
+
+def test_context_profile_observation_and_evidence_bounds(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core, "M4 context bounds")
+        profile_ids: list[str] = []
+        for index in range(MAX_CONTEXT_PROFILES + 1):
+            response = call(
+                core,
+                f"bounded-profile-{index}",
+                "audience.create",
+                {
+                    "project_id": project_id,
+                    "display_name": f"Bounded Profile {index}",
+                    "user_notes": "Owns final budget approval. " * 30,
+                },
+            )
+            assert response["ok"] is True, response
+            profile_ids.append(response["result"]["profile"]["id"])
+
+        too_many = call(
+            core,
+            "too-many-context-profiles",
+            "audience.build_context",
+            {"project_id": project_id, "audience_profile_ids": profile_ids},
+        )
+        assert too_many["ok"] is False
+        assert too_many["error"]["code"] == "INVALID_REQUEST"
+
+        long_observation = "Discusses roadmap priorities with the team. " * 30
+        for profile_id in profile_ids[:MAX_CONTEXT_PROFILES]:
+            for index in range(MAX_CONTEXT_OBSERVATIONS_PER_PROFILE + 2):
+                response = call(
+                    core,
+                    f"bounded-observation-{profile_id}-{index}",
+                    "audience.create_observation",
+                    {
+                        "project_id": project_id,
+                        "audience_profile_id": profile_id,
+                        "observation_type": "topic_interest",
+                        "text": long_observation,
+                    },
+                )
+                assert response["ok"] is True, response
+
+        bounded = call(
+            core,
+            "bounded-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert bounded["ok"] is True, bounded
+        context = bounded["result"]
+        assert len(context["profiles"]) == MAX_CONTEXT_PROFILES
+        assert all(
+            len(profile["observations"]) <= MAX_CONTEXT_OBSERVATIONS_PER_PROFILE
+            for profile in context["profiles"]
+        )
+        assert len(json.dumps(context, ensure_ascii=True)) <= MAX_AUDIENCE_CONTEXT_CHARS
+    finally:
+        core.close()
+
+
+def test_context_evidence_is_currently_attributed_and_source_bounded(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project_id = create_project(core, "M4 evidence context")
+        profile = create_profile(core, project_id, "Evidence Context")
+        document_id = seed_transcript_segments(core, project_id, profile["id"], [5])[0]
+        observation_id = str(uuid.uuid4())
+        now = utc_now()
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            connection.execute(
+                """
+                INSERT INTO audience_observations (
+                    id, audience_profile_id, observation_type, text, derivation,
+                    confidence, sensitive_trait, review_status, created_at, updated_at
+                ) VALUES (?, ?, 'question_pattern', ?, 'source_derived', 0.9, 0, 'active', ?, ?)
+                """,
+                (
+                    observation_id,
+                    profile["id"],
+                    "Repeatedly asks about schedule or timeline.",
+                    now,
+                    now,
+                ),
+            )
+            unit_ids = [
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM source_units WHERE document_id = ? ORDER BY ordinal",
+                    (document_id,),
+                ).fetchall()
+            ]
+            connection.executemany(
+                """
+                INSERT INTO audience_observation_evidence (
+                    observation_id, provenance_type, provenance_id
+                ) VALUES (?, 'transcript', ?)
+                """,
+                [(observation_id, unit_id) for unit_id in unit_ids],
+            )
+            connection.commit()
+
+        context_response = call(
+            core,
+            "bounded-evidence-context",
+            "audience.build_context",
+            {"project_id": project_id},
+        )
+        assert context_response["ok"] is True, context_response
+        observations = context_response["result"]["profiles"][0]["observations"]
+        assert len(observations) == 1
+        assert len(observations[0]["evidence"]) == MAX_CONTEXT_EVIDENCE_PER_OBSERVATION
+    finally:
+        core.close()
+
+
+def test_audience_entity_capacity_limits_fail_closed(tmp_path: Path) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+    )
+    try:
+        profile_project = create_project(core, "M4 profile capacity")
+        now = utc_now()
+        with core._storage.project_database(profile_project) as connection:  # type: ignore[attr-defined]
+            connection.executemany(
+                """
+                INSERT INTO audience_profiles (
+                    id, project_id, display_name, role, organization, user_notes,
+                    active, created_at, updated_at
+                ) VALUES (?, ?, ?, NULL, NULL, NULL, 1, ?, ?)
+                """,
+                [
+                    (str(uuid.uuid4()), profile_project, f"Seeded {index}", now, now)
+                    for index in range(MAX_PROFILE_COUNT)
+                ],
+            )
+            connection.commit()
+        profile_limit = call(
+            core,
+            "profile-capacity",
+            "audience.create",
+            {"project_id": profile_project, "display_name": "Over capacity"},
+        )
+        assert profile_limit["ok"] is False
+        assert profile_limit["error"]["code"] == "AUDIENCE_PROFILE_LIMIT_REACHED"
+
+        observation_project = create_project(core, "M4 observation capacity")
+        observation_profile = create_profile(core, observation_project, "Observation Capacity")
+        with core._storage.project_database(observation_project) as connection:  # type: ignore[attr-defined]
+            connection.executemany(
+                """
+                INSERT INTO audience_observations (
+                    id, audience_profile_id, observation_type, text, derivation,
+                    confidence, sensitive_trait, review_status, created_at, updated_at
+                ) VALUES (?, ?, 'topic_interest', ?, 'user_entered', NULL, 0, 'active', ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        observation_profile["id"],
+                        f"Seeded safe observation {index}.",
+                        now,
+                        now,
+                    )
+                    for index in range(MAX_OBSERVATIONS_PER_PROFILE)
+                ],
+            )
+            connection.commit()
+        observation_limit = call(
+            core,
+            "observation-capacity",
+            "audience.create_observation",
+            {
+                "project_id": observation_project,
+                "audience_profile_id": observation_profile["id"],
+                "observation_type": "topic_interest",
+                "text": "A safe additional observation.",
+            },
+        )
+        assert observation_limit["ok"] is False
+        assert observation_limit["error"]["code"] == "AUDIENCE_OBSERVATION_LIMIT_REACHED"
+
+        candidate_project = create_project(core, "M4 candidate capacity")
+        imported = import_vtt(core, candidate_project)
+        document_id = imported["document"]["id"]
+        candidate_profile = create_profile(core, candidate_project, "Candidate Capacity")
+        map_speaker(core, candidate_project, document_id, "Jane Smith", candidate_profile["id"])
+        with core._storage.project_database(candidate_project) as connection:  # type: ignore[attr-defined]
+            connection.executemany(
+                """
+                INSERT INTO audience_observation_candidates (
+                    id, audience_profile_id, observation_type, proposed_text, confidence,
+                    fingerprint, status, observation_id, created_at, updated_at
+                ) VALUES (?, ?, 'topic_interest', ?, 0.5, ?, 'rejected', NULL, ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        candidate_profile["id"],
+                        f"Seeded candidate {index}.",
+                        hashlib.sha256(f"candidate-{index}".encode("ascii")).hexdigest(),
+                        now,
+                        now,
+                    )
+                    for index in range(MAX_CANDIDATES_PER_PROFILE)
+                ],
+            )
+            connection.commit()
+        candidate_limit = call(
+            core,
+            "candidate-capacity",
+            "audience.extract_observations",
+            {"project_id": candidate_project, "audience_profile_id": candidate_profile["id"]},
+        )
+        assert candidate_limit["ok"] is False
+        assert candidate_limit["error"]["code"] == "AUDIENCE_CANDIDATE_LIMIT_REACHED"
+
+        accept_project = create_project(core, "M4 accept capacity")
+        accepted_document = import_vtt(core, accept_project)["document"]["id"]
+        accept_profile = create_profile(core, accept_project, "Accept Capacity")
+        map_speaker(core, accept_project, accepted_document, "Jane Smith", accept_profile["id"])
+        candidate = extract(core, accept_project, accept_profile["id"], "accept-capacity-extract")[
+            "candidates"
+        ][0]
+        with core._storage.project_database(accept_project) as connection:  # type: ignore[attr-defined]
+            connection.executemany(
+                """
+                INSERT INTO audience_observations (
+                    id, audience_profile_id, observation_type, text, derivation,
+                    confidence, sensitive_trait, review_status, created_at, updated_at
+                ) VALUES (?, ?, 'topic_interest', ?, 'user_entered', NULL, 0, 'active', ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        accept_profile["id"],
+                        f"Seeded accept observation {index}.",
+                        now,
+                        now,
+                    )
+                    for index in range(MAX_OBSERVATIONS_PER_PROFILE)
+                ],
+            )
+            connection.commit()
+        accept_limit = call(
+            core,
+            "accept-observation-capacity",
+            "audience.accept_observation",
+            {
+                "project_id": accept_project,
+                "candidate_id": candidate["id"],
+                "observation_type": candidate["observation_type"],
+                "text": candidate["proposed_text"],
+            },
+        )
+        assert accept_limit["ok"] is False
+        assert accept_limit["error"]["code"] == "AUDIENCE_OBSERVATION_LIMIT_REACHED"
     finally:
         core.close()

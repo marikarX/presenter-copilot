@@ -22,8 +22,9 @@ _PROHIBITED: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (
         "political_belief",
         re.compile(
-            r"\b(?:politic|republican|democrat|liberal|conservative|libertarian|socialist|"
-            r"party affiliation|party member|left-wing|right-wing)\b",
+            r"\b(?:politic(?:al|ally)?|political beliefs?|political affiliation|republican|"
+            r"democrat|liberal|conservative|libertarian|socialist|party affiliation|party member|"
+            r"left-wing|right-wing)\b",
             re.I,
         ),
     ),
@@ -39,7 +40,7 @@ _PROHIBITED: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
         "medical_or_health",
         re.compile(
             r"\b(?:medical|health|medication|prescription|diagnos(?:is|ed)|disease|"
-            r"illness|sick|pregnan)\b",
+            r"illness|sick|pregnan\w*|cancer|diabet(?:es|ic))\b",
             re.I,
         ),
     ),
@@ -67,7 +68,8 @@ _PROHIBITED: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
         re.compile(
             r"\b(?:psycholog(?:y|ical)|personality|depress(?:ed|ion)|anxious|anxiety|"
             r"emotion(?:al|ally)?|mood|mentally|unstable|low confidence|insecure|"
-            r"happy|sad|angry|frustrat(?:ed|ion)|excited|calm|confiden(?:t|ce)|stress(?:ed)?)\b",
+            r"happy|sad|angry|frustrat(?:ed|ion)|excited|calm|confiden(?:t|ce)|stress(?:ed)?|"
+            r"worried|nervous|scared|fearful|afraid)\b",
             re.I,
         ),
     ),

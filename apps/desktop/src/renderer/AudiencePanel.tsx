@@ -372,6 +372,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         const result = await requestCore<{
           created_candidate_count: number;
           skipped_duplicate_count: number;
+          matched_segment_count: number;
           evidence_segment_count: number;
         }>("audience.extract_observations", {
           project_id: project.id,
@@ -379,7 +380,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         });
         await loadData();
         setMessage(
-          `Created ${result.created_candidate_count} provisional candidate(s) from ${result.evidence_segment_count} transcript segment(s); skipped ${result.skipped_duplicate_count} duplicate(s).`,
+          `Created ${result.created_candidate_count} provisional candidate(s) from ${result.matched_segment_count} matched transcript segment(s); retained ${result.evidence_segment_count} evidence example(s); skipped ${result.skipped_duplicate_count} duplicate(s).`,
         );
       } catch (error) {
         setMessage(errorMessage(error));

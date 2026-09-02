@@ -30,9 +30,7 @@ _VTT_PRESENTATION_TAG_RE = re.compile(
     r"</?(?:v|c(?:\.[A-Za-z0-9_-]+)*|i|b|u|ruby|rt|lang|br)(?:\s+[^>\r\n]*)?>",
     re.IGNORECASE,
 )
-_SPEAKER_PREFIX_RE = re.compile(
-    r"^(?P<label>[A-Za-z][A-Za-z0-9 .,'’&/_()\-]{0,119})\s*:\s*(?P<body>.+)$"
-)
+_SPEAKER_PREFIX_RE = re.compile(r"^(?P<label>[^:\r\n]{1,120}):[ \t]*(?P<body>.+)$")
 
 
 def transcript_parser_for(source_type: str) -> TranscriptParser:
@@ -329,26 +327,37 @@ def _speaker_prefixed_text(text: str, parser_id: str) -> tuple[str, str | None]:
     match = _SPEAKER_PREFIX_RE.match(text)
     if match is None:
         return _bounded_text(text, parser_id), None
-    label = _normalize_speaker(match.group("label"), parser_id)
+    label_candidate = match.group("label").strip()
+    if _looks_malformed_speaker_label(label_candidate):
+        return _bounded_text(text, parser_id), None
+    label = _normalize_speaker(label_candidate, parser_id)
     body = _bounded_text(match.group("body"), parser_id)
     return body, label
 
 
 def _vtt_text_and_speaker(text: str, parser_id: str) -> tuple[str, str | None]:
-    speaker_label: str | None = None
+    speaker_labels: list[str] = []
+
+    for match in _VTT_V_TAG_RE.finditer(text):
+        label = _normalize_speaker(match.group(1), parser_id)
+        if label is not None and label not in speaker_labels:
+            speaker_labels.append(label)
+    if len(speaker_labels) > 1:
+        raise _parse_error(
+            parser_id,
+            "A VTT cue contains multiple speaker labels and cannot be attributed safely.",
+        )
 
     def remove_v_tag(match: re.Match[str]) -> str:
-        nonlocal speaker_label
-        if speaker_label is None and match.group(1):
-            speaker_label = _normalize_speaker(match.group(1), parser_id)
         return ""
 
     stripped = _VTT_V_TAG_RE.sub(remove_v_tag, text)
     stripped = _VTT_PRESENTATION_TAG_RE.sub("", stripped)
     normalized = _normalize_transcript_text(stripped)
-    if speaker_label is None:
+    if not speaker_labels:
         normalized, speaker_label = _speaker_prefixed_text(normalized, parser_id)
-    return normalized, speaker_label
+        return normalized, speaker_label
+    return normalized, speaker_labels[0]
 
 
 def _transcript_unit(
@@ -387,14 +396,23 @@ def _bounded_text(value: str, parser_id: str) -> str:
 def _normalize_speaker(value: str | None, parser_id: str) -> str | None:
     if value is None:
         return None
+    if any(ord(character) < 32 for character in value):
+        raise _parse_error(parser_id, "A transcript speaker label is invalid or too long.")
     normalized = re.sub(r"\s+", " ", value).strip()
     if not normalized:
         return None
-    if len(normalized) > MAX_TRANSCRIPT_SPEAKER_LABEL_LENGTH or any(
-        ord(character) < 32 for character in normalized
-    ):
+    if len(normalized) > MAX_TRANSCRIPT_SPEAKER_LABEL_LENGTH:
         raise _parse_error(parser_id, "A transcript speaker label is invalid or too long.")
     return normalized
+
+
+def _looks_malformed_speaker_label(value: str) -> bool:
+    """Reject obvious delimiters/markup without attempting name recognition."""
+    if not value or any(character in value for character in "<>[]"):
+        return True
+    if re.fullmatch(r"[\d\s.,'’&/_()\-]+", value):
+        return True
+    return value.casefold() in {"http", "https"}
 
 
 def _json_depth(value: Any, depth: int = 0) -> int:

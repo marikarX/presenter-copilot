@@ -15,12 +15,13 @@ from presenter_core.project.service import utc_now
 from presenter_core.storage.paths import normalize_project_id
 from presenter_core.storage.service import StorageManager
 
-from .context import AudienceContextBuilder
+from .context import MAX_CONTEXT_PROFILES, AudienceContextBuilder
 from .extraction import extract_observable_patterns
 from .models import (
     MAX_CANDIDATES_PER_PROFILE,
     MAX_DOCUMENT_FILTER_COUNT,
     MAX_EVIDENCE_PER_ITEM,
+    MAX_EXTRACTION_SEGMENTS,
     MAX_OBSERVATION_TEXT_LENGTH,
     MAX_OBSERVATIONS_PER_PROFILE,
     MAX_PROFILE_COUNT,
@@ -53,11 +54,21 @@ class AudienceModelService:
         organization = self._optional_text(
             params, "organization", max_length=MAX_PROFILE_ORGANIZATION_LENGTH
         )
-        user_notes = self._optional_text(params, "user_notes", max_length=MAX_PROFILE_NOTES_LENGTH)
+        user_notes = self._profile_notes(params)
         active = self._bool_param(params, "active", default=True)
         profile_id = str(uuid.uuid4())
         now = utc_now()
         with self._storage.project_database(project_id) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._ensure_capacity(
+                connection,
+                "SELECT COUNT(*) AS count FROM audience_profiles WHERE project_id = ?",
+                (project_id,),
+                limit=MAX_PROFILE_COUNT,
+                code="AUDIENCE_PROFILE_LIMIT_REACHED",
+                message="This project already has the maximum number of audience profiles.",
+                details={"max_profiles": MAX_PROFILE_COUNT},
+            )
             connection.execute(
                 """
                 INSERT INTO audience_profiles (
@@ -121,11 +132,11 @@ class AudienceModelService:
                     params, "organization", max_length=MAX_PROFILE_ORGANIZATION_LENGTH
                 )
             if "user_notes" in params:
-                values["user_notes"] = self._optional_text(
-                    params, "user_notes", max_length=MAX_PROFILE_NOTES_LENGTH
-                )
+                values["user_notes"] = self._profile_notes(params)
             if "active" in params:
                 values["active"] = self._bool_param(params, "active", default=True)
+            if values["user_notes"] is not None:
+                ObservationPolicy.validate_text(str(values["user_notes"]))
             now = utc_now()
             connection.execute(
                 """
@@ -198,6 +209,7 @@ class AudienceModelService:
         profile_id = self._uuid_param(params, "audience_profile_id")
         document_ids = self._document_ids(params)
         with self._storage.project_database(project_id) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             self._profile_row(connection, project_id, profile_id)
             self._validate_document_filters(connection, project_id, document_ids)
             clauses = [
@@ -222,21 +234,33 @@ class AudienceModelService:
                 JOIN transcript_speaker_maps AS tsm ON tsm.document_id = d.id
                 WHERE """
                 + " AND ".join(clauses)
-                + " ORDER BY d.original_name COLLATE NOCASE, su.ordinal, su.id",
-                query_parameters,
+                + " ORDER BY d.original_name COLLATE NOCASE, su.ordinal, su.id LIMIT ?",
+                [*query_parameters, MAX_EXTRACTION_SEGMENTS + 1],
             ).fetchall()
+            if len(unit_rows) > MAX_EXTRACTION_SEGMENTS:
+                raise CoreDomainError(
+                    "AUDIENCE_EXTRACTION_TOO_LARGE",
+                    "Audience extraction matched too many transcript segments; select or filter "
+                    "transcript document IDs.",
+                    details={
+                        "max_segments": MAX_EXTRACTION_SEGMENTS,
+                        "document_filter_required": True,
+                    },
+                )
             units = [{"id": row["id"], "text": row["text"]} for row in unit_rows]
             proposals = extract_observable_patterns(units)
             created: list[dict[str, Any]] = []
             skipped_duplicates = 0
+            matched_segment_count = sum(proposal.matched_segment_count for proposal in proposals)
             evidence_segment_count = 0
             now = utc_now()
             for proposal in proposals:
+                evidence_ids = tuple(proposal.evidence_ids[:MAX_EVIDENCE_PER_ITEM])
                 fingerprint = self._fingerprint(
                     profile_id,
                     proposal.observation_type,
                     proposal.proposed_text,
-                    proposal.evidence_ids,
+                    evidence_ids,
                 )
                 existing = connection.execute(
                     """
@@ -249,6 +273,16 @@ class AudienceModelService:
                 if existing is not None:
                     skipped_duplicates += 1
                     continue
+                self._ensure_capacity(
+                    connection,
+                    "SELECT COUNT(*) AS count FROM audience_observation_candidates "
+                    "WHERE audience_profile_id = ?",
+                    (profile_id,),
+                    limit=MAX_CANDIDATES_PER_PROFILE,
+                    code="AUDIENCE_CANDIDATE_LIMIT_REACHED",
+                    message="This audience profile already has the maximum number of candidates.",
+                    details={"max_candidates_per_profile": MAX_CANDIDATES_PER_PROFILE},
+                )
                 ObservationPolicy.validate_text(proposal.proposed_text)
                 candidate_id = str(uuid.uuid4())
                 connection.execute(
@@ -275,14 +309,18 @@ class AudienceModelService:
                         (candidate_id, provenance_type, provenance_id)
                     VALUES (?, 'transcript', ?)
                     """,
-                    [(candidate_id, evidence_id) for evidence_id in proposal.evidence_ids],
+                    [(candidate_id, evidence_id) for evidence_id in evidence_ids],
                 )
-                evidence_segment_count += len(proposal.evidence_ids)
+                evidence_segment_count += len(evidence_ids)
                 created.append(
-                    self._candidate_dict(
-                        connection,
-                        self._candidate_row(connection, project_id, candidate_id),
-                    )
+                    {
+                        **self._candidate_dict(
+                            connection,
+                            self._candidate_row(connection, project_id, candidate_id),
+                        ),
+                        "matched_segment_count": proposal.matched_segment_count,
+                        "evidence_segment_count": len(evidence_ids),
+                    }
                 )
             connection.commit()
             return {
@@ -290,6 +328,7 @@ class AudienceModelService:
                 "audience_profile_id": profile_id,
                 "created_candidate_count": len(created),
                 "skipped_duplicate_count": skipped_duplicates,
+                "matched_segment_count": matched_segment_count,
                 "evidence_segment_count": evidence_segment_count,
                 "candidates": created,
             }
@@ -346,6 +385,7 @@ class AudienceModelService:
         project_id = self._project_id(params)
         candidate_id = self._uuid_param(params, "candidate_id")
         with self._storage.project_database(project_id) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             candidate = self._candidate_row(connection, project_id, candidate_id)
             if candidate["status"] == "stale":
                 raise CoreDomainError(
@@ -360,6 +400,12 @@ class AudienceModelService:
             profile_id = str(candidate["audience_profile_id"])
             self._profile_row(connection, project_id, profile_id)
             evidence_ids = self._candidate_evidence_ids(connection, candidate_id)
+            if len(evidence_ids) > MAX_EVIDENCE_PER_ITEM:
+                raise CoreDomainError(
+                    "AUDIENCE_EVIDENCE_LIMIT_REACHED",
+                    "This suggestion contains more evidence segments than supported.",
+                    details={"max_evidence_per_item": MAX_EVIDENCE_PER_ITEM},
+                )
             if not self._evidence_attributed_to_profile(
                 connection, project_id, evidence_ids, profile_id
             ):
@@ -378,6 +424,15 @@ class AudienceModelService:
             text = params.get("text", candidate["proposed_text"])
             bounded_text = self._observation_text(text)
             ObservationPolicy.validate_text(bounded_text)
+            self._ensure_capacity(
+                connection,
+                "SELECT COUNT(*) AS count FROM audience_observations WHERE audience_profile_id = ?",
+                (profile_id,),
+                limit=MAX_OBSERVATIONS_PER_PROFILE,
+                code="AUDIENCE_OBSERVATION_LIMIT_REACHED",
+                message="This audience profile already has the maximum number of observations.",
+                details={"max_observations_per_profile": MAX_OBSERVATIONS_PER_PROFILE},
+            )
             observation_id = str(uuid.uuid4())
             now = utc_now()
             connection.execute(
@@ -464,7 +519,17 @@ class AudienceModelService:
         observation_id = str(uuid.uuid4())
         now = utc_now()
         with self._storage.project_database(project_id) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             self._profile_row(connection, project_id, profile_id)
+            self._ensure_capacity(
+                connection,
+                "SELECT COUNT(*) AS count FROM audience_observations WHERE audience_profile_id = ?",
+                (profile_id,),
+                limit=MAX_OBSERVATIONS_PER_PROFILE,
+                code="AUDIENCE_OBSERVATION_LIMIT_REACHED",
+                message="This audience profile already has the maximum number of observations.",
+                details={"max_observations_per_profile": MAX_OBSERVATIONS_PER_PROFILE},
+            )
             connection.execute(
                 """
                 INSERT INTO audience_observations (
@@ -531,7 +596,7 @@ class AudienceModelService:
         project_id = self._project_id(params)
         profile_ids = params.get("audience_profile_ids")
         if profile_ids is not None and (
-            not isinstance(profile_ids, list) or len(profile_ids) > MAX_PROFILE_COUNT
+            not isinstance(profile_ids, list) or len(profile_ids) > MAX_CONTEXT_PROFILES
         ):
             raise invalid_request(
                 "audience_profile_ids must be a bounded list of UUIDs.",
@@ -661,6 +726,7 @@ class AudienceModelService:
         clauses = [
             f"su.id IN ({placeholders})",
             "d.kind = 'transcript'",
+            "d.parse_status = 'ready'",
             "su.unit_type = 'transcript_segment'",
             "tsm.audience_profile_id = ?",
             "tsm.native_speaker_label = su.speaker_label",
@@ -893,6 +959,28 @@ class AudienceModelService:
         if not isinstance(value, str):
             raise invalid_request("project_id must be a UUID4.", field="project_id")
         return normalize_project_id(value)
+
+    @classmethod
+    def _profile_notes(cls, params: dict[str, Any]) -> str | None:
+        notes = cls._optional_text(params, "user_notes", max_length=MAX_PROFILE_NOTES_LENGTH)
+        if notes is not None:
+            ObservationPolicy.validate_text(notes)
+        return notes
+
+    @staticmethod
+    def _ensure_capacity(
+        connection: sqlite3.Connection,
+        query: str,
+        parameters: tuple[Any, ...],
+        *,
+        limit: int,
+        code: str,
+        message: str,
+        details: dict[str, Any],
+    ) -> None:
+        row = connection.execute(query, parameters).fetchone()
+        if row is not None and int(row["count"]) >= limit:
+            raise CoreDomainError(code, message, details=details)
 
     @staticmethod
     def _uuid_param(params: dict[str, Any], field: str) -> str:

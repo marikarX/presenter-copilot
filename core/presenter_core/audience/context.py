@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from typing import Any
@@ -12,13 +13,18 @@ from presenter_core.storage.paths import normalize_project_id
 from presenter_core.storage.service import StorageManager
 
 from .models import (
-    MAX_EVIDENCE_PER_ITEM,
     MAX_OBSERVATION_TEXT_LENGTH,
-    MAX_OBSERVATIONS_PER_PROFILE,
-    MAX_PROFILE_COUNT,
 )
+from .policy import ObservationPolicy
 
-MAX_CONTEXT_EVIDENCE_TEXT_LENGTH = 800
+MAX_CONTEXT_PROFILES = 3
+MAX_CONTEXT_OBSERVATIONS_PER_PROFILE = 8
+MAX_CONTEXT_EVIDENCE_PER_OBSERVATION = 3
+MAX_CONTEXT_EVIDENCE_TEXT_CHARS = 800
+# Backwards-compatible name for callers of the original M4 context helper.
+MAX_CONTEXT_EVIDENCE_TEXT_LENGTH = MAX_CONTEXT_EVIDENCE_TEXT_CHARS
+MAX_CONTEXT_USER_NOTES_CHARS = 800
+MAX_AUDIENCE_CONTEXT_CHARS = 20_000
 
 
 class AudienceContextBuilder:
@@ -37,7 +43,7 @@ class AudienceContextBuilder:
         requested_ids = None
         if audience_profile_ids is not None:
             requested_ids_list: list[str] = []
-            if len(audience_profile_ids) > MAX_PROFILE_COUNT:
+            if len(audience_profile_ids) > MAX_CONTEXT_PROFILES:
                 raise CoreDomainError(
                     "INVALID_REQUEST",
                     "audience_profile_ids contains too many profiles.",
@@ -69,7 +75,7 @@ class AudienceContextBuilder:
                 "SELECT * FROM audience_profiles AS ap WHERE "
                 + " AND ".join(clauses)
                 + " ORDER BY ap.display_name COLLATE NOCASE, ap.id LIMIT ?",
-                [*parameters, MAX_PROFILE_COUNT],
+                [*parameters, MAX_CONTEXT_PROFILES],
             ).fetchall()
             if requested_ids is not None:
                 found = {str(row["id"]) for row in profiles}
@@ -80,7 +86,8 @@ class AudienceContextBuilder:
                         "One or more audience profiles were not found or are inactive.",
                     )
             result_profiles = [self._profile_context(connection, profile) for profile in profiles]
-        return {"project_id": normalized_project_id, "profiles": result_profiles}
+        context = {"project_id": normalized_project_id, "profiles": result_profiles}
+        return _fit_context_budget(context)
 
     @staticmethod
     def _profile_context(connection: sqlite3.Connection, profile: sqlite3.Row) -> dict[str, Any]:
@@ -88,13 +95,16 @@ class AudienceContextBuilder:
             """
             SELECT * FROM audience_observations
             WHERE audience_profile_id = ? AND review_status = 'active'
-            ORDER BY updated_at DESC, id DESC
+              AND sensitive_trait = 0
+            ORDER BY CASE WHEN derivation = 'user_entered' THEN 0 ELSE 1 END,
+                     updated_at DESC, id DESC
             LIMIT ?
             """,
-            (profile["id"], MAX_OBSERVATIONS_PER_PROFILE),
+            (profile["id"], MAX_CONTEXT_OBSERVATIONS_PER_PROFILE),
         ).fetchall()
         result_observations: list[dict[str, Any]] = []
         for observation in observations:
+            observation_text = ObservationPolicy.validate_text(str(observation["text"]))
             evidence = _valid_evidence(connection, str(observation["id"]))
             if observation["derivation"] == "source_derived" and not evidence:
                 continue
@@ -102,7 +112,7 @@ class AudienceContextBuilder:
                 {
                     "id": observation["id"],
                     "type": observation["observation_type"],
-                    "text": str(observation["text"])[:MAX_OBSERVATION_TEXT_LENGTH],
+                    "text": observation_text[:MAX_OBSERVATION_TEXT_LENGTH],
                     "derivation": observation["derivation"],
                     "confidence": observation["confidence"],
                     "evidence": evidence,
@@ -113,9 +123,21 @@ class AudienceContextBuilder:
             "display_name": profile["display_name"],
             "role": profile["role"],
             "organization": profile["organization"],
-            "user_supplied_notes": profile["user_notes"],
+            "user_supplied_notes": _validated_notes(profile["user_notes"]),
             "observations": result_observations,
         }
+
+
+def _validated_notes(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise CoreDomainError(
+            "AUDIENCE_OBSERVATION_PROHIBITED",
+            "Audience profile notes are invalid and cannot enter audience context.",
+            details={"field": "user_notes"},
+        )
+    return ObservationPolicy.validate_text(value)[:MAX_CONTEXT_USER_NOTES_CHARS]
 
 
 def _valid_evidence(connection: sqlite3.Connection, observation_id: str) -> list[dict[str, Any]]:
@@ -128,12 +150,22 @@ def _valid_evidence(connection: sqlite3.Connection, observation_id: str) -> list
         FROM audience_observation_evidence AS aoe
         JOIN source_units AS su ON su.id = aoe.provenance_id
         JOIN documents AS d ON d.id = su.document_id
+        JOIN transcript_speaker_maps AS tsm
+          ON tsm.document_id = d.id
+         AND tsm.native_speaker_label = su.speaker_label
+        JOIN audience_observations AS ao ON ao.id = aoe.observation_id
         WHERE aoe.observation_id = ? AND aoe.provenance_type = 'transcript'
-          AND d.kind = 'transcript' AND su.unit_type = 'transcript_segment'
+          AND d.kind = 'transcript' AND d.parse_status = 'ready'
+          AND su.unit_type = 'transcript_segment'
+          AND d.project_id = (
+              SELECT ap.project_id FROM audience_profiles AS ap
+              WHERE ap.id = ao.audience_profile_id
+          )
+          AND tsm.audience_profile_id = ao.audience_profile_id
         ORDER BY d.original_name COLLATE NOCASE, su.ordinal, su.id
         LIMIT ?
         """,
-        (observation_id, MAX_EVIDENCE_PER_ITEM),
+        (observation_id, MAX_CONTEXT_EVIDENCE_PER_OBSERVATION),
     ).fetchall()
     return [
         {
@@ -151,7 +183,47 @@ def _valid_evidence(connection: sqlite3.Connection, observation_id: str) -> list
                 speaker_label=row["speaker_label"],
                 transcript=True,
             ),
-            "text": str(row["text"])[:MAX_CONTEXT_EVIDENCE_TEXT_LENGTH],
+            "text": str(row["text"])[:MAX_CONTEXT_EVIDENCE_TEXT_CHARS],
         }
         for row in rows
     ]
+
+
+def _fit_context_budget(context: dict[str, Any]) -> dict[str, Any]:
+    """Drop complete, oldest records until the serialized packet is bounded."""
+    while _serialized_length(context) > MAX_AUDIENCE_CONTEXT_CHARS:
+        if _drop_oldest_evidence(context["profiles"]):
+            continue
+        if _drop_oldest_observation(context["profiles"]):
+            continue
+        raise CoreDomainError(
+            "AUDIENCE_CONTEXT_TOO_LARGE",
+            "Audience context cannot fit within the bounded context budget.",
+            details={"max_chars": MAX_AUDIENCE_CONTEXT_CHARS},
+        )
+    return context
+
+
+def _serialized_length(value: dict[str, Any]) -> int:
+    return len(json.dumps(value, ensure_ascii=True, sort_keys=True))
+
+
+def _drop_oldest_evidence(profiles: list[dict[str, Any]]) -> bool:
+    for profile in reversed(profiles):
+        observations = profile["observations"]
+        for observation in reversed(observations):
+            evidence = observation["evidence"]
+            if len(evidence) > 1 or observation["derivation"] != "source_derived":
+                if evidence:
+                    del evidence[0]
+                    return True
+    return False
+
+
+def _drop_oldest_observation(profiles: list[dict[str, Any]]) -> bool:
+    for profile in reversed(profiles):
+        observations = profile["observations"]
+        if observations:
+            observations.pop()
+            return True
+    return False

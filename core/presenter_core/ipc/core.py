@@ -130,7 +130,7 @@ class CoreService:
                 "text.stdlib",
                 "transcript.vtt",
                 "transcript.srt",
-                "transcript.named-txt",
+                "transcript.named-text",
                 "transcript.json",
                 "audience.observable-patterns",
                 "embedding.fastembed",

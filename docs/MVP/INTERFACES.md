@@ -106,7 +106,9 @@ source.reindex
 structured `.json` transcript files. VTT/SRT/JSON default to transcript kind;
 ordinary `.txt` remains a supporting source unless the caller explicitly
 selects `kind=transcript`. Transcript previews expose bounded cue timestamps,
-native speaker labels, and `source_type=transcript` provenance.
+native speaker labels, and `source_type=transcript` provenance. The named-text
+transcript adapter uses the canonical parser ID `transcript.named-text`; native
+labels are retained as imported metadata.
 
 ### Retrieval
 
@@ -183,6 +185,18 @@ unit to remain attributed to the same profile; user-entered safe observations
 may omit evidence. Rejected fingerprints stay in the project to prevent
 immediate recreation, while stale rows remain inspectable but are never active
 context.
+
+M4 audience data is bounded by `MAX_PROFILE_COUNT=100`,
+`MAX_OBSERVATIONS_PER_PROFILE=100`, `MAX_CANDIDATES_PER_PROFILE=100`, and
+`MAX_EVIDENCE_PER_ITEM=20` as storage caps. Extraction reads at most
+`MAX_EXTRACTION_SEGMENTS=5000` mapped transcript segments per request and
+returns `AUDIENCE_EXTRACTION_TOO_LARGE` when the bound is exceeded; callers
+can filter by transcript document IDs. `AudienceContextBuilder` accepts at
+most three profiles, eight observations per profile, and three evidence
+examples per observation, with 800-character evidence and notes bounds and a
+20,000-character serialized packet budget. It fails closed on prohibited
+profile notes or observation text and excludes sensitive or currently
+unattributed rows.
 
 ### Sessions
 

@@ -69,7 +69,7 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "text.stdlib",
         "transcript.vtt",
         "transcript.srt",
-        "transcript.named-txt",
+        "transcript.named-text",
         "transcript.json",
         "audience.observable-patterns",
         "embedding.fastembed",
