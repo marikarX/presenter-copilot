@@ -19,7 +19,9 @@ Use two SQLite scopes:
 Global device-level state:
 
 - app settings;
-- provider configuration references (never plaintext secrets where OS credential storage is available);
+- non-secret provider configuration metadata (`provider_id`, `enabled`, `model_id`,
+  `credential_source`, and safe configuration JSON); credentials remain in the
+  core environment for M3;
 - global Speaker Profile;
 - recent project list;
 - schema/app version metadata.
@@ -42,6 +44,7 @@ Project
 - default_style_policy ENUM(preserve_voice, light_polish, executive_concise, custom)
 - custom_style_guidance TEXT nullable
 - current_presentation_id UUID nullable
+- remote_reasoning_acknowledged_at DATETIME nullable
 - schema_version INTEGER
 ```
 
@@ -150,12 +153,33 @@ SpeakerEvidence
 ProjectStyleOverride
 - id UUID PK
 - project_id UUID
-- style_policy ENUM(...)
-- custom_guidance TEXT nullable
 - enabled BOOLEAN
+- created_at DATETIME
+- updated_at DATETIME
 ```
 
+The project keeps the effective project style policy and custom guidance on its
+`Project` row. `ProjectStyleOverride.enabled` is the single switch that selects
+those values over the global Speaker Profile; the precedence is explicit
+project override > global Speaker Profile > `preserve_voice`.
+
 ## 5. User-authored project knowledge
+
+### UserStatement
+
+```text
+UserStatement
+- id UUID PK
+- project_id UUID
+- origin_session_id UUID nullable
+- source_utterance_id UUID nullable
+- text TEXT
+- created_at DATETIME
+```
+
+Confirmed Teach knowledge links to this durable project-level snapshot rather
+than treating an AI question or candidate as user evidence. Session deletion
+detaches the two origin identifiers before cascading session utterances.
 
 ### KnowledgeItem
 
@@ -168,6 +192,7 @@ KnowledgeItem
 - use_live BOOLEAN
 - use_rehearsal BOOLEAN
 - preferred BOOLEAN
+- private BOOLEAN
 - created_by ENUM(user, ai_suggested_user_confirmed)
 - origin_session_id UUID nullable
 - created_at DATETIME
@@ -184,6 +209,29 @@ KnowledgeEvidence
 ```
 
 A Teach-mode statement can be a valid user-authored source even when it does not appear in imported documents; the UI should show that distinction.
+
+`private = true` keeps a confirmed item project-local and excludes it from
+remote provider context. It does not imply `use_live = false`; those controls
+remain independent.
+
+### TeachCandidate
+
+```text
+TeachCandidate
+- id UUID PK
+- session_id UUID
+- source_utterance_id UUID
+- proposed_kind ENUM(...)
+- proposed_text TEXT
+- provider_run_id UUID nullable
+- status ENUM(pending, confirmed, rejected)
+- knowledge_item_id UUID nullable
+- created_at DATETIME
+```
+
+Candidates are provisional, are not retrieval entities, and are never global
+SpeakerEvidence until the user confirms the resulting KnowledgeItem and takes
+the separate promotion action.
 
 ## 6. Audience Model
 
@@ -381,7 +429,7 @@ ProviderRun
 - privacy_mode ENUM(...)
 - started_at DATETIME
 - ended_at DATETIME nullable
-- status ENUM(success, error, cancelled)
+- status ENUM(started, success, error, cancelled)
 - input_token_count INTEGER nullable
 - output_token_count INTEGER nullable
 - latency_ms INTEGER nullable
@@ -393,21 +441,29 @@ ProviderRun
 
 ## 11. Embedding store
 
-For M2, each project uses a generation-based local embedding file/index keyed
-by `Chunk.id`. The schema leaves `entity_type`/`source_class` generic so later
-milestones can add KnowledgeItem, practiced-answer, or transcript evidence
-vectors without replacing the store. M2 only writes `entity_type=chunk` and
-`source_class=document`.
+M2 introduced a generation-based local embedding file/index, and M3 extends
+the same store rather than creating a second vector database. The active
+generation contains ready document chunks plus confirmed KnowledgeItems with
+`entity_type=knowledge_item` and `source_class=user_knowledge`. Candidates and
+rejected items are never indexable. Private KnowledgeItems may be embedded
+locally because remote filtering happens during context assembly.
 
 The active matrix is stored as a normalized float32 NumPy `.npy` file under the
 project's `embeddings/` directory and is opened with memory mapping for query
 time access. The shared FastEmbed model cache is outside project vaults.
-M2 retains exactly one `embedding_generations` row: the active generation and
-its current `embedding_vectors` mapping set. A successful rebuild writes and
+The project retains exactly one active `embedding_generations` row and one
+current `embedding_vectors` mapping set. A successful rebuild writes and
 fsyncs the new matrix before the activation transaction, then retires the old
-rows through the foreign-key cascade. If activation fails, the prior active
-row and matrix remain usable and the newly written matrix is an orphan that
-cleanup may remove.
+rows through the foreign-key cascade. Compatible vectors are reused only when
+entity type, entity ID, content hash, model identity, and dimension match. If
+activation fails, the prior active row and matrix remain usable and the newly
+written matrix is an orphan that cleanup may remove.
+
+The in-process mapping-count cache is valid only for an unchanged generation
+mapping set. Source mutations, KnowledgeItem mapping deletion, confirmed
+KnowledgeItem mutation, project eviction, and successful generation activation
+invalidate the affected project entries; a failed rebuild leaves the active
+generation and its cacheable mapping set unchanged.
 
 ```text
 embedding_generations
@@ -446,11 +502,13 @@ content_sha256
 ```
 
 `Chunk.embedding_key` is `generation_id:chunk_id` only when the chunk has a
-mapping in the active generation; otherwise it is null. Rebuilds compact the
-current parsed chunks into a new generation, reuse a compatible vector when
-chunk ID/content hash/model identity match, and activate the matrix only after
-the file has been written and flushed. Deleted chunks lose their mappings via
-the database relationship/trigger and can never be returned by retrieval.
+mapping in the active generation; otherwise it is null. Rebuilds compact all
+current indexable entities into a new generation, activate the matrix only
+after the file has been written and flushed, and synchronize immediately after
+KnowledgeItem confirmation/deletion when the local model is available. A
+model-unavailable sync leaves the durable KnowledgeItem and lexical retrieval
+usable while reporting partial semantic coverage. Deleted chunks and knowledge
+items lose their mappings and can never be returned by retrieval.
 
 ## 12. Delete semantics
 
@@ -458,11 +516,16 @@ the database relationship/trigger and can never be returned by retrieval.
 
 Removes:
 
+- the session row;
 - utterances;
-- questions/answers owned only by that session unless explicitly promoted;
-- cues;
 - provider run manifests;
-- session files.
+- pending Teach candidates;
+- session-owned files, if present.
+
+Confirmed KnowledgeItems and their UserStatement snapshots survive. Their
+`origin_session_id` and `source_utterance_id` are nulled before the session
+cascade; approved global SpeakerEvidence keeps its project origin but also
+detaches a deleted session ID.
 
 ### Delete project
 
@@ -476,8 +539,15 @@ Removes entire project directory including:
 - session artifacts;
 - diagnostics scoped to project.
 
-Then remove the project from `app.db` recent-project references. Global SpeakerEvidence originating from the project must either be removed or have its project-origin link cleared only if the user explicitly promoted it; default behavior is to remove it.
+Then remove the project from `app.db` recent-project references. Global
+SpeakerEvidence whose `origin_project_id` is the deleted project is removed by
+the app-database foreign-key cascade. Unrelated global evidence and the shared
+embedding model cache survive.
 
 ## 13. Schema migration rule
 
-Every DB has an integer schema version. Migrations are forward-only in normal operation and must be covered by fixture tests from every released pre-1.0 schema once releases begin.
+Every DB has an integer schema version. Migrations are forward-only in normal
+operation and must be covered by fixture tests from every released pre-1.0
+schema once releases begin. M3 uses explicit migration history:
+`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3, preserving existing registry,
+source, chunk, generation, mapping, and project-setting rows.

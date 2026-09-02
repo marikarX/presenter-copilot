@@ -24,6 +24,7 @@
             "project.open",
             "project.list",
             "project.update_settings",
+            "project.acknowledge_remote_reasoning",
             "project.delete",
             "source.import",
             "source.list",
@@ -33,7 +34,31 @@
             "search.lexical",
             "retrieval.health",
             "retrieval.query",
-            "retrieval.rebuild"
+            "retrieval.rebuild",
+            "session.start",
+            "session.stop",
+            "session.get",
+            "session.list",
+            "session.delete",
+            "teach.next_prompt",
+            "teach.get_state",
+            "teach.submit_text",
+            "teach.discard_answer",
+            "teach.confirm_knowledge_item",
+            "teach.reject_knowledge_item",
+            "knowledge.list",
+            "knowledge.update_flags",
+            "knowledge.delete",
+            "speaker_profile.get",
+            "speaker_profile.list_evidence",
+            "speaker_profile.approve_evidence",
+            "speaker_profile.remove_evidence",
+            "speaker_profile.update_settings",
+            "speaker_profile.reset",
+            "provider.list",
+            "provider.configure",
+            "provider.test",
+            "provider.status"
           ],
           "events": [
             "core.ready",
@@ -41,7 +66,11 @@
             "source.import_progress",
             "source.import_error",
             "project.index_progress",
-            "project.index_ready"
+            "project.index_ready",
+            "teach.prompt",
+            "teach.knowledge_candidate",
+            "provider.status_changed",
+            "privacy.remote_context_manifest"
           ]
         },
         "adapters": [
@@ -51,12 +80,14 @@
           "embedding.fastembed",
           "retrieval.numpy",
           "retrieval.hybrid",
-          "retrieval.lexical"
+          "retrieval.lexical",
+          "reasoning.fake",
+          "provider.openai.responses"
         ],
         "migration_status": "ready",
         "storage": {
-          "app_schema_version": 1,
-          "project_schema_version": 2
+          "app_schema_version": 2,
+          "project_schema_version": 3
         }
       }
     },
@@ -87,6 +118,7 @@
             "project.open",
             "project.list",
             "project.update_settings",
+            "project.acknowledge_remote_reasoning",
             "project.delete",
             "source.import",
             "source.list",
@@ -96,7 +128,31 @@
             "search.lexical",
             "retrieval.health",
             "retrieval.query",
-            "retrieval.rebuild"
+            "retrieval.rebuild",
+            "session.start",
+            "session.stop",
+            "session.get",
+            "session.list",
+            "session.delete",
+            "teach.next_prompt",
+            "teach.get_state",
+            "teach.submit_text",
+            "teach.discard_answer",
+            "teach.confirm_knowledge_item",
+            "teach.reject_knowledge_item",
+            "knowledge.list",
+            "knowledge.update_flags",
+            "knowledge.delete",
+            "speaker_profile.get",
+            "speaker_profile.list_evidence",
+            "speaker_profile.approve_evidence",
+            "speaker_profile.remove_evidence",
+            "speaker_profile.update_settings",
+            "speaker_profile.reset",
+            "provider.list",
+            "provider.configure",
+            "provider.test",
+            "provider.status"
           ],
           "events": [
             "core.ready",
@@ -104,7 +160,11 @@
             "source.import_progress",
             "source.import_error",
             "project.index_progress",
-            "project.index_ready"
+            "project.index_ready",
+            "teach.prompt",
+            "teach.knowledge_candidate",
+            "provider.status_changed",
+            "privacy.remote_context_manifest"
           ]
         },
         "adapters": [
@@ -114,12 +174,14 @@
           "embedding.fastembed",
           "retrieval.numpy",
           "retrieval.hybrid",
-          "retrieval.lexical"
+          "retrieval.lexical",
+          "reasoning.fake",
+          "provider.openai.responses"
         ],
         "migration_status": "ready",
         "storage": {
-          "app_schema_version": 1,
-          "project_schema_version": 2
+          "app_schema_version": 2,
+          "project_schema_version": 3
         }
       }
     },

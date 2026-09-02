@@ -8,6 +8,7 @@ export const CORE_METHODS = [
   "project.open",
   "project.list",
   "project.update_settings",
+  "project.acknowledge_remote_reasoning",
   "project.delete",
   "source.import",
   "source.list",
@@ -18,6 +19,30 @@ export const CORE_METHODS = [
   "retrieval.health",
   "retrieval.query",
   "retrieval.rebuild",
+  "session.start",
+  "session.stop",
+  "session.get",
+  "session.list",
+  "session.delete",
+  "teach.next_prompt",
+  "teach.get_state",
+  "teach.submit_text",
+  "teach.discard_answer",
+  "teach.confirm_knowledge_item",
+  "teach.reject_knowledge_item",
+  "knowledge.list",
+  "knowledge.update_flags",
+  "knowledge.delete",
+  "speaker_profile.get",
+  "speaker_profile.list_evidence",
+  "speaker_profile.approve_evidence",
+  "speaker_profile.remove_evidence",
+  "speaker_profile.update_settings",
+  "speaker_profile.reset",
+  "provider.list",
+  "provider.configure",
+  "provider.test",
+  "provider.status",
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
@@ -27,6 +52,7 @@ export const RENDERER_CORE_METHODS = [
   "project.open",
   "project.list",
   "project.update_settings",
+  "project.acknowledge_remote_reasoning",
   "project.delete",
   "source.list",
   "source.preview",
@@ -35,6 +61,30 @@ export const RENDERER_CORE_METHODS = [
   "retrieval.health",
   "retrieval.query",
   "retrieval.rebuild",
+  "session.start",
+  "session.stop",
+  "session.get",
+  "session.list",
+  "session.delete",
+  "teach.next_prompt",
+  "teach.get_state",
+  "teach.submit_text",
+  "teach.discard_answer",
+  "teach.confirm_knowledge_item",
+  "teach.reject_knowledge_item",
+  "knowledge.list",
+  "knowledge.update_flags",
+  "knowledge.delete",
+  "speaker_profile.get",
+  "speaker_profile.list_evidence",
+  "speaker_profile.approve_evidence",
+  "speaker_profile.remove_evidence",
+  "speaker_profile.update_settings",
+  "speaker_profile.reset",
+  "provider.list",
+  "provider.configure",
+  "provider.test",
+  "provider.status",
 ] as const;
 export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
 export type JsonObject = Record<string, unknown>;
@@ -121,6 +171,9 @@ export interface ReadyProjectSummary extends ProjectSummaryCommon {
   privacy_mode: string;
   default_style_policy: string;
   custom_style_guidance: string | null;
+  style_override_enabled: boolean;
+  remote_reasoning_acknowledged_at: string | null;
+  remote_reasoning_acknowledged: boolean;
   source_count: number;
 }
 
@@ -155,6 +208,10 @@ export function isReadyProjectSummary(
     typeof value.default_style_policy === "string" &&
     (value.custom_style_guidance === null ||
       typeof value.custom_style_guidance === "string") &&
+    typeof value.style_override_enabled === "boolean" &&
+    (value.remote_reasoning_acknowledged_at === null ||
+      typeof value.remote_reasoning_acknowledged_at === "string") &&
+    typeof value.remote_reasoning_acknowledged === "boolean" &&
     typeof value.source_count === "number"
   );
 }
@@ -215,6 +272,8 @@ export interface RetrievalHealthResult {
   matrix_row_count: number;
   current_indexed_mappings: number;
   current_project_chunk_count: number;
+  current_knowledge_item_count: number;
+  current_indexable_entity_count: number;
   semantic_coverage: number;
   stale_reason: string | null;
   index_model_id: string | null;
@@ -240,7 +299,12 @@ export interface RetrievalHit {
     evidence_id: string;
     source_type: string;
     source_id: string;
-    source_unit_id: string;
+    source_unit_id: string | null;
+    knowledge_item_id?: string | null;
+    preferred?: boolean;
+    private?: boolean;
+    use_live?: boolean;
+    use_rehearsal?: boolean;
     label: string;
     text: string;
     rank: number;
@@ -252,6 +316,7 @@ export interface RetrievalHit {
     lexical: number;
     lexical_raw: number;
     slide_boost: number;
+    user_knowledge_boost?: number;
     final: number;
   };
   reasons: string[];
@@ -321,6 +386,93 @@ export interface ImportSourceResult {
   source_units_count?: number;
   chunks_count?: number;
   status?: string;
+}
+
+export interface Session {
+  id: string;
+  project_id: string;
+  mode: "teach" | "challenge" | "run" | "live_assist";
+  started_at: string;
+  ended_at: string | null;
+  style_policy: string;
+  privacy_mode: string;
+  provider_id: string | null;
+  current_slide_start: number | null;
+  status: "active" | "completed" | "aborted" | "error";
+  teach_state: string;
+  utterances: number;
+  pending_candidates: number;
+  provider_runs: number;
+}
+
+export interface TeachCandidate {
+  id: string;
+  source_utterance_id: string;
+  proposed_kind: string;
+  proposed_text: string;
+  follow_up_question?: string | null;
+  provisional: boolean;
+  created_by: string;
+}
+
+export interface KnowledgeItem {
+  id: string;
+  project_id: string;
+  kind: string;
+  text: string;
+  use_live: boolean;
+  use_rehearsal: boolean;
+  preferred: boolean;
+  private: boolean;
+  created_by: string;
+  origin_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+  evidence: Array<{ provenance_type: string; provenance_id: string }>;
+}
+
+export interface SpeakerProfile {
+  id: string;
+  display_name: string | null;
+  default_style_policy: string;
+  custom_style_guidance: string | null;
+  preferred_answer_seconds: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SpeakerEvidence {
+  id: string;
+  evidence_type: string;
+  text: string;
+  origin_project_id: string | null;
+  origin_session_id: string | null;
+  user_approved: boolean;
+  created_at: string;
+  origin_project_name?: string | null;
+}
+
+export interface ProviderStatus {
+  provider_id: string;
+  enabled: boolean;
+  model_id: string;
+  credential_source: string;
+  safe_config: JsonObject;
+  health: {
+    provider_id: string;
+    locality: string;
+    model_id: string;
+    status: string;
+    configured: boolean;
+    error_code: string | null;
+    retryable: boolean;
+  };
+  capabilities: {
+    structured_outputs: boolean;
+    streaming: boolean;
+    cancellation: boolean;
+    task_types: string[];
+  };
 }
 
 export interface HealthResult {

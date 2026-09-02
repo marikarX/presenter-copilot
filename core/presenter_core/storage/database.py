@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from presenter_core.errors import CoreDomainError
 
-APP_SCHEMA_VERSION = 1
-PROJECT_SCHEMA_VERSION = 2
+APP_SCHEMA_VERSION = 2
+PROJECT_SCHEMA_VERSION = 3
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -262,8 +263,251 @@ def _migrate_project_v2(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         "UPDATE project SET schema_version = ?",
-        (PROJECT_SCHEMA_VERSION,),
+        (2,),
     )
+
+
+def _migrate_app_v2(connection: sqlite3.Connection) -> None:
+    """Add non-secret provider metadata and the global Speaker Profile."""
+    connection.execute(
+        """
+        CREATE TABLE provider_configurations (
+            provider_id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            model_id TEXT NOT NULL,
+            credential_source TEXT NOT NULL,
+            safe_config_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE speaker_profiles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NULL,
+            default_style_policy TEXT NOT NULL CHECK (
+                default_style_policy IN (
+                    'preserve_voice', 'light_polish', 'executive_concise', 'custom'
+                )
+            ),
+            custom_style_guidance TEXT NULL,
+            preferred_answer_seconds INTEGER NULL CHECK (
+                preferred_answer_seconds IS NULL OR preferred_answer_seconds BETWEEN 1 AND 3_600
+            ),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE speaker_evidence (
+            id TEXT PRIMARY KEY,
+            speaker_profile_id TEXT NOT NULL
+                REFERENCES speaker_profiles(id) ON DELETE CASCADE,
+            evidence_type TEXT NOT NULL CHECK (
+                evidence_type IN (
+                    'preferred_phrase', 'analogy', 'explanation_pattern',
+                    'vocabulary', 'coaching_preference', 'rejected_pattern'
+                )
+            ),
+            text TEXT NOT NULL,
+            origin_project_id TEXT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            origin_session_id TEXT NULL,
+            user_approved INTEGER NOT NULL CHECK (user_approved IN (0, 1)),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX speaker_evidence_profile_idx "
+        "ON speaker_evidence(speaker_profile_id, created_at)"
+    )
+    connection.execute(
+        "CREATE INDEX speaker_evidence_origin_project_idx ON speaker_evidence(origin_project_id)"
+    )
+
+
+def _migrate_project_v3(connection: sqlite3.Connection) -> None:
+    """Add durable Teach, knowledge, provider-run, and style metadata."""
+    connection.execute("ALTER TABLE project ADD COLUMN remote_reasoning_acknowledged_at TEXT NULL")
+    connection.execute(
+        """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            mode TEXT NOT NULL CHECK (mode IN ('teach', 'challenge', 'run', 'live_assist')),
+            started_at TEXT NOT NULL,
+            ended_at TEXT NULL,
+            style_policy TEXT NOT NULL CHECK (
+                style_policy IN (
+                    'preserve_voice', 'light_polish', 'executive_concise', 'custom'
+                )
+            ),
+            privacy_mode TEXT NOT NULL CHECK (
+                privacy_mode IN ('local_only', 'selected_context_cloud', 'full_context_cloud')
+            ),
+            provider_id TEXT NULL,
+            current_slide_start INTEGER NULL,
+            status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'aborted', 'error')),
+            teach_state TEXT NOT NULL DEFAULT 'ready_for_prompt' CHECK (
+                teach_state IN (
+                    'ready_for_prompt', 'prompted', 'awaiting_user',
+                    'candidate_ready', 'completed'
+                )
+            )
+        )
+        """
+    )
+    connection.execute("CREATE INDEX sessions_project_idx ON sessions(project_id, started_at DESC)")
+    connection.execute(
+        """
+        CREATE TABLE utterances (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            actor TEXT NOT NULL CHECK (
+                actor IN ('user', 'audience_profile', 'ai_coach', 'unknown_audience')
+            ),
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            start_ms INTEGER NULL,
+            end_ms INTEGER NULL,
+            asr_confidence REAL NULL,
+            slide_ordinal INTEGER NULL,
+            is_final INTEGER NOT NULL DEFAULT 1 CHECK (is_final IN (0, 1))
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX utterances_session_idx ON utterances(session_id, created_at, id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE user_statements (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            origin_session_id TEXT NULL,
+            source_utterance_id TEXT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX user_statements_project_idx ON user_statements(project_id, created_at)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE knowledge_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (
+                kind IN (
+                    'fact', 'decision', 'rationale', 'preferred_explanation',
+                    'analogy', 'private_note', 'constraint', 'objection', 'answer'
+                )
+            ),
+            text TEXT NOT NULL,
+            use_live INTEGER NOT NULL CHECK (use_live IN (0, 1)),
+            use_rehearsal INTEGER NOT NULL CHECK (use_rehearsal IN (0, 1)),
+            preferred INTEGER NOT NULL CHECK (preferred IN (0, 1)),
+            private INTEGER NOT NULL CHECK (private IN (0, 1)),
+            created_by TEXT NOT NULL CHECK (created_by IN ('user', 'ai_suggested_user_confirmed')),
+            origin_session_id TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX knowledge_items_project_idx ON knowledge_items(project_id, updated_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE knowledge_evidence (
+            knowledge_item_id TEXT NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+            provenance_type TEXT NOT NULL CHECK (
+                provenance_type IN ('document', 'user_statement', 'transcript', 'practiced_answer')
+            ),
+            provenance_id TEXT NOT NULL,
+            PRIMARY KEY (knowledge_item_id, provenance_type, provenance_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE provider_runs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            task_type TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            privacy_mode TEXT NOT NULL CHECK (
+                privacy_mode IN ('local_only', 'selected_context_cloud', 'full_context_cloud')
+            ),
+            started_at TEXT NOT NULL,
+            ended_at TEXT NULL,
+            status TEXT NOT NULL CHECK (status IN ('started', 'success', 'error', 'cancelled')),
+            input_token_count INTEGER NULL,
+            output_token_count INTEGER NULL,
+            latency_ms INTEGER NULL,
+            context_manifest_json TEXT NOT NULL,
+            error_code TEXT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX provider_runs_session_idx ON provider_runs(session_id, started_at)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE teach_candidates (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            source_utterance_id TEXT NOT NULL REFERENCES utterances(id) ON DELETE CASCADE,
+            proposed_kind TEXT NOT NULL CHECK (
+                proposed_kind IN (
+                    'fact', 'decision', 'rationale', 'preferred_explanation',
+                    'analogy', 'private_note', 'constraint', 'objection', 'answer'
+                )
+            ),
+            proposed_text TEXT NOT NULL,
+            provider_run_id TEXT NULL REFERENCES provider_runs(id) ON DELETE SET NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (
+                status IN ('pending', 'confirmed', 'rejected')
+            ),
+            knowledge_item_id TEXT NULL REFERENCES knowledge_items(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX teach_candidates_session_idx "
+        "ON teach_candidates(session_id, status, created_at)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE project_style_overrides (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL UNIQUE REFERENCES project(id) ON DELETE CASCADE,
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    now = "1970-01-01T00:00:00.000Z"
+    project_rows = connection.execute("SELECT id, created_at FROM project").fetchall()
+    for row in project_rows:
+        connection.execute(
+            """
+            INSERT INTO project_style_overrides (id, project_id, enabled, created_at, updated_at)
+            VALUES (?, ?, 0, ?, ?)
+            """,
+            (str(uuid.uuid4()), str(row[0]), str(row[1] or now), str(row[1] or now)),
+        )
+    connection.execute("UPDATE project SET schema_version = ?", (3,))
 
 
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
@@ -272,7 +516,10 @@ def connect_app_database(path: str | Path) -> sqlite3.Connection:
     _migrate_database(
         database_path,
         scope="app",
-        migrations=((APP_SCHEMA_VERSION, _migrate_app_v1),),
+        migrations=(
+            (1, _migrate_app_v1),
+            (2, _migrate_app_v2),
+        ),
         latest_version=APP_SCHEMA_VERSION,
     )
     connection = sqlite3.connect(database_path)
@@ -289,7 +536,8 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
         scope="project",
         migrations=(
             (1, _migrate_project_v1),
-            (PROJECT_SCHEMA_VERSION, _migrate_project_v2),
+            (2, _migrate_project_v2),
+            (3, _migrate_project_v3),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

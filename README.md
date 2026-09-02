@@ -91,11 +91,14 @@ dev` opens the desktop shell, which starts the Python core sidecar
 automatically. The shell should show `CORE READY`, protocol `1`, core version
 `0.1.0`, and health `OK`.
 
-Milestones 1 and 2 add the local project vault flow: create/open a project,
-import PPTX/PDF/TXT/Markdown sources through the native file picker, inspect
-bounded slide/page/section previews with provenance, re-index from the stored
-snapshot, delete sources or whole projects, and inspect local hybrid semantic
-retrieval. The normal data root is
+Milestones 1–3 add the local project vault flow: create/open a project, import
+PPTX/PDF/TXT/Markdown sources through the native file picker, inspect bounded
+slide/page/section previews with provenance, re-index from the stored snapshot,
+delete sources or whole projects, inspect local hybrid semantic retrieval, and
+use the typed Teach/Speaker Profile vertical slice. M3 supports project-local
+sessions, confirmed user knowledge, explicit style-evidence promotion, and an
+optional bounded OpenAI Responses call; voice Teach, Challenge, Run, and the
+HUD remain later milestones. The normal data root is
 `%LOCALAPPDATA%\PresenterCopilot` on Windows. Tests use a temporary root; a
 controlled run can set `PRESENTER_COPILOT_DATA_ROOT` explicitly.
 
@@ -112,12 +115,14 @@ pnpm check          # formatting, lint, typecheck, and all tests
 pnpm model:prepare:embeddings  # explicit, network-dependent model bootstrap
 pnpm test:embedding-real       # real local FastEmbed acceptance; cache required
 pnpm benchmark:retrieval       # reproducible 50k-vector local benchmark
+pnpm test:provider-real        # opt-in synthetic OpenAI acceptance; key required
 ```
 
-Model preparation is the only command above that may use the network. Normal
-startup, source indexing, and retrieval use local-files-only model loading and
-never download a model implicitly. Milestone 2 intentionally does not include
-ASR, model providers, sessions, or the real presentation HUD. See
+Model preparation and the explicitly opt-in real-provider acceptance are the
+only commands above that may use the network. Normal startup, source indexing,
+retrieval, and fake-provider tests use local-only behavior and never download a
+model or call a provider implicitly. M3 intentionally does not include voice
+ASR, Challenge, Run, or the real presentation HUD. See
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
 commands.
 
@@ -148,8 +153,8 @@ commands.
 ## Repository status
 
 Milestone 0 — repository scaffold — is merged into `main`. The current
-implementation slice is Milestone 2 — local project vault, ingestion,
-embeddings, and hybrid retrieval.
+implementation slice is Milestone 3 — local project vault, ingestion,
+embeddings, hybrid retrieval, typed Teach, and Speaker Profile.
 
 ## License
 

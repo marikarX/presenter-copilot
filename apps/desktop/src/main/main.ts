@@ -164,7 +164,11 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
           ? 60_000
           : request.method === "retrieval.rebuild"
             ? 10 * 60_000
-            : undefined;
+            : request.method === "teach.next_prompt" ||
+                request.method === "teach.submit_text" ||
+                request.method === "provider.test"
+              ? 30_000
+              : undefined;
       return timeoutMs === undefined
         ? requireClient().request(request.method, request.params)
         : requireClient().request(request.method, request.params, timeoutMs);

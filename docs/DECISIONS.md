@@ -370,3 +370,54 @@ The frozen MVP scale is at most 50,000 chunks, where an in-process vectorized
 dot product is simpler and more inspectable than a vector database or ANN
 service. Generations keep SQLite metadata and the matrix from exposing a
 half-written index while preserving a later seam for additional entity types.
+
+## D-027 — Confirmed Teach knowledge uses durable UserStatement provenance
+
+**Status:** Accepted for Milestone 3
+
+When a user confirms a Teach explanation, the core snapshots the user utterance
+into a project-level `UserStatement` and links the confirmed KnowledgeItem to
+that snapshot. Deleting the originating session cascades session-owned
+utterances, provider runs, and pending candidates, but first nulls the
+UserStatement's session and utterance references. Confirmed project knowledge
+therefore remains attributable without pointing at deleted rows.
+
+Reason:
+
+Session history is disposable while confirmed Project Brain knowledge is not.
+Keeping a durable project-scoped user snapshot preserves provenance without
+promoting AI questions, candidate wording, or deleted session rows into user
+evidence.
+
+## D-028 — M3 uses the official OpenAI Responses adapter with core-owned credentials
+
+**Status:** Accepted for Milestone 3
+
+The first real provider is the official OpenAI Python SDK (`openai==3.6.0`)
+through the Responses API. It reads only `OPENAI_API_KEY` from the core process
+environment, sends bounded structured context with strict task-specific JSON
+schemas, uses no tools, explicitly sets `store=false`, and applies a bounded
+timeout. Provider metadata may store the model ID and opaque credential source,
+but no secret crosses renderer IPC or is persisted.
+
+Reason:
+
+M3 needs one real, user-owned provider seam without coupling the domain to
+browser or ChatGPT credentials. Keeping auth and context assembly in the core
+makes the remote boundary testable and leaves full cancellation/resilience and
+OS-backed secret storage for later milestones.
+
+## D-029 — Project style override is an explicit switch over global Speaker Profile
+
+**Status:** Accepted for Milestone 3
+
+The existing project style policy and custom guidance remain the project-level
+values. A single `project_style_overrides.enabled` row distinguishes whether
+those values are active. The effective precedence is explicit project override
+> global Speaker Profile > the product default `preserve_voice`.
+
+Reason:
+
+M3 needs project-specific style without creating two mutable copies of the
+same policy. One switch plus the existing project fields keeps the source of
+truth inspectable and makes global profile behavior reversible per project.

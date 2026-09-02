@@ -1,18 +1,18 @@
 {
-  "cold_model_load_ms": 601.543800032232,
+  "cold_model_load_ms": 605.4450999945402,
   "cpu_model": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
   "dimension": 384,
   "embedding_model_id": "BAAI/bge-small-en-v1.5",
-  "git_sha": "90cbc15317b59a92d5ea67eb3ae3397422ccc66c",
+  "git_sha": "23d33ff2e144c6f9bde257aa7cadc680252ba462",
   "hybrid_retrieval": {
-    "max_ms": 209.528,
-    "p50_ms": 189.456,
-    "p95_ms": 209.401
+    "max_ms": 76.53,
+    "p50_ms": 70.171,
+    "p95_ms": 73.863
   },
   "matrix_search": {
-    "max_ms": 12.955,
-    "p50_ms": 7.294,
-    "p95_ms": 9.53
+    "max_ms": 1.994,
+    "p50_ms": 1.282,
+    "p95_ms": 1.909
   },
   "model_fingerprint": "c8f43b02f96515510ebdb317ffa70fb15f84819470691bd5bde738c697b71d86",
   "os": "Windows-11-10.0.26200-SP0",
@@ -20,13 +20,13 @@
   "python_version": "3.13.5",
   "query_count": 20,
   "query_embedding": {
-    "max_ms": 74.243,
-    "p50_ms": 57.114,
-    "p95_ms": 67.491
+    "max_ms": 34.508,
+    "p50_ms": 30.768,
+    "p95_ms": 34.45
   },
   "ram_bytes": 34116087808,
   "target_p95_ms": 250.0,
   "target_pass": true,
-  "timestamp": "2026-09-02T03:04:14.461836+00:00",
+  "timestamp": "2026-09-02T14:12:02.295501+00:00",
   "vector_count": 50000
 }
