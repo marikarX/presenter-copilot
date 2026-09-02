@@ -74,6 +74,9 @@ The fixture should include at least these facts:
   compact matrix without an eligibility join/materialized row mask;
 - an orphaned/deleted mapped entity disables that fast path and cannot appear
   in returned evidence;
+- mapping-count cache invalidation remains truthful when an indexed
+  KnowledgeItem is deleted, rebuild fails, and a replacement KnowledgeItem
+  returns the current entity count to its original value;
 - lexical retrieval processes document and knowledge candidates in bounded
   batches rather than materializing an unbounded record list.
 
@@ -121,6 +124,11 @@ The fixture should include at least these facts:
 - core rejects submit/confirm/reject actions outside the authoritative state
   transitions with stable `TEACH_STATE_INVALID`, `TEACH_ANSWER_PENDING`, and
   `TEACH_SOURCE_INVALID` errors;
+- a direct local answer can be explicitly discarded without creating a
+  UserStatement, KnowledgeItem, KnowledgeEvidence, SpeakerEvidence, or vector
+  mapping, and the next prompt remains available;
+- an unanswered `awaiting_user` prompt can end normally, while a pending answer
+  or provider candidate still blocks session stop;
 - `teach.get_state` restores bounded prompt, pending-answer, and candidate
   state after a core/app restart, including direct-save pending answers;
 - app-cleanup failure and project-delete failure each leave a retryable session
@@ -199,10 +207,11 @@ submit a user explanation -> inspect the separate provisional candidate -> edit
 and confirm it -> mark preferred/use-live -> verify persisted, immediately
 retrievable, and still present after session deletion.
 
-M3 adds the disposable-project acceptance path for a second direct-save answer:
-confirm it, set `use_live=false`, query `usage=live`, and verify the item is
-excluded. Promote only the first confirmed item to Speaker Profile through the
-separate explicit approval action.
+M3 adds the disposable-project acceptance path for direct answers: explicitly
+discard one answer and verify no project knowledge is created, submit another
+answer and confirm it, set `use_live=false`, query `usage=live`, and verify the
+item is excluded. Promote only the confirmed item to Speaker Profile through
+the separate explicit approval action.
 
 ### E2E-04 Challenge
 

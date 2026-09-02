@@ -63,6 +63,14 @@ type TeachSubmitResult = {
   };
 };
 
+type TeachDiscardResult = {
+  project_id: string;
+  session_id: string;
+  source_utterance_id: string;
+  discarded: boolean;
+  state: string;
+};
+
 type TeachStateResult = {
   session_id: string;
   state: string;
@@ -365,6 +373,36 @@ export function TeachPanel({ project }: TeachPanelProps) {
       setBusy(null);
     }
   }, [answer, keepLocal, project.id, session]);
+
+  const discardAnswer = useCallback(async () => {
+    if (!session || !lastSourceUtteranceId || candidate) return;
+    setBusy("discard-answer");
+    setMessage(null);
+    try {
+      await requestCore<TeachDiscardResult>("teach.discard_answer", {
+        project_id: project.id,
+        session_id: session.id,
+        source_utterance_id: lastSourceUtteranceId,
+      });
+      setAnswer("");
+      setLastSubmittedText("");
+      setLastSourceUtteranceId("");
+      setCandidate(null);
+      setCandidateText("");
+      setCandidateKind("rationale");
+      setKeepLocal(false);
+      setSession((current) =>
+        current ? { ...current, teach_state: "ready_for_prompt" } : current,
+      );
+      setMessage(
+        "The answer was discarded and remains only in session history. You can ask another question or end the session.",
+      );
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }, [candidate, lastSourceUtteranceId, project.id, session]);
 
   const confirmKnowledge = useCallback(
     async (sourceUtteranceId: string, candidateId?: string) => {
@@ -672,7 +710,9 @@ export function TeachPanel({ project }: TeachPanelProps) {
                   busy !== null ||
                   candidate !== null ||
                   lastSourceUtteranceId !== "" ||
-                  session.teach_state !== "ready_for_prompt"
+                  !["ready_for_prompt", "awaiting_user"].includes(
+                    session.teach_state,
+                  )
                 }
               >
                 End session
@@ -843,16 +883,26 @@ export function TeachPanel({ project }: TeachPanelProps) {
               <strong>Keep your original explanation</strong>
               <p>{lastSubmittedText}</p>
             </div>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() =>
-                void confirmKnowledge(lastSourceUtteranceId, undefined)
-              }
-              disabled={busy !== null}
-            >
-              Save original answer
-            </button>
+            <div className="button-row">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() =>
+                  void confirmKnowledge(lastSourceUtteranceId, undefined)
+                }
+                disabled={busy !== null}
+              >
+                Save original answer
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => void discardAnswer()}
+                disabled={busy !== null}
+              >
+                Discard
+              </button>
+            </div>
           </article>
         ) : null}
         {message ? (

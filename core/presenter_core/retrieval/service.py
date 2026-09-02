@@ -87,7 +87,7 @@ class HybridRetrievalService:
         self._embedding_adapter = embedding_adapter
         self._event_sink = event_sink
         self._matrix_cache: dict[str, tuple[str, tuple[int, int, int], np.ndarray[Any, Any]]] = {}
-        self._mapping_count_cache: dict[tuple[str, str, int], int] = {}
+        self._mapping_count_cache: dict[tuple[str, str], int] = {}
 
     def health(self, params: dict[str, Any]) -> dict[str, Any]:
         """Return index/model state without exposing local paths or source text."""
@@ -106,7 +106,6 @@ class HybridRetrievalService:
                     connection,
                     project_id,
                     str(active["id"]),
-                    current_indexable_entity_count,
                 )
                 if active is not None
                 else 0
@@ -378,6 +377,11 @@ class HybridRetrievalService:
                     vector_rows=vector_rows,
                 )
                 activated = True
+                # A successful activation replaces the active generation's
+                # mapping set. Retire all project entries, including entries
+                # for the previous generation, before another query can use
+                # them.
+                self.invalidate_project_mappings(project_id)
                 old_matrix = None
 
             # The old generation can be unlinked only after the activation
@@ -507,7 +511,6 @@ class HybridRetrievalService:
                     connection,
                     project_id,
                     str(active["id"]),
-                    current_indexable_entity_count,
                 )
                 if active is not None
                 else 0
@@ -688,7 +691,7 @@ class HybridRetrievalService:
         self.invalidate_project_mappings(normalized_project_id)
 
     def invalidate_project_mappings(self, project_id: str) -> None:
-        """Forget cached validity counts after a source or indexable-row mutation."""
+        """Forget cached validity counts after an active mapping-set mutation."""
         normalized_project_id = normalize_project_id(project_id)
         self._mapping_count_cache = {
             key: value
@@ -1020,10 +1023,9 @@ class HybridRetrievalService:
         connection: sqlite3.Connection,
         project_id: str,
         generation_id: str,
-        current_indexable_entity_count: int,
     ) -> int:
-        """Reuse a validated mapping count until the current entity set changes."""
-        cache_key = (project_id, generation_id, current_indexable_entity_count)
+        """Reuse a count only while this generation's mapping set is unchanged."""
+        cache_key = (project_id, generation_id)
         cached = self._mapping_count_cache.get(cache_key)
         if cached is not None:
             return cached

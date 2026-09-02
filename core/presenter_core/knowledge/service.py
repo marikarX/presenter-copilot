@@ -19,9 +19,11 @@ class KnowledgeService:
         self,
         storage: StorageManager,
         after_delete: Callable[[str], dict[str, Any]] | None = None,
+        after_mapping_delete: Callable[[str], None] | None = None,
     ) -> None:
         self._storage = storage
         self._after_delete = after_delete
+        self._after_mapping_delete = after_mapping_delete
 
     def list(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "usage"})
@@ -108,6 +110,8 @@ class KnowledgeService:
                 (item_id, project_id),
             )
             connection.commit()
+        if cursor.rowcount == 1 and self._after_mapping_delete is not None:
+            self._after_mapping_delete(project_id)
         semantic_sync = (
             self._after_delete(project_id)
             if self._after_delete is not None

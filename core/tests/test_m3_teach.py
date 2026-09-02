@@ -20,6 +20,7 @@ from presenter_core.providers.models import (
 )
 from presenter_core.providers.openai import OpenAIReasoningProvider
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
+from presenter_core.retrieval.index import NumpyEmbeddingIndex
 from presenter_core.storage.database import (
     APP_SCHEMA_VERSION,
     PROJECT_SCHEMA_VERSION,
@@ -455,12 +456,6 @@ def test_teach_state_transitions_reject_double_submit_and_stale_confirmation(
             "teach.next_prompt",
             {"project_id": project_id, "session_id": session_id},
         )
-        stop_while_awaiting = error_response(
-            core,
-            "session.stop",
-            {"project_id": project_id, "session_id": session_id},
-        )
-        assert stop_while_awaiting["code"] == "TEACH_ANSWER_PENDING"
         first = request(
             core,
             "teach.submit_text",
@@ -577,6 +572,346 @@ def test_teach_state_transitions_reject_double_submit_and_stale_confirmation(
             },
         )
         assert double_direct_confirm["code"] == "TEACH_STATE_INVALID"
+    finally:
+        core.close()
+
+
+def test_teach_direct_answer_can_be_discarded_without_project_evidence(tmp_path: Path) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project_id = create_project(core, privacy_mode="local_only")
+        session_id = start_teach(core, project_id)
+        request(
+            core,
+            "teach.next_prompt",
+            {"project_id": project_id, "session_id": session_id},
+        )
+        submitted = request(
+            core,
+            "teach.submit_text",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "text": "This rehearsal answer is intentionally disposable.",
+                "local_only": True,
+            },
+        )
+        assert submitted["candidate"] is None
+
+        discarded = request(
+            core,
+            "teach.discard_answer",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "source_utterance_id": submitted["source_utterance_id"],
+            },
+        )
+        assert discarded == {
+            "project_id": project_id,
+            "session_id": session_id,
+            "source_utterance_id": submitted["source_utterance_id"],
+            "discarded": True,
+            "state": "ready_for_prompt",
+        }
+        stale_confirm = error_response(
+            core,
+            "teach.confirm_knowledge_item",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "source_utterance_id": submitted["source_utterance_id"],
+            },
+        )
+        assert stale_confirm["code"] == "TEACH_STATE_INVALID"
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            assert connection.execute("SELECT COUNT(*) FROM user_statements").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM knowledge_evidence").fetchone()[0] == 0
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM embedding_vectors WHERE entity_type = 'knowledge_item'"
+                ).fetchone()[0]
+                == 0
+            )
+        with core._storage.app_database() as connection:  # type: ignore[attr-defined]
+            assert connection.execute("SELECT COUNT(*) FROM speaker_evidence").fetchone()[0] == 0
+
+        next_result = request(
+            core,
+            "teach.next_prompt",
+            {"project_id": project_id, "session_id": session_id},
+        )
+        assert next_result["state"] == "awaiting_user"
+    finally:
+        core.close()
+
+
+def test_teach_direct_answer_recovers_and_can_be_discarded_after_restart(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    first = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    project_id = create_project(first, privacy_mode="local_only")
+    session_id = start_teach(first, project_id)
+    request(first, "teach.next_prompt", {"project_id": project_id, "session_id": session_id})
+    submitted = request(
+        first,
+        "teach.submit_text",
+        {
+            "project_id": project_id,
+            "session_id": session_id,
+            "text": "This recovered answer should be discarded.",
+            "local_only": True,
+        },
+    )
+    first.close()
+
+    second = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        recovered = request(
+            second,
+            "teach.get_state",
+            {"project_id": project_id, "session_id": session_id},
+        )
+        assert recovered["state"] == "candidate_ready"
+        assert recovered["candidate"] is None
+        assert recovered["pending_answer"] == {
+            "source_utterance_id": submitted["source_utterance_id"],
+            "text": "This recovered answer should be discarded.",
+        }
+        discarded = request(
+            second,
+            "teach.discard_answer",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "source_utterance_id": submitted["source_utterance_id"],
+            },
+        )
+        assert discarded["state"] == "ready_for_prompt"
+        assert (
+            request(
+                second,
+                "teach.get_state",
+                {"project_id": project_id, "session_id": session_id},
+            )["state"]
+            == "ready_for_prompt"
+        )
+    finally:
+        second.close()
+
+
+def test_teach_stop_allows_unanswered_prompt_but_blocks_pending_answer(tmp_path: Path) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project_id = create_project(core, privacy_mode="local_only")
+        unanswered_session_id = start_teach(core, project_id)
+        request(
+            core,
+            "teach.next_prompt",
+            {"project_id": project_id, "session_id": unanswered_session_id},
+        )
+        stopped = request(
+            core,
+            "session.stop",
+            {"project_id": project_id, "session_id": unanswered_session_id},
+        )
+        assert stopped["session"]["status"] == "completed"
+        assert stopped["session"]["teach_state"] == "completed"
+
+        pending_session_id = start_teach(core, project_id)
+        request(
+            core,
+            "teach.next_prompt",
+            {"project_id": project_id, "session_id": pending_session_id},
+        )
+        request(
+            core,
+            "teach.submit_text",
+            {
+                "project_id": project_id,
+                "session_id": pending_session_id,
+                "text": "This answer must be resolved before stopping.",
+                "local_only": True,
+            },
+        )
+        blocked = error_response(
+            core,
+            "session.stop",
+            {"project_id": project_id, "session_id": pending_session_id},
+        )
+        assert blocked["code"] == "TEACH_ANSWER_PENDING"
+    finally:
+        core.close()
+
+
+def test_mapping_count_cache_invalidates_across_failed_knowledge_resync_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project_id = create_project(core, privacy_mode="local_only")
+        ids = seed_retrieval_rows(core, project_id)
+        initial_build = request(core, "retrieval.rebuild", {"project_id": project_id})
+        initial_generation_id = str(initial_build["generation_id"])
+        initial_health = request(core, "retrieval.health", {"project_id": project_id})
+        assert initial_health["current_indexable_entity_count"] == 2
+        assert initial_health["current_indexed_mappings"] == 2
+        request(
+            core,
+            "retrieval.query",
+            {"project_id": project_id, "query": "migration risk", "limit": 5},
+        )
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            old_mapping = connection.execute(
+                "SELECT row_index FROM embedding_vectors "
+                "WHERE generation_id = ? AND entity_type = 'knowledge_item' AND entity_id = ?",
+                (initial_generation_id, ids["knowledge"]),
+            ).fetchone()
+        assert old_mapping is not None
+        old_row_index = int(old_mapping["row_index"])
+        assert len(core._hybrid_retrieval._mapping_count_cache) == 1  # type: ignore[attr-defined]
+
+        def fail_rebuild(params: dict[str, Any]) -> dict[str, Any]:
+            del params
+            raise RuntimeError("injected semantic resync failure")
+
+        with monkeypatch.context() as failure:
+            failure.setattr(core._hybrid_retrieval, "rebuild", fail_rebuild)  # type: ignore[attr-defined]
+            deleted = request(
+                core,
+                "knowledge.delete",
+                {"project_id": project_id, "knowledge_item_id": ids["knowledge"]},
+            )
+            assert deleted["semantic_sync"]["status"] == "partial"
+            assert not core._hybrid_retrieval._mapping_count_cache  # type: ignore[attr-defined]
+
+            session_id = start_teach(core, project_id)
+            request(
+                core,
+                "teach.next_prompt",
+                {"project_id": project_id, "session_id": session_id},
+            )
+            submitted = request(
+                core,
+                "teach.submit_text",
+                {
+                    "project_id": project_id,
+                    "session_id": session_id,
+                    "text": "New unindexed knowledge phrase 4242.",
+                    "local_only": True,
+                },
+            )
+            confirmed = request(
+                core,
+                "teach.confirm_knowledge_item",
+                {
+                    "project_id": project_id,
+                    "session_id": session_id,
+                    "source_utterance_id": submitted["source_utterance_id"],
+                    "text": "New unindexed knowledge phrase 4242.",
+                },
+            )
+            assert confirmed["semantic_sync"]["status"] == "partial"
+            assert not core._hybrid_retrieval._mapping_count_cache  # type: ignore[attr-defined]
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            active = connection.execute(
+                "SELECT id FROM embedding_generations WHERE is_active = 1"
+            ).fetchone()
+            assert active is not None and str(active["id"]) == initial_generation_id
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM embedding_vectors WHERE generation_id = ?",
+                    (initial_generation_id,),
+                ).fetchone()[0]
+                == 1
+            )
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM embedding_vectors "
+                    "WHERE entity_type = 'knowledge_item' AND entity_id = ?",
+                    (confirmed["knowledge_item"]["id"],),
+                ).fetchone()[0]
+                == 0
+            )
+
+        partial_health = request(core, "retrieval.health", {"project_id": project_id})
+        assert partial_health["semantic_coverage"] < 1.0
+        assert partial_health["current_indexed_mappings"] == 1
+        assert partial_health["current_indexable_entity_count"] == 2
+
+        observed: dict[str, Any] = {}
+        original_cosine_search = NumpyEmbeddingIndex.cosine_search
+
+        def capture_eligibility(
+            matrix: Any,
+            query_vector: Any,
+            *,
+            eligible_rows: Any,
+            limit: int,
+        ) -> Any:
+            observed["eligible_rows"] = (
+                None if eligible_rows is None else [int(row) for row in eligible_rows]
+            )
+            return original_cosine_search(
+                matrix,
+                query_vector,
+                eligible_rows=eligible_rows,
+                limit=limit,
+            )
+
+        monkeypatch.setattr(
+            NumpyEmbeddingIndex,
+            "cosine_search",
+            staticmethod(capture_eligibility),
+        )
+        partial_query = request(
+            core,
+            "retrieval.query",
+            {
+                "project_id": project_id,
+                "query": "New unindexed knowledge phrase 4242",
+                "limit": 5,
+            },
+        )
+        assert partial_query["semantic"]["coverage"] < 1.0
+        assert observed["eligible_rows"] is not None
+        assert old_row_index not in observed["eligible_rows"]
+        assert any(
+            hit["evidence"].get("knowledge_item_id") == confirmed["knowledge_item"]["id"]
+            for hit in partial_query["hits"]
+        )
+
+        rebuilt = request(core, "retrieval.rebuild", {"project_id": project_id})
+        assert rebuilt["generation_id"] != initial_generation_id
+        assert rebuilt["coverage"] == 1.0
+        healthy = request(core, "retrieval.health", {"project_id": project_id})
+        assert healthy["semantic_coverage"] == 1.0
+        assert healthy["current_indexed_mappings"] == healthy["matrix_row_count"] == 2
+
+        observed.clear()
+        fast_query = request(
+            core,
+            "retrieval.query",
+            {"project_id": project_id, "query": "migration risk", "limit": 5},
+        )
+        assert fast_query["semantic"]["status"] == "ready"
+        assert observed["eligible_rows"] is None
     finally:
         core.close()
 

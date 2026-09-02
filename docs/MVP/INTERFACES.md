@@ -177,6 +177,10 @@ KnowledgeItem session provenance and deletes the project session in one
 transaction. A failure in either phase is retryable and never deletes a
 project session partially.
 
+`session.stop` completes an active Teach session from `ready_for_prompt` or
+`awaiting_user`. It remains blocked while a user answer or provisional
+provider candidate is pending.
+
 ### ASR
 
 ```text
@@ -203,6 +207,7 @@ presentation.status
 teach.next_prompt
 teach.get_state
 teach.submit_text
+teach.discard_answer
 teach.confirm_knowledge_item
 teach.reject_knowledge_item
 ```
@@ -214,13 +219,20 @@ Core owns the Teach state machine:
 ```text
 ready_for_prompt -> next_prompt -> awaiting_user
 awaiting_user -> submit_text -> candidate_ready
-candidate_ready -> confirm/reject -> ready_for_prompt
+awaiting_user -> stop -> completed
+candidate_ready -> confirm/reject/discard -> ready_for_prompt
+candidate_ready -> stop (blocked)
 ```
 
 `teach.get_state` returns only bounded active-session recovery data: the current
 prompt, pending user answer, and pending provisional candidate when present.
 Every Teach operation rereads the current project privacy mode, so changing a
 project to `local_only` takes effect for an already-active session.
+
+`teach.discard_answer` is allowed only for the current pending user answer when
+no provider candidate is pending. It preserves the ordinary session utterance
+history, creates no knowledge or evidence, and returns the session to
+`ready_for_prompt`; arbitrary utterance deletion is not exposed.
 
 ### Knowledge management
 

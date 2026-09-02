@@ -133,7 +133,7 @@ class SessionService:
                         "TEACH_CANDIDATE_PENDING",
                         "Confirm or reject the current Teach candidate before ending the session.",
                     )
-                if row["teach_state"] in {"awaiting_user", "candidate_ready"}:
+                if row["teach_state"] == "candidate_ready":
                     raise CoreDomainError(
                         "TEACH_ANSWER_PENDING",
                         "Save or discard the current Teach answer before ending the session.",

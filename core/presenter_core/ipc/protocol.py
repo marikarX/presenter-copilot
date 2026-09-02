@@ -40,6 +40,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "teach.next_prompt",
     "teach.get_state",
     "teach.submit_text",
+    "teach.discard_answer",
     "teach.confirm_knowledge_item",
     "teach.reject_knowledge_item",
     "knowledge.list",

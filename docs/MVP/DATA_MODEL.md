@@ -459,6 +459,12 @@ entity type, entity ID, content hash, model identity, and dimension match. If
 activation fails, the prior active row and matrix remain usable and the newly
 written matrix is an orphan that cleanup may remove.
 
+The in-process mapping-count cache is valid only for an unchanged generation
+mapping set. Source mutations, KnowledgeItem mapping deletion, confirmed
+KnowledgeItem mutation, project eviction, and successful generation activation
+invalidate the affected project entries; a failed rebuild leaves the active
+generation and its cacheable mapping set unchanged.
+
 ```text
 embedding_generations
 - id UUID PK

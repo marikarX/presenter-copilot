@@ -340,6 +340,54 @@ class TeachService:
             }
         return response
 
+    def discard_answer(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Discard only the current direct-answer decision without deleting history."""
+        reject_unknown_fields(params, {"project_id", "session_id", "source_utterance_id"})
+        project_id = self._project_id(params)
+        session_id = self._uuid_param(params, "session_id")
+        source_utterance_id = self._uuid_param(params, "source_utterance_id")
+        session = self._active_teach_session(project_id, session_id)
+        self._require_state(session, "candidate_ready")
+        with self._storage.project_database(project_id) as connection:
+            pending_candidate = connection.execute(
+                "SELECT id FROM teach_candidates "
+                "WHERE session_id = ? AND status = 'pending' LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if pending_candidate is not None:
+                raise CoreDomainError(
+                    "TEACH_CANDIDATE_PENDING",
+                    "Reject the current Teach candidate before discarding an answer.",
+                )
+            current_answer = self._current_pending_user_utterance(connection, session_id)
+            if current_answer is None or str(current_answer["id"]) != source_utterance_id:
+                raise CoreDomainError(
+                    "TEACH_SOURCE_INVALID",
+                    "The discarded answer must be the current pending Teach answer.",
+                )
+            transitioned = connection.execute(
+                """
+                UPDATE sessions
+                SET teach_state = 'ready_for_prompt'
+                WHERE id = ? AND project_id = ? AND teach_state = 'candidate_ready'
+                """,
+                (session_id, project_id),
+            )
+            if transitioned.rowcount != 1:
+                connection.rollback()
+                raise CoreDomainError(
+                    "TEACH_STATE_INVALID",
+                    "The Teach answer arrived after the session state changed.",
+                )
+            connection.commit()
+        return {
+            "project_id": project_id,
+            "session_id": session_id,
+            "source_utterance_id": source_utterance_id,
+            "discarded": True,
+            "state": "ready_for_prompt",
+        }
+
     def get_state(self, params: dict[str, Any]) -> dict[str, Any]:
         """Return only the bounded, recoverable state of one active Teach session."""
         reject_unknown_fields(params, {"project_id", "session_id"})
@@ -753,6 +801,10 @@ class TeachService:
             return str(row["id"]) if row is not None else None
 
     def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
+        # Confirmation changes the current mapping set only if a rebuild
+        # succeeds. Invalidate first so a failed rebuild cannot reuse the old
+        # generation's count after the entity set returns to a prior size.
+        self._retrieval.invalidate_project_mappings(project_id)
         with self._storage.project_database(project_id) as connection:
             active = connection.execute(
                 "SELECT id FROM embedding_generations WHERE is_active = 1"

@@ -75,6 +75,7 @@ class CoreService:
         self._knowledge = KnowledgeService(
             self._storage,
             after_delete=self._synchronize_semantic_index,
+            after_mapping_delete=self._hybrid_retrieval.invalidate_project_mappings,
         )
         self._providers = ProviderService(self._storage, reasoning_provider)
         self._context_builder = ProviderContextBuilder(
@@ -317,6 +318,8 @@ class CoreService:
             return make_response(request_id, result=self._teach.get_state(params))
         if method == "teach.submit_text":
             return make_response(request_id, result=self._teach.submit_text(params))
+        if method == "teach.discard_answer":
+            return make_response(request_id, result=self._teach.discard_answer(params))
         if method == "teach.confirm_knowledge_item":
             return make_response(request_id, result=self._teach.confirm_knowledge_item(params))
         if method == "teach.reject_knowledge_item":
@@ -361,6 +364,10 @@ class CoreService:
 
     def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
         """Refresh an active index after a knowledge deletion without undoing the delete."""
+        # The project rows have already committed before this best-effort
+        # rebuild begins. Retire any count cached for the old mapping set even
+        # when the rebuild fails and leaves that generation active.
+        self._hybrid_retrieval.invalidate_project_mappings(project_id)
         with self._storage.project_database(project_id) as connection:
             active = connection.execute(
                 "SELECT id FROM embedding_generations WHERE is_active = 1"
