@@ -31,7 +31,7 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
-## Milestone 3 setup and commands
+## Milestone 4 setup and commands
 
 The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
 3.13, and uv. Install the locked JavaScript and Python environments from the
@@ -73,8 +73,9 @@ pnpm test:provider-real
 ```
 
 `pnpm test` includes the TypeScript Electron-side client tests, deterministic
-Python retrieval/storage/parser/IPC/provider/Teach tests, and integration tests
-that spawn the real Python sidecar across a restart. Hosted CI does not
+Python retrieval/storage/parser/IPC/provider/Teach/transcript/Audience Model
+tests, and integration tests that spawn the real Python sidecar across a
+restart. Hosted CI does not
 download the embedding model, require provider credentials, or make provider
 calls; real-model and real-provider acceptance are manual developer checks.
 `pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
@@ -168,25 +169,36 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## Milestone 3 boundary
+## Milestone 4 boundary
 
 The current implementation includes the M1 vault/ingestion vertical slice, M2
-generation-based local retrieval, and M3 typed Teach/Speaker Profile behavior:
+generation-based local retrieval, M3 typed Teach/Speaker Profile behavior, and
+the M4 transcript/Audience Model vertical slice:
 app/project SQLite migrations, UUID-keyed project directories, source
-snapshots, PDF/PPTX/TXT/Markdown parsing, provenance-backed previews, source
+snapshots, PDF/PPTX/TXT/Markdown/VTT/SRT/named-TXT/structured-JSON parsing,
+timestamped transcript SourceUnits, provenance-backed previews, source
 deletion/re-indexing, generic chunk/confirmed-KnowledgeItem indexing,
 hybrid lexical/semantic ranking, D07/D08 controls, project-local sessions,
 durable UserStatement provenance, provisional candidate approval, explicit
-Speaker Profile evidence, provider routing, bounded context manifests, and the
-official optional OpenAI Responses adapter. Voice ASR, Challenge, Run, the HUD,
-OS-backed secret storage, and full provider cancellation/resilience remain
-later milestones defined in `docs/MVP/`.
+Speaker Profile evidence, explicit native-speaker mapping, project-local
+AudienceProfile CRUD, deterministic local observable-pattern candidates,
+reviewed/stale evidence lifecycle, provider routing, bounded context
+manifests, and the official optional OpenAI Responses adapter. M4 audience
+extraction never invokes that provider. Voice ASR, Challenge, Run, the HUD,
+OS-backed secret storage, Teams/Webex-specific connectors, media/diarization,
+and full provider cancellation/resilience remain later milestones defined in
+`docs/MVP/`.
 
 The Python core resolves one authoritative data root. Set
 `PRESENTER_COPILOT_DATA_ROOT` for controlled tests or local integration runs;
 do not point tests at the developer's real Local AppData. The renderer has no
 path input for imports: Electron main opens the native picker and passes the
 selected path only to the trusted core request.
+
+Transcript import is additionally disclosure-gated before the native picker
+opens. The core receives only the selected path through the existing
+main/preload boundary; transcript labels are never treated as identity, and
+AudienceContextBuilder receives only active, evidence-valid observations.
 
 ## Expected architecture boundaries
 

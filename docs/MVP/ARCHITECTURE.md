@@ -121,10 +121,10 @@ Owns:
 
 Owns:
 
-- VTT/SRT/text/structured transcript import;
+- VTT/SRT/named-TXT/structured-JSON transcript import;
 - preservation of native speaker labels and timestamps;
-- speaker normalization;
-- explicit mapping to Audience Profiles;
+- deterministic SourceUnit identity and transcript provenance;
+- explicit mapping to project-local Audience Profiles;
 - no biometric identity inference.
 
 ### ASRService
@@ -180,9 +180,17 @@ Owns:
 - audience profiles;
 - attributed prior questions;
 - user-entered role/concern notes;
-- derived observable patterns;
-- evidence links for each derived observation;
+- provisional, deterministic observable-pattern candidates;
+- reviewed observations and exact transcript evidence links;
+- stale lifecycle after attribution/source changes;
 - project-local lifecycle.
+
+Audience extraction is deliberately not a provider adapter. It reads only
+currently mapped transcript SourceUnits, applies bounded deterministic rules,
+and writes provisional candidates. Acceptance is the review boundary; a
+source-derived observation cannot become active without transcript evidence.
+`AudienceContextBuilder` returns active profiles and active, evidence-valid
+observations only, with user notes explicitly labeled as user-supplied.
 
 ### RehearsalService
 
@@ -312,7 +320,9 @@ PresenterCopilot/
       diagnostics/
 ```
 
-Project-local databases/files make deletion/export easier and reduce accidental cross-project retrieval.
+Project-local databases/files make deletion/export easier and reduce accidental cross-project retrieval. M4
+adds its AudienceProfile, transcript mapping, candidate, observation, and
+evidence tables to `project.db` only; there is no global Audience Model table.
 
 ### Source snapshots
 
@@ -373,6 +383,10 @@ Under Selected Context Cloud, only this packet may be sent remotely.
 - remote provider unavailable/quota -> retrieval-only/local path.
 - sidecar crash -> main UI offers restart; HUD does not freeze over presentation.
 - project corruption -> never silently overwrite; create diagnostic/recovery path.
+- transcript re-index -> preserve unchanged SourceUnit IDs, reconcile native
+  labels, and mark removed-evidence observations/candidates stale.
+- incompatible speaker remap/unmap -> keep transcript text, mark derived rows
+  stale, and never transfer them to the new profile.
 
 ## 11. Observability
 

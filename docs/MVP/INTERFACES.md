@@ -102,6 +102,12 @@ source.delete
 source.reindex
 ```
 
+`source.import` accepts `kind=transcript` for `.vtt`, `.srt`, `.txt`, and
+structured `.json` transcript files. VTT/SRT/JSON default to transcript kind;
+ordinary `.txt` remains a supporting source unless the caller explicitly
+selects `kind=transcript`. Transcript previews expose bounded cue timestamps,
+native speaker labels, and `source_type=transcript` provenance.
+
 ### Retrieval
 
 ```text
@@ -136,6 +142,13 @@ transcript.map_speaker
 transcript.unmap_speaker
 ```
 
+`transcript.list_speakers` returns bounded native-label summaries grouped by
+transcript document. Every label starts unresolved. `map_speaker` and
+`unmap_speaker` are explicit project-local mutations; they never infer a
+person from a display name, voice, face, or other biometric signal. Mapping a
+label to a different profile revalidates its exact transcript evidence and
+marks incompatible derived observations/candidates stale.
+
 ### Speaker profile
 
 ```text
@@ -157,7 +170,19 @@ audience.delete
 audience.list_observations
 audience.accept_observation
 audience.reject_observation
+audience.create_observation
+audience.update_observation
+audience.delete_observation
+audience.build_context
 ```
+
+Audience methods are project-scoped. Extraction creates provisional pending
+candidates only from currently mapped transcript SourceUnits. Acceptance
+requires the candidate to remain pending and every exact transcript evidence
+unit to remain attributed to the same profile; user-entered safe observations
+may omit evidence. Rejected fingerprints stay in the project to prevent
+immediate recreation, while stale rows remain inspectable but are never active
+context.
 
 ### Sessions
 
@@ -369,6 +394,11 @@ All retrieval/provider/cue paths use one canonical evidence shape:
 
 `fact_safe=false` for AI inference or unverified generated content.
 
+Transcript evidence uses `source_type=transcript`, `source_id` equal to the
+transcript Document ID, and `source_unit_id` equal to the exact timestamped
+transcript segment. The canonical label includes the native speaker label and
+bounded cue time when present.
+
 ## 7. Assist request
 
 ```json
@@ -499,6 +529,11 @@ and emitted as `privacy.remote_context_manifest` before invocation. It contains
 metadata and IDs only, not the prompt, source excerpts, response, or secrets.
 `full_context_cloud` still uses the same conservative selected-context packet
 in M3; full-corpus upload is deferred.
+
+M4 audience observation extraction does not invoke the reasoning router or
+any provider under any project privacy mode. Transcript text stays local;
+only a future, separately authorized M5 reasoning request may consume the
+reviewed AudienceContext.
 
 ## 12. Versioning
 

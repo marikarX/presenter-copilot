@@ -8,6 +8,16 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ### Added
 
+- Milestone 4 transcript and Audience Model vertical slice: bounded VTT, SRT,
+  named-TXT, and structured-JSON adapters; timestamped/native-label
+  SourceUnits; explicit unresolved speaker mapping; project-local
+  AudienceProfile CRUD; provisional evidence-backed observation candidates;
+  review/edit/accept/reject lifecycle; stale attribution invalidation; and
+  restart/source/project deletion coverage.
+- M4 transcript authorization disclosure, transcript-specific provenance and
+  retrieval metadata, deterministic local observable-pattern extraction, and
+  sensitive/hidden-trait policy enforcement. Audience extraction makes no
+  remote provider call.
 - Milestone 3 typed Teach and Speaker Profile vertical slice: project-local
   sessions, durable user-statement provenance, provisional KnowledgeItem
   candidates, explicit confirmation/edit/reject controls, preferred/private/

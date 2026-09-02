@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 3
+PROJECT_SCHEMA_VERSION = 4
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -510,6 +510,143 @@ def _migrate_project_v3(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (3,))
 
 
+def _migrate_project_v4(connection: sqlite3.Connection) -> None:
+    """Add project-local transcript attribution and reviewed Audience Model state."""
+    connection.execute(
+        """
+        CREATE TABLE audience_profiles (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            display_name TEXT NOT NULL,
+            role TEXT NULL,
+            organization TEXT NULL,
+            user_notes TEXT NULL,
+            active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX audience_profiles_project_idx "
+        "ON audience_profiles(project_id, active, updated_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE transcript_speaker_maps (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            native_speaker_label TEXT NOT NULL,
+            audience_profile_id TEXT NULL
+                REFERENCES audience_profiles(id) ON DELETE SET NULL,
+            mapped_by TEXT NOT NULL CHECK (mapped_by IN ('user', 'import_metadata')),
+            created_at TEXT NOT NULL,
+            UNIQUE(document_id, native_speaker_label)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX transcript_speaker_maps_profile_idx "
+        "ON transcript_speaker_maps(audience_profile_id, document_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE audience_observations (
+            id TEXT PRIMARY KEY,
+            audience_profile_id TEXT NOT NULL
+                REFERENCES audience_profiles(id) ON DELETE CASCADE,
+            observation_type TEXT NOT NULL CHECK (
+                observation_type IN (
+                    'topic_interest', 'question_pattern', 'answer_preference',
+                    'recurring_objection', 'interaction_pattern', 'decision_criterion'
+                )
+            ),
+            text TEXT NOT NULL,
+            derivation TEXT NOT NULL CHECK (
+                derivation IN ('user_entered', 'source_derived', 'ai_inferred')
+            ),
+            confidence REAL NULL CHECK (
+                confidence IS NULL OR confidence BETWEEN 0.0 AND 1.0
+            ),
+            sensitive_trait INTEGER NOT NULL DEFAULT 0 CHECK (sensitive_trait IN (0, 1)),
+            review_status TEXT NOT NULL DEFAULT 'active' CHECK (
+                review_status IN ('active', 'stale')
+            ),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX audience_observations_profile_idx "
+        "ON audience_observations(audience_profile_id, review_status, updated_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE audience_observation_evidence (
+            observation_id TEXT NOT NULL
+                REFERENCES audience_observations(id) ON DELETE CASCADE,
+            provenance_type TEXT NOT NULL CHECK (provenance_type = 'transcript'),
+            provenance_id TEXT NOT NULL,
+            PRIMARY KEY (observation_id, provenance_type, provenance_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX audience_observation_evidence_provenance_idx "
+        "ON audience_observation_evidence(provenance_type, provenance_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE audience_observation_candidates (
+            id TEXT PRIMARY KEY,
+            audience_profile_id TEXT NOT NULL
+                REFERENCES audience_profiles(id) ON DELETE CASCADE,
+            observation_type TEXT NOT NULL CHECK (
+                observation_type IN (
+                    'topic_interest', 'question_pattern', 'answer_preference',
+                    'recurring_objection', 'interaction_pattern', 'decision_criterion'
+                )
+            ),
+            proposed_text TEXT NOT NULL,
+            confidence REAL NULL CHECK (
+                confidence IS NULL OR confidence BETWEEN 0.0 AND 1.0
+            ),
+            fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (
+                status IN ('pending', 'accepted', 'rejected', 'stale')
+            ),
+            observation_id TEXT NULL
+                REFERENCES audience_observations(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(audience_profile_id, fingerprint)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX audience_observation_candidates_profile_idx "
+        "ON audience_observation_candidates(audience_profile_id, status, created_at DESC)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE audience_observation_candidate_evidence (
+            candidate_id TEXT NOT NULL
+                REFERENCES audience_observation_candidates(id) ON DELETE CASCADE,
+            provenance_type TEXT NOT NULL DEFAULT 'transcript'
+                CHECK (provenance_type = 'transcript'),
+            provenance_id TEXT NOT NULL,
+            PRIMARY KEY (candidate_id, provenance_type, provenance_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX audience_observation_candidate_evidence_provenance_idx "
+        "ON audience_observation_candidate_evidence(provenance_type, provenance_id)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (4,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -538,6 +675,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (1, _migrate_project_v1),
             (2, _migrate_project_v2),
             (3, _migrate_project_v3),
+            (4, _migrate_project_v4),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

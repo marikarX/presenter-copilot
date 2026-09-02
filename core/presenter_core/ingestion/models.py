@@ -21,6 +21,9 @@ class ParsedSourceUnit:
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
     search_text: str | None = None
+    start_ms: int | None = None
+    end_ms: int | None = None
+    speaker_label: str | None = None
 
     @property
     def index_text(self) -> str:

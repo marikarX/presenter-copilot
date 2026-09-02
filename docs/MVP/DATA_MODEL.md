@@ -548,6 +548,85 @@ embedding model cache survive.
 
 Every DB has an integer schema version. Migrations are forward-only in normal
 operation and must be covered by fixture tests from every released pre-1.0
-schema once releases begin. M3 uses explicit migration history:
-`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3, preserving existing registry,
-source, chunk, generation, mapping, and project-setting rows.
+schema once releases begin. M4 uses explicit migration history:
+`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4, preserving existing
+registry, source, chunk, generation, mapping, project-setting, session,
+Teach, provider-run, and style rows. The v3 -> v4 migration adds only
+project-local transcript attribution and Audience Model tables.
+
+## 14. M4 transcript attribution and Audience Model
+
+Transcript documents continue to use the existing `documents`,
+`source_units`, and `chunks` tables. M4 persists `kind=transcript`,
+`unit_type=transcript_segment`, bounded `start_ms`/`end_ms`, and the native
+`speaker_label`. Transcript chunks use the existing retrieval generations;
+there is no second transcript vector store. Public transcript provenance uses
+`source_type=transcript` and points to the exact `SourceUnit`.
+
+The v4 project-local tables are:
+
+```text
+audience_profiles
+- id UUID PK
+- project_id UUID FK project ON DELETE CASCADE
+- display_name TEXT
+- role TEXT nullable
+- organization TEXT nullable
+- user_notes TEXT nullable
+- active BOOLEAN
+- created_at / updated_at
+
+transcript_speaker_maps
+- document_id UUID FK documents ON DELETE CASCADE
+- native_speaker_label TEXT
+- audience_profile_id UUID nullable FK audience_profiles ON DELETE SET NULL
+- mapped_by ENUM(user, import_metadata)
+- created_at
+- PK(document_id, native_speaker_label)
+
+audience_observations
+- id UUID PK
+- audience_profile_id UUID FK audience_profiles ON DELETE CASCADE
+- observation_type ENUM(topic_interest, question_pattern, answer_preference,
+  recurring_objection, interaction_pattern, decision_criterion)
+- text TEXT
+- derivation ENUM(user_entered, source_derived, ai_inferred)
+- confidence REAL nullable
+- sensitive_trait BOOLEAN
+- review_status ENUM(active, stale)
+- created_at / updated_at
+
+audience_observation_evidence
+- observation_id UUID FK audience_observations ON DELETE CASCADE
+- provenance_type = transcript
+- provenance_id UUID source_units.id
+- PK(observation_id, provenance_type, provenance_id)
+
+audience_observation_candidates
+- id UUID PK
+- audience_profile_id UUID FK audience_profiles ON DELETE CASCADE
+- observation_type / proposed_text / confidence
+- fingerprint TEXT
+- status ENUM(pending, accepted, rejected, stale)
+- observation_id UUID nullable FK audience_observations ON DELETE SET NULL
+- created_at / updated_at
+
+audience_observation_candidate_evidence
+- candidate_id UUID FK audience_observation_candidates ON DELETE CASCADE
+- provenance_type = transcript
+- provenance_id UUID source_units.id
+- PK(candidate_id, provenance_type, provenance_id)
+```
+
+Native labels are metadata only. They begin unresolved, and only an explicit
+user mapping can associate a label with an AudienceProfile. A profile delete
+sets mappings to NULL and cascades that profile's observations/candidates;
+the transcript document and its chunks survive. Transcript deletion removes
+maps/evidence and marks retained source-derived observations/candidates stale
+before the source rows cascade. User-entered observations without transcript
+evidence survive.
+
+Source-derived observations require at least one currently attributed
+transcript evidence row at acceptance. Attribution changes never transfer an
+old observation to another profile: incompatible observations become stale,
+pending candidates become stale, and stale rows are excluded from context.

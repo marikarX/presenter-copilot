@@ -421,3 +421,65 @@ Reason:
 M3 needs project-specific style without creating two mutable copies of the
 same policy. One switch plus the existing project fields keeps the source of
 truth inspectable and makes global profile behavior reversible per project.
+
+## D-030 — M4 Audience Model state is project-local
+
+**Status:** Accepted for Milestone 4
+
+AudienceProfiles, transcript speaker maps, observation candidates, reviewed
+AudienceObservations, and their evidence live only in each project's
+`project.db`. There is no global audience table and no automatic promotion
+between projects. Project deletion removes the database and all M4 local
+artifacts through the existing project lifecycle.
+
+Reason:
+
+Audience expectations and transcript authorization are presentation-specific.
+Keeping them in the project vault makes isolation, deletion, and review
+inspectable and avoids accidental cross-project personalization.
+
+## D-031 — Native transcript labels require explicit user attribution
+
+**Status:** Accepted for Milestone 4
+
+VTT/SRT/named-TXT/structured-JSON adapters preserve native labels and cue
+times as SourceUnit metadata. Every label begins unresolved. Only an explicit
+`transcript.map_speaker` action associates a label with an AudienceProfile;
+the system does not match names silently and never stores biometric identity.
+
+Reason:
+
+Meeting-provided labels are useful provenance but are not proof of identity.
+Separating native metadata from user-controlled mapping prevents accidental
+attribution while retaining exact evidence.
+
+## D-032 — M4 extraction is deterministic and review-gated
+
+**Status:** Accepted for Milestone 4
+
+M4 uses bounded local rules over currently mapped transcript segments to
+create provisional observation candidates. It does not invoke a remote or
+local reasoning provider. Candidates remain outside AudienceContext until the
+user reviews and accepts them; acceptance rechecks exact transcript evidence
+and the prohibited-category policy.
+
+Reason:
+
+The milestone needs an auditable evidence/review boundary before richer
+inference. Deterministic extraction makes privacy and regression behavior
+testable without provider credentials or transcript upload.
+
+## D-033 — Attribution changes stale evidence rather than transferring it
+
+**Status:** Accepted for Milestone 4
+
+When a native label is remapped, unmapped, or its transcript evidence is
+removed during source deletion/re-index, affected source-derived observations
+become stale and pending candidates become stale. They remain inspectable but
+are excluded from AudienceContext and are never moved to the new profile.
+
+Reason:
+
+An attribution change invalidates the original interpretation. Requiring
+fresh extraction/review is safer than silently rewriting a person's audience
+model from evidence gathered under another mapping.

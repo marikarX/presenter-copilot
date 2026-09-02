@@ -44,7 +44,7 @@ const api: PresenterCopilotApi = {
   source: {
     pickAndImport(
       projectId: string,
-      kind: "presentation" | "supporting" = "supporting",
+      kind: "presentation" | "supporting" | "transcript" = "supporting",
     ): Promise<InvokeResult<ImportSourceResult>> {
       return ipcRenderer.invoke("source:pick-and-import", {
         project_id: projectId,

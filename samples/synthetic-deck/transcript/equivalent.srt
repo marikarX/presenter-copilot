@@ -1,0 +1,11 @@
+1
+00:00:01,000 --> 00:00:04,200
+Jane Smith: What is the status-quo cost?
+
+2
+00:00:05,000 --> 00:00:08,000
+Robert Chen: What happens if rollback fails?
+
+3
+00:00:09,000 --> 00:00:12,000
+Unlabeled cue remains unlabeled.

@@ -95,18 +95,30 @@ User can teach two rationales, confirm them, reopen project, and retrieval/provi
 
 ### Build
 
-- VTT/SRT/native-text adapters;
-- preserve timestamps/native speaker labels;
-- speaker mapping UI;
-- AudienceProfile CRUD;
-- evidence-backed observation extraction;
-- observation review/edit/delete;
-- prohibited observation category filter;
-- Audience Model context builder.
+- VTT/SRT/named-TXT/structured-JSON adapters;
+- preserve timestamps/native speaker labels in transcript SourceUnits;
+- explicit native-label mapping UI with unresolved defaults;
+- project-local AudienceProfile CRUD;
+- deterministic, local, evidence-backed observable-pattern candidates;
+- provisional candidate edit/accept/reject and accepted observation
+  edit/delete;
+- prohibited sensitive/hidden-trait category filter;
+- bounded AudienceContextBuilder with active profiles and accepted,
+  non-stale observations only;
+- source re-index/delete and project-delete lifecycle invalidation.
 
 ### Exit
 
-Synthetic named transcript imports with three speakers; two map to profiles; one remains unresolved; generated audience observations can show supporting transcript segments.
+The synthetic named transcript imports with three native labels; two labels
+map explicitly to project-local AudienceProfiles and one remains unresolved.
+Extraction creates reviewable candidates only from currently attributed
+transcript segments. Accepted observations retain exact transcript evidence,
+remain after restart, become stale after incompatible remapping, and never
+enter context after their evidence is removed. The transcript authorization
+disclosure appears before the native picker opens.
+
+M4 does not include Teams/Webex-specific connectors, audio/video import,
+diarization, remote transcript profiling, or Challenge mode.
 
 ## Milestone 5 — Challenge mode
 

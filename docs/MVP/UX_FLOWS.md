@@ -59,6 +59,11 @@ JulyMeeting.vtt            Ready · 4 named speakers
 
 Errors must be per-file and retryable.
 
+Selecting Transcript opens the authorization disclosure before the native file
+picker. The user must explicitly continue before choosing a VTT, SRT, named
+TXT, or structured JSON transcript. The renderer never receives arbitrary
+filesystem authority.
+
 ## 4. Source review
 
 User can inspect:
@@ -80,6 +85,11 @@ Native speaker: Conference Room  [Map to: Unresolved]
 
 Do not hide unresolved attribution.
 
+Native labels are metadata until the user maps them. Mapping is performed per
+transcript document and label; a profile created from a label is still an
+explicit user action. Remapping does not move old observations to the new
+profile—derived rows become stale and require fresh review.
+
 ## 5. Audience setup
 
 Audience page contains cards:
@@ -100,6 +110,11 @@ Evidence: 7 attributed questions
 AI-derived observations must expose evidence and be editable/deletable.
 
 Prohibited sensitive/emotion inference is never presented.
+
+Audience suggestions are visibly provisional and show their exact supporting
+transcript segments, including speaker label and cue time. The user can edit
+the wording/type, accept, reject, or leave a candidate pending. Only accepted
+non-stale observations enter future AudienceContext.
 
 ## 6. Teach mode
 

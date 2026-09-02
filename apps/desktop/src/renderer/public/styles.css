@@ -565,6 +565,23 @@ textarea {
   white-space: nowrap;
 }
 
+.transcript-cue-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  color: #9fc5ff;
+}
+
+.transcript-cue-heading strong {
+  color: #e7edf8;
+}
+
+.transcript-provenance-label {
+  margin: 8px 0 0;
+  color: #8194b3;
+  font-size: 0.75rem;
+}
+
 .unit-card pre {
   overflow: auto;
   max-height: 360px;
@@ -1049,6 +1066,248 @@ textarea {
   color: #ffb2aa;
 }
 
+.audience-panel {
+  margin-top: 34px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(143, 171, 213, 0.14);
+}
+
+.audience-panel h3,
+.audience-panel h4 {
+  margin: 0;
+  color: #f5f8ff;
+}
+
+.audience-panel h3 {
+  font-size: 1rem;
+}
+
+.audience-panel h4 {
+  font-size: 0.98rem;
+}
+
+.audience-subsection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(143, 171, 213, 0.11);
+}
+
+.audience-speaker-list,
+.audience-profile-list,
+.audience-observation-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.audience-speaker,
+.audience-profile-card,
+.audience-observation {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(143, 171, 213, 0.14);
+  border-radius: 11px;
+  background: rgba(8, 16, 29, 0.45);
+}
+
+.audience-speaker,
+.audience-profile-heading,
+.audience-block-heading,
+.audience-observation-heading,
+.audience-observation-actions,
+.audience-form-actions,
+.audience-speaker-actions,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.audience-speaker > div:first-child,
+.audience-profile-heading > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.audience-speaker strong {
+  color: #e7edf8;
+}
+
+.audience-speaker span,
+.audience-observation-heading span,
+.audience-observation-heading small {
+  color: #8f9fba;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.audience-speaker-actions {
+  flex: none;
+}
+
+.audience-speaker-actions select {
+  min-width: 170px;
+}
+
+.audience-profile-form,
+.audience-user-observation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.audience-profile-form label,
+.audience-user-observation-form label {
+  display: grid;
+  gap: 6px;
+  color: #9aaac4;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.audience-notes-field,
+.audience-user-observation-text,
+.audience-form-actions {
+  grid-column: span 3;
+}
+
+.audience-form-actions {
+  justify-content: flex-start;
+}
+
+.audience-profile-heading {
+  align-items: flex-start;
+}
+
+.audience-user-notes {
+  margin: 14px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(74, 108, 177, 0.13);
+  color: #b8c9e3;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.audience-user-notes strong {
+  color: #9fc5ff;
+}
+
+.audience-observation-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(143, 171, 213, 0.1);
+}
+
+.audience-block-heading {
+  align-items: center;
+}
+
+.audience-observation {
+  display: grid;
+  gap: 9px;
+}
+
+.audience-observation.candidate {
+  border-color: rgba(255, 193, 112, 0.25);
+  background: rgba(166, 101, 34, 0.1);
+}
+
+.audience-observation.stale {
+  border-color: rgba(255, 142, 131, 0.34);
+  background: rgba(132, 47, 54, 0.14);
+}
+
+.audience-observation-heading {
+  align-items: baseline;
+}
+
+.audience-observation-heading span {
+  color: #c6dcff;
+  font-weight: 700;
+}
+
+.audience-observation-heading small {
+  flex: none;
+}
+
+.audience-observation-actions {
+  justify-content: flex-start;
+}
+
+.audience-evidence {
+  border-top: 1px solid rgba(143, 171, 213, 0.1);
+  padding-top: 9px;
+}
+
+.audience-evidence summary {
+  color: #9fc5ff;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.audience-evidence ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.audience-evidence li {
+  display: grid;
+  gap: 3px;
+  color: #dce8fb;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.audience-evidence li strong {
+  color: #9fc5ff;
+}
+
+.audience-evidence li span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 8, 16, 0.78);
+}
+
+.modal-card {
+  width: min(520px, 100%);
+  padding: 26px;
+  border: 1px solid rgba(143, 171, 213, 0.28);
+  border-radius: 16px;
+  background: #111c30;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+}
+
+.modal-card p:not(.eyebrow) {
+  margin: 16px 0 0;
+  color: #cbd8ec;
+  line-height: 1.6;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
 @media (max-width: 700px) {
   .app-shell {
     width: min(100% - 32px, 560px);
@@ -1110,5 +1369,29 @@ textarea {
   .direct-save-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .audience-speaker,
+  .audience-profile-heading,
+  .audience-block-heading,
+  .audience-observation-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .audience-speaker-actions,
+  .audience-speaker-actions select {
+    width: 100%;
+  }
+
+  .audience-profile-form,
+  .audience-user-observation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .audience-notes-field,
+  .audience-user-observation-text,
+  .audience-form-actions {
+    grid-column: auto;
   }
 }

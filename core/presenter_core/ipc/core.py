@@ -1,4 +1,4 @@
-"""Core request dispatcher and M1 service composition."""
+"""Core request dispatcher and service composition."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any
 
 from presenter_core import CORE_VERSION
+from presenter_core.audience.service import AudienceModelService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.knowledge.service import KnowledgeService
@@ -29,6 +30,7 @@ from presenter_core.speaker.service import SpeakerProfileService
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
 from presenter_core.storage.service import StorageManager
 from presenter_core.teach.service import TeachService
+from presenter_core.transcript.service import TranscriptService
 
 from .protocol import (
     PROTOCOL_VERSION,
@@ -59,7 +61,18 @@ class CoreService:
         self._shutdown_requested = False
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
-        self._ingestion = IngestionService(self._storage, self._emit_event)
+        self._audience = AudienceModelService(self._storage)
+        self._transcript = TranscriptService(
+            self._storage,
+            mapping_revalidator=self._audience.revalidate_attribution,
+        )
+        self._ingestion = IngestionService(
+            self._storage,
+            self._emit_event,
+            transcript_reconciler=self._transcript.reconcile_speaker_maps,
+            source_delete_hook=self._audience.before_source_delete,
+            source_reindex_hook=self._audience.after_source_reindex,
+        )
         self._retrieval = LexicalRetrievalService(self._storage)
         self._hybrid_retrieval = HybridRetrievalService(
             self._storage,
@@ -115,6 +128,11 @@ class CoreService:
                 "pdf.pypdf",
                 "pptx.python-pptx",
                 "text.stdlib",
+                "transcript.vtt",
+                "transcript.srt",
+                "transcript.named-txt",
+                "transcript.json",
+                "audience.observable-patterns",
                 "embedding.fastembed",
                 "retrieval.numpy",
                 "retrieval.hybrid",
@@ -294,6 +312,36 @@ class CoreService:
             result = self._ingestion.reindex_source(params)
             self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
             return make_response(request_id, result=result)
+        if method == "transcript.list_speakers":
+            return make_response(request_id, result=self._transcript.list_speakers(params))
+        if method == "transcript.map_speaker":
+            return make_response(request_id, result=self._transcript.map_speaker(params))
+        if method == "transcript.unmap_speaker":
+            return make_response(request_id, result=self._transcript.unmap_speaker(params))
+        if method == "audience.create":
+            return make_response(request_id, result=self._audience.create(params))
+        if method == "audience.update":
+            return make_response(request_id, result=self._audience.update(params))
+        if method == "audience.list":
+            return make_response(request_id, result=self._audience.list_profiles(params))
+        if method == "audience.delete":
+            return make_response(request_id, result=self._audience.delete(params))
+        if method == "audience.extract_observations":
+            return make_response(request_id, result=self._audience.extract_observations(params))
+        if method == "audience.list_observations":
+            return make_response(request_id, result=self._audience.list_observations(params))
+        if method == "audience.accept_observation":
+            return make_response(request_id, result=self._audience.accept_observation(params))
+        if method == "audience.reject_observation":
+            return make_response(request_id, result=self._audience.reject_observation(params))
+        if method == "audience.create_observation":
+            return make_response(request_id, result=self._audience.create_observation(params))
+        if method == "audience.update_observation":
+            return make_response(request_id, result=self._audience.update_observation(params))
+        if method == "audience.delete_observation":
+            return make_response(request_id, result=self._audience.delete_observation(params))
+        if method == "audience.build_context":
+            return make_response(request_id, result=self._audience.build_context(params))
         if method == "search.lexical":
             return make_response(request_id, result=self._retrieval.query(params))
         if method == "retrieval.health":

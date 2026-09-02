@@ -45,11 +45,33 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
     assert "project.create" in result["capabilities"]["methods"]
     assert "source.import" in result["capabilities"]["methods"]
     assert "search.lexical" in result["capabilities"]["methods"]
+    assert {
+        "transcript.list_speakers",
+        "transcript.map_speaker",
+        "transcript.unmap_speaker",
+        "audience.create",
+        "audience.update",
+        "audience.list",
+        "audience.delete",
+        "audience.extract_observations",
+        "audience.list_observations",
+        "audience.accept_observation",
+        "audience.reject_observation",
+        "audience.create_observation",
+        "audience.update_observation",
+        "audience.delete_observation",
+        "audience.build_context",
+    }.issubset(result["capabilities"]["methods"])
     assert "source.import_progress" in result["capabilities"]["events"]
     assert result["adapters"] == [
         "pdf.pypdf",
         "pptx.python-pptx",
         "text.stdlib",
+        "transcript.vtt",
+        "transcript.srt",
+        "transcript.named-txt",
+        "transcript.json",
+        "audience.observable-patterns",
         "embedding.fastembed",
         "retrieval.numpy",
         "retrieval.hybrid",
@@ -58,7 +80,7 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "provider.openai.responses",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 3}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 4}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:

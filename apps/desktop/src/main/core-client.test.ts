@@ -99,6 +99,8 @@ describe("CoreProcessClient", () => {
     expect(isRendererCoreMethod("core.health")).toBe(true);
     expect(isRendererCoreMethod("project.create")).toBe(true);
     expect(isRendererCoreMethod("source.preview")).toBe(true);
+    expect(isRendererCoreMethod("transcript.map_speaker")).toBe(true);
+    expect(isRendererCoreMethod("audience.build_context")).toBe(false);
     expect(isRendererCoreMethod("source.import")).toBe(false);
     expect(isRendererCoreMethod("search.lexical")).toBe(false);
     expect(isRendererCoreMethod("core.hello")).toBe(false);

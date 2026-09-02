@@ -29,6 +29,9 @@ from .security import (
 )
 
 EventSink = Callable[[str, dict[str, Any]], None]
+TranscriptReconciler = Callable[[sqlite3.Connection, str, set[str]], None]
+SourceDeleteHook = Callable[[sqlite3.Connection, str], None]
+SourceReindexHook = Callable[[sqlite3.Connection, str, set[str]], None]
 MAX_FILENAME_LENGTH = 120
 MAX_PREVIEW_UNITS = 25
 MAX_PREVIEW_TEXT_CHARS = 12_000
@@ -39,15 +42,29 @@ MIME_TYPES = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "txt": "text/plain",
     "markdown": "text/markdown",
+    "vtt": "text/vtt",
+    "srt": "application/x-subrip",
+    "json": "application/json",
 }
 
 
 class IngestionService:
     """Own the import lifecycle but never parse an external file in place."""
 
-    def __init__(self, storage: StorageManager, event_sink: EventSink | None = None) -> None:
+    def __init__(
+        self,
+        storage: StorageManager,
+        event_sink: EventSink | None = None,
+        *,
+        transcript_reconciler: TranscriptReconciler | None = None,
+        source_delete_hook: SourceDeleteHook | None = None,
+        source_reindex_hook: SourceReindexHook | None = None,
+    ) -> None:
         self._storage = storage
         self._event_sink = event_sink
+        self._transcript_reconciler = transcript_reconciler
+        self._source_delete_hook = source_delete_hook
+        self._source_reindex_hook = source_reindex_hook
 
     def import_source(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "path", "kind"})
@@ -55,7 +72,7 @@ class IngestionService:
         external_path = self._external_path(params)
         source_type = source_type_for_path(external_path)
         kind = self._kind(params, source_type)
-        parser = parser_for(source_type)
+        parser = _parser_for_kind(source_type, kind)
         source_directory = self._storage.paths.safe_sources_directory(project_id, create=True)
 
         size_bytes = preflight_source(external_path, source_type)
@@ -147,8 +164,8 @@ class IngestionService:
 
         self._emit_progress(project_id, document_id, "parse", 0, 1, "started")
         try:
-            parsed_units = self._parse_snapshot(snapshot, source_type, parser=parser)
-            self._validate_parsed_units(parsed_units)
+            parsed_units = self._parse_snapshot(snapshot, source_type, kind, parser=parser)
+            self._validate_parsed_units(parsed_units, kind=kind)
         except CoreDomainError as error:
             self._mark_document_error(project_id, document_id, error.code, error.message)
             self._emit_error(project_id, document_id, error.code, "parse")
@@ -159,7 +176,9 @@ class IngestionService:
         self._emit_progress(
             project_id, document_id, "chunk", len(unit_rows), len(unit_rows), "complete"
         )
-        self._persist_parsed_content(project_id, document_id, unit_rows, chunk_rows)
+        self._persist_parsed_content(
+            project_id, document_id, kind, parsed_units, unit_rows, chunk_rows
+        )
         self._emit_progress(
             project_id,
             document_id,
@@ -272,6 +291,8 @@ class IngestionService:
 
     def _delete_document_record(self, project_id: str, document_id: str) -> None:
         with self._storage.project_database(project_id) as connection:
+            if self._source_delete_hook is not None:
+                self._source_delete_hook(connection, document_id)
             cursor = connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
             if cursor.rowcount != 1:
                 connection.rollback()
@@ -289,8 +310,15 @@ class IngestionService:
         document_id = self._document_id(params)
         with self._storage.project_database(project_id) as connection:
             document = self._document_row(connection, document_id)
+            old_unit_ids = {
+                str(row["id"])
+                for row in connection.execute(
+                    "SELECT id FROM source_units WHERE document_id = ?", (document_id,)
+                ).fetchall()
+            }
         source_type = _source_type_from_mime(document["mime_type"])
-        parser = parser_for(source_type)
+        kind = str(document["kind"])
+        parser = _parser_for_kind(source_type, kind)
         self._emit_progress(project_id, document_id, "parse", 0, 1, "started")
         try:
             relative_path = document["local_snapshot_path"]
@@ -307,8 +335,8 @@ class IngestionService:
                     "The stored source snapshot no longer matches its imported hash.",
                     details={},
                 )
-            parsed_units = self._parse_snapshot(snapshot, source_type, parser=parser)
-            self._validate_parsed_units(parsed_units)
+            parsed_units = self._parse_snapshot(snapshot, source_type, kind, parser=parser)
+            self._validate_parsed_units(parsed_units, kind=kind)
         except CoreDomainError as error:
             raise CoreDomainError(
                 "SOURCE_REINDEX_FAILED",
@@ -327,6 +355,9 @@ class IngestionService:
                 reusable_vectors = self._capture_active_vectors(connection, document_id)
                 connection.execute("DELETE FROM source_units WHERE document_id = ?", (document_id,))
                 self._insert_rows(connection, unit_rows, chunk_rows)
+                self._reconcile_transcript(connection, document_id, parsed_units, kind=kind)
+                if self._source_reindex_hook is not None:
+                    self._source_reindex_hook(connection, document_id, old_unit_ids)
                 self._restore_reusable_vectors(connection, reusable_vectors, chunk_rows)
                 connection.execute(
                     """
@@ -365,16 +396,19 @@ class IngestionService:
         self,
         snapshot: Path,
         source_type: str,
+        kind: str = "supporting",
         *,
         parser: SourceParser | None = None,
     ) -> list[ParsedSourceUnit]:
         # Keep the security check immediately adjacent to parser consumption;
         # callers may also preflight earlier for clearer lifecycle stages.
         preflight_source(snapshot, source_type)
-        parser = parser or parser_for(source_type)
+        parser = parser or _parser_for_kind(source_type, kind)
         return parser.parse(snapshot)
 
-    def _validate_parsed_units(self, units: list[ParsedSourceUnit]) -> None:
+    def _validate_parsed_units(
+        self, units: list[ParsedSourceUnit], *, kind: str = "supporting"
+    ) -> None:
         if len(units) > MAX_SOURCE_UNITS:
             raise CoreDomainError(
                 "SOURCE_PARSE_FAILED",
@@ -383,7 +417,10 @@ class IngestionService:
             )
         total_text = 0
         for unit in units:
-            if unit.unit_type not in {"slide", "page", "section"}:
+            allowed_unit_types = {"slide", "page", "section"}
+            if kind == "transcript":
+                allowed_unit_types.add("transcript_segment")
+            if unit.unit_type not in allowed_unit_types:
                 raise CoreDomainError(
                     "SOURCE_PARSE_FAILED", "The parser returned an unsupported unit type."
                 )
@@ -394,6 +431,52 @@ class IngestionService:
             if unit.search_text is not None and not isinstance(unit.search_text, str):
                 raise CoreDomainError(
                     "SOURCE_PARSE_FAILED", "The parser returned invalid source data."
+                )
+            if unit.unit_type == "transcript_segment":
+                if kind != "transcript":
+                    raise CoreDomainError(
+                        "SOURCE_PARSE_FAILED",
+                        "Transcript segments are only valid for transcript sources.",
+                    )
+                if unit.start_ms is not None and (
+                    isinstance(unit.start_ms, bool)
+                    or not isinstance(unit.start_ms, int)
+                    or unit.start_ms < 0
+                ):
+                    raise CoreDomainError(
+                        "SOURCE_PARSE_FAILED", "The parser returned invalid transcript timestamps."
+                    )
+                if unit.end_ms is not None and (
+                    isinstance(unit.end_ms, bool)
+                    or not isinstance(unit.end_ms, int)
+                    or unit.end_ms < 0
+                ):
+                    raise CoreDomainError(
+                        "SOURCE_PARSE_FAILED", "The parser returned invalid transcript timestamps."
+                    )
+                if (
+                    unit.start_ms is not None
+                    and unit.end_ms is not None
+                    and unit.end_ms < unit.start_ms
+                ):
+                    raise CoreDomainError(
+                        "SOURCE_PARSE_FAILED", "A transcript cue ends before it starts."
+                    )
+                if unit.speaker_label is not None and (
+                    not isinstance(unit.speaker_label, str)
+                    or not unit.speaker_label.strip()
+                    or len(unit.speaker_label.strip()) > 120
+                    or any(ord(character) < 32 for character in unit.speaker_label)
+                ):
+                    raise CoreDomainError(
+                        "SOURCE_PARSE_FAILED", "The parser returned an invalid speaker label."
+                    )
+            elif any(
+                value is not None for value in (unit.start_ms, unit.end_ms, unit.speaker_label)
+            ):
+                raise CoreDomainError(
+                    "SOURCE_PARSE_FAILED",
+                    "A non-transcript source returned transcript metadata.",
                 )
             total_text += len(unit.index_text)
             if total_text > MAX_EXTRACTED_TEXT_CHARS:
@@ -420,9 +503,9 @@ class IngestionService:
                     unit.unit_type,
                     unit.ordinal,
                     unit.title,
-                    None,
-                    None,
-                    None,
+                    unit.start_ms,
+                    unit.end_ms,
+                    unit.speaker_label,
                     unit.text,
                     json.dumps(
                         unit.metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -448,12 +531,15 @@ class IngestionService:
         self,
         project_id: str,
         document_id: str,
+        kind: str,
+        parsed_units: list[ParsedSourceUnit],
         unit_rows: list[tuple[Any, ...]],
         chunk_rows: list[tuple[Any, ...]],
     ) -> None:
         try:
             with self._storage.project_database(project_id) as connection:
                 self._insert_rows(connection, unit_rows, chunk_rows)
+                self._reconcile_transcript(connection, document_id, parsed_units, kind=kind)
                 connection.execute(
                     """
                     UPDATE documents
@@ -499,6 +585,25 @@ class IngestionService:
             """,
             chunk_rows,
         )
+
+    def _reconcile_transcript(
+        self,
+        connection: sqlite3.Connection,
+        document_id: str,
+        units: list[ParsedSourceUnit],
+        *,
+        kind: str,
+    ) -> None:
+        if kind == "transcript" and self._transcript_reconciler is not None:
+            self._transcript_reconciler(
+                connection,
+                document_id,
+                {
+                    unit.speaker_label
+                    for unit in units
+                    if unit.unit_type == "transcript_segment" and unit.speaker_label is not None
+                },
+            )
 
     def _mark_document_error(
         self,
@@ -688,7 +793,7 @@ class IngestionService:
             "project_id": row["project_id"],
             "kind": row["kind"],
             "original_name": row["original_name"],
-            "source_type": _source_type_from_mime(row["mime_type"]),
+            "source_type": _document_source_type(row),
             "mime_type": row["mime_type"],
             "parser_id": row["parser_id"],
             "sha256": row["sha256"],
@@ -726,6 +831,9 @@ class IngestionService:
             "id": row["id"],
             "unit_type": row["unit_type"],
             "ordinal": row["ordinal"],
+            "start_ms": row["start_ms"],
+            "end_ms": row["end_ms"],
+            "speaker_label": row["speaker_label"],
             "title": title_excerpt,
             "title_truncated": isinstance(title, str) and len(title) > len(title_excerpt),
             "text": excerpt,
@@ -736,10 +844,19 @@ class IngestionService:
 
     @staticmethod
     def evidence_for_unit(document: Any, unit: Any, text: str) -> Evidence:
-        label = provenance_label(document["original_name"], unit["unit_type"], unit["ordinal"])
+        is_transcript = document["kind"] == "transcript"
+        label = provenance_label(
+            document["original_name"],
+            unit["unit_type"],
+            unit["ordinal"],
+            start_ms=unit["start_ms"],
+            end_ms=unit["end_ms"],
+            speaker_label=unit["speaker_label"],
+            transcript=is_transcript,
+        )
         return Evidence(
             evidence_id=unit["id"],
-            source_type="document",
+            source_type="transcript" if is_transcript else "document",
             source_id=document["id"],
             source_unit_id=unit["id"],
             label=label,
@@ -780,7 +897,13 @@ class IngestionService:
 
     @staticmethod
     def _kind(params: dict[str, Any], source_type: str) -> str:
-        default = "presentation" if source_type == "pptx" else "supporting"
+        default = (
+            "presentation"
+            if source_type == "pptx"
+            else "transcript"
+            if source_type in {"vtt", "srt", "json"}
+            else "supporting"
+        )
         value = params.get("kind", default)
         if not isinstance(value, str) or value not in {
             "presentation",
@@ -789,6 +912,17 @@ class IngestionService:
             "note",
         }:
             raise invalid_request("kind is not supported.", field="kind")
+        transcript_types = {"txt", "vtt", "srt", "json"}
+        if value == "transcript" and source_type not in transcript_types:
+            raise invalid_request(
+                "Only TXT, VTT, SRT, and JSON sources can be imported as transcripts.",
+                field="kind",
+            )
+        if value != "transcript" and source_type in {"vtt", "srt", "json"}:
+            raise invalid_request(
+                "VTT, SRT, and JSON sources must be imported as transcripts.",
+                field="kind",
+            )
         return value
 
     @staticmethod
@@ -806,9 +940,32 @@ class IngestionService:
         return int(value)
 
 
-def provenance_label(original_name: str, unit_type: str, ordinal: int | None) -> str:
+def provenance_label(
+    original_name: str,
+    unit_type: str,
+    ordinal: int | None,
+    *,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+    speaker_label: str | None = None,
+    transcript: bool = False,
+) -> str:
     """Build the one canonical human-readable source label."""
     name = Path(original_name).name
+    if transcript and unit_type == "transcript_segment":
+        parts = [name]
+        if speaker_label:
+            parts.append(speaker_label[:120])
+        if start_ms is not None:
+            timestamp = _format_timestamp(start_ms)
+            if end_ms is not None:
+                timestamp += f"–{_format_timestamp(end_ms)}"
+            parts.append(timestamp)
+        elif ordinal is not None:
+            parts.append(f"segment {ordinal}")
+        else:
+            parts.append("segment")
+        return " · ".join(parts)[:320]
     if unit_type == "slide":
         location = f"slide {ordinal}" if ordinal is not None else "slide"
     elif unit_type == "page":
@@ -818,6 +975,13 @@ def provenance_label(original_name: str, unit_type: str, ordinal: int | None) ->
     else:
         location = unit_type
     return f"{name} {location}"
+
+
+def _format_timestamp(value: int) -> str:
+    total_seconds, milliseconds = divmod(max(0, int(value)), 1_000)
+    hours, remainder = divmod(total_seconds, 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
 
 def _source_unit_id(document_id: str, unit: ParsedSourceUnit, structural_index: int) -> str:
@@ -919,3 +1083,15 @@ def _source_type_from_mime(mime_type: str) -> str:
         if mime == mime_type:
             return source_type
     raise CoreDomainError("SOURCE_TYPE_UNSUPPORTED", "The stored source type is not supported.")
+
+
+def _parser_for_kind(source_type: str, kind: str) -> SourceParser:
+    """Select transcript adapters without changing ordinary parser call shape."""
+    return parser_for(source_type, kind) if kind == "transcript" else parser_for(source_type)
+
+
+def _document_source_type(row: Any) -> str:
+    """Expose transcript as a source class while retaining its parser format in metadata."""
+    if row["kind"] == "transcript":
+        return "transcript"
+    return _source_type_from_mime(row["mime_type"])

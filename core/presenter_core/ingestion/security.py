@@ -20,6 +20,9 @@ SOURCE_TYPE_BY_SUFFIX: Final = {
     ".txt": "txt",
     ".md": "markdown",
     ".markdown": "markdown",
+    ".vtt": "vtt",
+    ".srt": "srt",
+    ".json": "json",
 }
 
 
@@ -28,7 +31,7 @@ def source_type_for_path(path: Path) -> str:
     if source_type is None:
         raise CoreDomainError(
             "SOURCE_TYPE_UNSUPPORTED",
-            "This source type is not supported in Milestone 1.",
+            "This source type is not supported.",
             details={},
         )
     return source_type
@@ -45,7 +48,7 @@ def preflight_source(path: Path, source_type: str) -> int:
     if size > MAX_SOURCE_BYTES:
         raise CoreDomainError(
             "SOURCE_TOO_LARGE",
-            "The source exceeds the Milestone 1 import size limit.",
+            "The source exceeds the import size limit.",
             details={"max_bytes": MAX_SOURCE_BYTES},
         )
 

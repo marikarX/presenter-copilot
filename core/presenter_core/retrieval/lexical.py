@@ -26,6 +26,9 @@ SOURCE_TYPE_MIME = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "txt": "text/plain",
     "markdown": "text/markdown",
+    "vtt": "text/vtt",
+    "srt": "application/x-subrip",
+    "json": "application/json",
 }
 
 
@@ -88,10 +91,7 @@ def _chunk_select_sql(
         clauses.append(f"documents.id IN ({placeholders})")
         parameters.extend(filters.document_ids)
     if filters.source_types:
-        mime_types = [SOURCE_TYPE_MIME[source_type] for source_type in filters.source_types]
-        placeholders = ", ".join("?" for _ in mime_types)
-        clauses.append(f"documents.mime_type IN ({placeholders})")
-        parameters.extend(mime_types)
+        _append_source_type_filter(clauses, parameters, filters.source_types, "documents")
     if lexical_tokens:
         token_clauses = " OR ".join(
             "instr(' ' || chunks.lexical_text || ' ', ' ' || ? || ' ') > 0" for _ in lexical_tokens
@@ -108,9 +108,13 @@ def _chunk_select_sql(
             source_units.id AS source_unit_id,
             source_units.unit_type AS unit_type,
             source_units.ordinal AS ordinal,
+            source_units.start_ms AS start_ms,
+            source_units.end_ms AS end_ms,
+            source_units.speaker_label AS speaker_label,
             documents.id AS document_id,
             documents.original_name AS original_name,
-            documents.mime_type AS mime_type
+            documents.mime_type AS mime_type,
+            documents.kind AS document_kind
         FROM chunks
         JOIN source_units ON source_units.id = chunks.source_unit_id
         JOIN documents ON documents.id = source_units.document_id
@@ -194,7 +198,11 @@ def _record_from_row(row: sqlite3.Row | Any) -> ChunkRecord:
         ordinal=int(row["ordinal"]) if row["ordinal"] is not None else None,
         document_id=str(row["document_id"]),
         original_name=str(row["original_name"]),
-        source_type=_source_type_from_mime(str(row["mime_type"])),
+        source_type=(
+            "transcript"
+            if "document_kind" in keys and row["document_kind"] == "transcript"
+            else _source_type_from_mime(str(row["mime_type"]))
+        ),
         entity_type=entity_type,
         entity_id=str(row["chunk_id"]),
         source_class=source_class,
@@ -213,6 +221,20 @@ def _record_from_row(row: sqlite3.Row | Any) -> ChunkRecord:
         preferred=bool(row["preferred"]) if "preferred" in keys else False,
         use_live=bool(row["use_live"]) if "use_live" in keys else True,
         use_rehearsal=bool(row["use_rehearsal"]) if "use_rehearsal" in keys else True,
+        document_kind=(
+            str(row["document_kind"])
+            if "document_kind" in keys and row["document_kind"] is not None
+            else None
+        ),
+        start_ms=(
+            int(row["start_ms"]) if "start_ms" in keys and row["start_ms"] is not None else None
+        ),
+        end_ms=(int(row["end_ms"]) if "end_ms" in keys and row["end_ms"] is not None else None),
+        speaker_label=(
+            str(row["speaker_label"])
+            if "speaker_label" in keys and row["speaker_label"] is not None
+            else None
+        ),
     )
 
 
@@ -223,6 +245,24 @@ def _source_type_from_mime(mime_type: str) -> str:
         if mime_type == known_mime:
             return source_type
     return "unknown"
+
+
+def _append_source_type_filter(
+    clauses: list[str],
+    parameters: list[Any],
+    source_types: tuple[str, ...] | list[str],
+    table_alias: str,
+) -> None:
+    """Filter by public source class while retaining format-specific filters."""
+    branches: list[str] = []
+    for source_type in source_types:
+        if source_type == "transcript":
+            branches.append(f"{table_alias}.kind = 'transcript'")
+        else:
+            branches.append(f"{table_alias}.mime_type = ?")
+            parameters.append(SOURCE_TYPE_MIME[source_type])
+    if branches:
+        clauses.append("(" + " OR ".join(branches) + ")")
 
 
 def score_records(
@@ -353,13 +393,27 @@ def _candidate_evidence(candidate: LexicalCandidate, *, rank: int) -> Evidence:
     record = candidate.record
     return Evidence(
         evidence_id=record.chunk_id,
-        source_type="user_statement" if record.entity_type == "knowledge_item" else "document",
+        source_type=(
+            "user_statement"
+            if record.entity_type == "knowledge_item"
+            else "transcript"
+            if record.source_type == "transcript"
+            else "document"
+        ),
         source_id=record.source_id or record.document_id,
         source_unit_id=record.source_unit_id,
         label=(
             "Your Teach explanation"
             if record.entity_type == "knowledge_item"
-            else provenance_label(record.original_name, record.unit_type, record.ordinal)
+            else provenance_label(
+                record.original_name,
+                record.unit_type,
+                record.ordinal,
+                start_ms=record.start_ms,
+                end_ms=record.end_ms,
+                speaker_label=record.speaker_label,
+                transcript=record.source_type == "transcript",
+            )
         ),
         text=record.chunk_text,
         rank=rank,
