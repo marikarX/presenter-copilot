@@ -42,7 +42,9 @@ describe("Python sidecar integration", () => {
         PYTHONUNBUFFERED: "1",
         PRESENTER_COPILOT_DATA_ROOT: dataRoot,
       },
-      startupTimeoutMs: 5_000,
+      // Hosted Windows can have a slower cold Python startup; keep this
+      // integration-only allowance bounded without changing app defaults.
+      startupTimeoutMs: 15_000,
       requestTimeoutMs: 3_000,
       shutdownTimeoutMs: 3_000,
     });
@@ -62,7 +64,13 @@ describe("Python sidecar integration", () => {
       expect(client.getStatus().state).toBe("stopped");
     } finally {
       await client.shutdown();
-      rmSync(dataRoot, { recursive: true, force: true });
+      rmSync(dataRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+      expect(existsSync(dataRoot)).toBe(false);
     }
-  }, 15_000);
+  }, 30_000);
 });

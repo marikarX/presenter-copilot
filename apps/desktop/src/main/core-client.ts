@@ -36,6 +36,14 @@ type EventListener = (event: EventEnvelope) => void;
 type StatusListener = (status: CoreStatus) => void;
 type ProtocolErrorListener = (error: CoreClientError) => void;
 
+type ChildLifecycle = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  expected: boolean;
+  exited: boolean;
+  error: CoreClientError | null;
+};
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 3_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
@@ -109,6 +117,14 @@ export class CoreProcessClient {
   private readonly protocolErrorListeners = new Set<ProtocolErrorListener>();
   private readonly finalizedChildren =
     new WeakSet<ChildProcessWithoutNullStreams>();
+  private readonly childLifecycles = new WeakMap<
+    ChildProcessWithoutNullStreams,
+    ChildLifecycle
+  >();
+  private readonly errorFinalizationTimers = new WeakMap<
+    ChildProcessWithoutNullStreams,
+    ReturnType<typeof setTimeout>
+  >();
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private metadata: CoreMetadata | null = null;
@@ -116,8 +132,8 @@ export class CoreProcessClient {
   private resolveStart: ((metadata: CoreMetadata) => void) | null = null;
   private rejectStart: ((reason: unknown) => void) | null = null;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
-  private exitPromise: Promise<void> | null = null;
-  private resolveExit: (() => void) | null = null;
+  private closePromise: Promise<void> | null = null;
+  private resolveClose: (() => void) | null = null;
   private intentionalShutdown = false;
   private shutdownPromise: Promise<void> | null = null;
   private status: CoreStatus = {
@@ -223,8 +239,8 @@ export class CoreProcessClient {
         this.spawnOptions,
       );
       this.child = child;
-      this.exitPromise = new Promise<void>((resolve) => {
-        this.resolveExit = resolve;
+      this.closePromise = new Promise<void>((resolve) => {
+        this.resolveClose = resolve;
       });
       this.attachChild(child);
       this.startupTimer = setTimeout(() => {
@@ -234,7 +250,7 @@ export class CoreProcessClient {
           retryable: true,
           details: {},
         });
-        if (this.child) this.finalizeChild(this.child, error, false, true);
+        if (this.child) this.beginChildFailure(this.child, error);
         else this.fail(error);
       }, this.startupTimeoutMs);
     } catch (error) {
@@ -363,12 +379,14 @@ export class CoreProcessClient {
       // still enforce the no-orphan lifecycle guarantee.
     }
 
+    if (this.child !== child) return;
     this.setStatus({ state: "stopping" });
-    await this.waitForExit(this.shutdownTimeoutMs);
+    await this.waitForClose(this.shutdownTimeoutMs);
     if (this.child === child) {
       this.killChild(child);
-      await this.waitForExit(Math.min(1_000, this.shutdownTimeoutMs));
+      await this.waitForClose(Math.min(1_000, this.shutdownTimeoutMs));
       if (this.child === child) {
+        const lifecycle = this.childLifecycles.get(child);
         this.finalizeChild(
           child,
           new CoreClientError({
@@ -377,12 +395,14 @@ export class CoreProcessClient {
             retryable: false,
             details: {},
           }),
-          true,
+          lifecycle?.expected ?? true,
           false,
         );
       }
     }
-    this.setStatus({ state: "stopped" });
+    if (this.child === null && this.status.state === "stopping") {
+      this.setStatus({ state: "stopped" });
+    }
   }
 
   private attachChild(child: ChildProcessWithoutNullStreams): void {
@@ -400,7 +420,7 @@ export class CoreProcessClient {
       this.handleChildExit(child, code, signal),
     );
     child.on("close", (code, signal) =>
-      this.handleChildExit(child, code, signal),
+      this.handleChildClose(child, code, signal),
     );
   }
 
@@ -532,11 +552,9 @@ export class CoreProcessClient {
     error: Error,
     fallbackCode: string,
   ): void {
-    this.finalizeChild(
+    this.beginChildFailure(
       child,
       new CoreClientError(toCoreError(error, fallbackCode)),
-      this.isExpectedExit(),
-      true,
     );
   }
 
@@ -545,21 +563,35 @@ export class CoreProcessClient {
     code: number | null,
     signal: NodeJS.Signals | null,
   ): void {
-    const expected = this.isExpectedExit();
-    const exitMessage = expected
-      ? "Core sidecar exited."
-      : `Core sidecar exited unexpectedly${signal ? ` with ${signal}` : ` with code ${String(code)}`}.`;
-    this.finalizeChild(
-      child,
+    if (this.finalizedChildren.has(child)) return;
+    const lifecycle = this.getChildLifecycle(child);
+    if (lifecycle.exited) return;
+    lifecycle.code = code;
+    lifecycle.signal = signal;
+    lifecycle.exited = true;
+  }
+
+  private handleChildClose(
+    child: ChildProcessWithoutNullStreams,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (this.finalizedChildren.has(child)) return;
+    const lifecycle = this.getChildLifecycle(child);
+    lifecycle.code = code;
+    lifecycle.signal = signal;
+    const expected = lifecycle.expected;
+    const error =
+      lifecycle.error ??
       new CoreClientError({
         code: expected ? "SIDECAR_EXITED" : "SIDECAR_EXITED_UNEXPECTEDLY",
-        message: exitMessage,
+        message: expected
+          ? "Core sidecar exited."
+          : `Core sidecar exited unexpectedly${signal ? ` with ${signal}` : ` with code ${String(code)}`}.`,
         retryable: !expected,
         details: { code, signal },
-      }),
-      expected,
-      false,
-    );
+      });
+    this.finalizeChild(child, error, expected, false);
   }
 
   private finalizeChild(
@@ -572,27 +604,35 @@ export class CoreProcessClient {
     this.finalizedChildren.add(child);
 
     if (terminate) this.killChild(child);
+    const errorFinalizationTimer = this.errorFinalizationTimers.get(child);
+    if (errorFinalizationTimer !== undefined) {
+      clearTimeout(errorFinalizationTimer);
+      this.errorFinalizationTimers.delete(child);
+    }
     if (this.child !== child) return;
 
+    const lifecycle = this.childLifecycles.get(child);
+    const finalError = lifecycle?.error ?? error;
+    const finalExpected = lifecycle?.expected ?? expected;
     this.child = null;
-    const resolveExit = this.resolveExit;
-    this.resolveExit = null;
-    this.exitPromise = null;
+    const resolveClose = this.resolveClose;
+    this.resolveClose = null;
+    this.closePromise = null;
     this.clearStartupTimer();
 
-    this.rejectAllPending(error);
-    if (this.startPromise) this.rejectStartPromise(error);
-    resolveExit?.();
-    if (expected) {
+    this.rejectAllPending(finalError);
+    if (this.startPromise) this.rejectStartPromise(finalError);
+    resolveClose?.();
+    if (finalExpected) {
       this.setStatus({ state: "stopped" });
     } else {
-      this.setStatus({ state: "unavailable", error: toCoreError(error) });
+      this.setStatus({ state: "unavailable", error: toCoreError(finalError) });
     }
   }
 
   private fail(error: CoreClientError): void {
     if (this.child) {
-      this.finalizeChild(this.child, error, this.isExpectedExit(), true);
+      this.beginChildFailure(this.child, error);
       return;
     }
     this.clearStartupTimer();
@@ -630,6 +670,67 @@ export class CoreProcessClient {
     this.startupTimer = null;
   }
 
+  private getChildLifecycle(
+    child: ChildProcessWithoutNullStreams,
+  ): ChildLifecycle {
+    const existing = this.childLifecycles.get(child);
+    if (existing) return existing;
+    const lifecycle: ChildLifecycle = {
+      code: null,
+      signal: null,
+      expected: this.isExpectedExit(),
+      exited: false,
+      error: null,
+    };
+    this.childLifecycles.set(child, lifecycle);
+    return lifecycle;
+  }
+
+  private beginChildFailure(
+    child: ChildProcessWithoutNullStreams,
+    error: CoreClientError,
+  ): void {
+    if (this.finalizedChildren.has(child)) return;
+    const lifecycle = this.getChildLifecycle(child);
+    lifecycle.error ??= error;
+    const finalError = lifecycle.error;
+
+    this.clearStartupTimer();
+    this.rejectAllPending(finalError);
+    if (this.startPromise) this.rejectStartPromise(finalError);
+    if (lifecycle.expected) {
+      if (this.status.state !== "stopping") {
+        this.setStatus({ state: "stopping" });
+      }
+    } else {
+      this.setStatus({ state: "unavailable", error: toCoreError(finalError) });
+    }
+
+    this.scheduleErrorFinalization(child);
+    this.killChild(child);
+  }
+
+  private scheduleErrorFinalization(
+    child: ChildProcessWithoutNullStreams,
+  ): void {
+    if (this.errorFinalizationTimers.has(child)) return;
+    const timer = setTimeout(() => {
+      this.errorFinalizationTimers.delete(child);
+      if (this.finalizedChildren.has(child) || this.child !== child) return;
+      const lifecycle = this.getChildLifecycle(child);
+      const error =
+        lifecycle.error ??
+        new CoreClientError({
+          code: "SIDECAR_UNAVAILABLE",
+          message: "Core sidecar failed without a close event.",
+          retryable: true,
+          details: {},
+        });
+      this.finalizeChild(child, error, lifecycle.expected, false);
+    }, this.shutdownTimeoutMs);
+    this.errorFinalizationTimers.set(child, timer);
+  }
+
   private resolvePending(requestId: string, result: unknown): void {
     const pending = this.pending.get(requestId);
     if (!pending) return;
@@ -651,12 +752,12 @@ export class CoreProcessClient {
       this.rejectPending(requestId, error);
   }
 
-  private waitForExit(timeoutMs: number): Promise<void> {
-    if (!this.child || !this.exitPromise) return Promise.resolve();
-    const exitPromise = this.exitPromise;
+  private waitForClose(timeoutMs: number): Promise<void> {
+    if (!this.child || !this.closePromise) return Promise.resolve();
+    const closePromise = this.closePromise;
     return new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, timeoutMs);
-      void exitPromise.then(() => {
+      void closePromise.then(() => {
         clearTimeout(timer);
         resolve();
       });

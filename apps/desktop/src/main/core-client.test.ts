@@ -35,9 +35,18 @@ class FakeChild extends EventEmitter {
   readonly writes: string[] = [];
   readonly stdin: Writable;
   killed = false;
+  private readonly closeOnTermination: boolean;
+  private readonly terminateOnShutdown: boolean;
 
-  constructor() {
+  constructor(
+    options: {
+      closeOnTermination?: boolean;
+      terminateOnShutdown?: boolean;
+    } = {},
+  ) {
     super();
+    this.closeOnTermination = options.closeOnTermination ?? true;
+    this.terminateOnShutdown = options.terminateOnShutdown ?? true;
     this.stdin = new Writable({
       write: (chunk, _encoding, callback) => {
         const line = chunk.toString();
@@ -45,7 +54,9 @@ class FakeChild extends EventEmitter {
         if (JSON.parse(line).method === "core.shutdown") {
           const requestId = JSON.parse(line).request_id as string;
           this.stdout.write(response(requestId, { status: "shutting_down" }));
-          queueMicrotask(() => this.emit("exit", 0, null));
+          if (this.terminateOnShutdown) {
+            queueMicrotask(() => this.emitTermination(0, null));
+          }
         }
         callback();
       },
@@ -54,9 +65,25 @@ class FakeChild extends EventEmitter {
 
   kill = vi.fn(() => {
     this.killed = true;
-    this.emit("exit", null, "SIGTERM");
+    this.emitTermination(null, "SIGTERM");
     return true;
   });
+
+  emitExit(code: number | null, signal: NodeJS.Signals | null): void {
+    this.emit("exit", code, signal);
+  }
+
+  emitClose(code: number | null, signal: NodeJS.Signals | null): void {
+    this.emit("close", code, signal);
+  }
+
+  private emitTermination(
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    this.emitExit(code, signal);
+    if (this.closeOnTermination) this.emitClose(code, signal);
+  }
 }
 
 function makeClient(
@@ -291,6 +318,43 @@ describe("CoreProcessClient", () => {
     await client.shutdown();
   });
 
+  it("waits for close before completing graceful shutdown", async () => {
+    const child = new FakeChild({
+      closeOnTermination: false,
+      terminateOnShutdown: false,
+    });
+    const client = makeClient(child, { shutdownTimeoutMs: 100 });
+    const statuses: string[] = [];
+
+    const start = client.start();
+    child.stdout.write(`${JSON.stringify(readyMessage)}\n`);
+    await start;
+    client.onStatus((status) => statuses.push(status.state));
+
+    const shutdown = client.shutdown();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(client.getStatus().state).toBe("stopping");
+
+    child.emitExit(0, null);
+    await Promise.resolve();
+    expect(client.getStatus().state).toBe("stopping");
+    let completed = false;
+    void shutdown.then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+
+    child.emitClose(0, null);
+    await shutdown;
+    expect(client.getStatus().state).toBe("stopped");
+    expect(statuses.filter((state) => state === "stopped")).toHaveLength(1);
+
+    child.emitClose(0, null);
+    expect(statuses.filter((state) => state === "stopped")).toHaveLength(1);
+  });
+
   it("rejects a request on timeout", async () => {
     vi.useFakeTimers();
     const { client } = await startedClient();
@@ -327,7 +391,10 @@ describe("CoreProcessClient", () => {
   it("marks pending requests unavailable when the sidecar exits unexpectedly", async () => {
     const { client, child } = await startedClient();
     const requestPromise = client.request("core.health");
-    child.emit("exit", 1, null);
+    child.emitExit(1, null);
+
+    expect(client.getStatus().state).toBe("ready");
+    child.emitClose(1, null);
 
     await expect(requestPromise).rejects.toMatchObject({
       code: "SIDECAR_EXITED_UNEXPECTEDLY",
