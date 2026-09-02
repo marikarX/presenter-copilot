@@ -87,6 +87,7 @@ class HybridRetrievalService:
         self._embedding_adapter = embedding_adapter
         self._event_sink = event_sink
         self._matrix_cache: dict[str, tuple[str, tuple[int, int, int], np.ndarray[Any, Any]]] = {}
+        self._mapping_count_cache: dict[tuple[str, str, int], int] = {}
 
     def health(self, params: dict[str, Any]) -> dict[str, Any]:
         """Return index/model state without exposing local paths or source text."""
@@ -101,7 +102,12 @@ class HybridRetrievalService:
             )
             current_indexable_entity_count = current_chunk_count + current_knowledge_item_count
             indexed_count = (
-                self._current_mapping_count(connection, project_id, str(active["id"]))
+                self._cached_current_mapping_count(
+                    connection,
+                    project_id,
+                    str(active["id"]),
+                    current_indexable_entity_count,
+                )
                 if active is not None
                 else 0
             )
@@ -497,7 +503,12 @@ class HybridRetrievalService:
             )
             current_indexable_entity_count = current_chunk_count + current_knowledge_item_count
             indexed_count = (
-                self._current_mapping_count(connection, project_id, str(active["id"]))
+                self._cached_current_mapping_count(
+                    connection,
+                    project_id,
+                    str(active["id"]),
+                    current_indexable_entity_count,
+                )
                 if active is not None
                 else 0
             )
@@ -672,7 +683,18 @@ class HybridRetrievalService:
 
     def evict_project(self, project_id: str) -> None:
         """Release one project's cached matrix before its vault is deleted."""
-        self._evict_matrix_cache(normalize_project_id(project_id))
+        normalized_project_id = normalize_project_id(project_id)
+        self._evict_matrix_cache(normalized_project_id)
+        self.invalidate_project_mappings(normalized_project_id)
+
+    def invalidate_project_mappings(self, project_id: str) -> None:
+        """Forget cached validity counts after a source or indexable-row mutation."""
+        normalized_project_id = normalize_project_id(project_id)
+        self._mapping_count_cache = {
+            key: value
+            for key, value in self._mapping_count_cache.items()
+            if key[0] != normalized_project_id
+        }
 
     def _activate_generation(
         self,
@@ -992,6 +1014,22 @@ class HybridRetrievalService:
             (generation_id, project_id, project_id, project_id),
         ).fetchone()
         return int(row["count"]) if row else 0
+
+    def _cached_current_mapping_count(
+        self,
+        connection: sqlite3.Connection,
+        project_id: str,
+        generation_id: str,
+        current_indexable_entity_count: int,
+    ) -> int:
+        """Reuse a validated mapping count until the current entity set changes."""
+        cache_key = (project_id, generation_id, current_indexable_entity_count)
+        cached = self._mapping_count_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        count = self._current_mapping_count(connection, project_id, generation_id)
+        self._mapping_count_cache[cache_key] = count
+        return count
 
     @staticmethod
     def _current_knowledge_item_count(connection: sqlite3.Connection, project_id: str) -> int:

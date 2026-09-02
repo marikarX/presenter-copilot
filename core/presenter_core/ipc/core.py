@@ -278,15 +278,21 @@ class CoreService:
         if method == "project.delete":
             return make_response(request_id, result=self._projects.delete(params))
         if method == "source.import":
-            return make_response(request_id, result=self._ingestion.import_source(params))
+            result = self._ingestion.import_source(params)
+            self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
+            return make_response(request_id, result=result)
         if method == "source.list":
             return make_response(request_id, result=self._ingestion.list_sources(params))
         if method == "source.preview":
             return make_response(request_id, result=self._ingestion.preview_source(params))
         if method == "source.delete":
-            return make_response(request_id, result=self._ingestion.delete_source(params))
+            result = self._ingestion.delete_source(params)
+            self._hybrid_retrieval.invalidate_project_mappings(result["project_id"])
+            return make_response(request_id, result=result)
         if method == "source.reindex":
-            return make_response(request_id, result=self._ingestion.reindex_source(params))
+            result = self._ingestion.reindex_source(params)
+            self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
+            return make_response(request_id, result=result)
         if method == "search.lexical":
             return make_response(request_id, result=self._retrieval.query(params))
         if method == "retrieval.health":
