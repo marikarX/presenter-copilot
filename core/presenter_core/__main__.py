@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from io import TextIOWrapper
 
+from .ipc.core import CoreService
 from .ipc.server import SidecarServer
+from .providers.fake import DeterministicFakeReasoningProvider
+from .providers.models import ReasoningProvider
+
+
+def _explicit_developer_provider() -> ReasoningProvider | None:
+    """Return the fake provider only for an explicit local developer smoke run.
+
+    The normal sidecar path remains the OpenAI reference adapter.  Requiring
+    both flags prevents a missing production credential from silently changing
+    the provider or privacy behavior, while still making the built desktop UI
+    testable without a real provider credential.
+    """
+    if (
+        os.environ.get("PRESENTER_COPILOT_DEV_MODE") == "1"
+        and os.environ.get("PRESENTER_COPILOT_TEST_PROVIDER") == "deterministic_fake"
+    ):
+        return DeterministicFakeReasoningProvider(
+            locality="local",
+            model_id="fake-challenge-v1",
+        )
+    return None
 
 
 def main() -> int:
@@ -17,7 +40,11 @@ def main() -> int:
             stdin.reconfigure(encoding="utf-8", errors="replace")
         if isinstance(stdout, TextIOWrapper):
             stdout.reconfigure(encoding="utf-8", errors="strict", newline="\n")
-        return SidecarServer(stdin, stdout).run()
+        return SidecarServer(
+            stdin,
+            stdout,
+            core=CoreService(reasoning_provider=_explicit_developer_provider()),
+        ).run()
     except BrokenPipeError:
         return 0
     except KeyboardInterrupt:

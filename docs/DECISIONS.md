@@ -483,3 +483,68 @@ Reason:
 An attribution change invalidates the original interpretation. Requiring
 fresh extraction/review is safer than silently rewriting a person's audience
 model from evidence gathered under another mapping.
+
+## D-034 — Challenge history is session-owned until explicit promotion
+
+**Status:** Accepted for Milestone 5
+
+Challenge Questions and AnswerVersions remain ordinary project-local session
+history. They are not automatically indexed or treated as reusable user
+knowledge. Only the explicit `challenge.save_preferred_answer` operation may
+promote a typed user answer through the existing KnowledgeItem pipeline.
+
+Reason:
+
+Rehearsal history must remain inspectable without silently changing the
+Project Brain. Explicit promotion gives the user a clear authorship and
+retrieval boundary while retaining immutable retry history.
+
+## D-035 — Challenge reuses canonical grounding, audience context, and routing
+
+**Status:** Accepted for Milestone 5
+
+Challenge question and evaluation generation composes the existing
+`RetrievalService`, `AudienceContextBuilder`, `ProviderContextBuilder`, and
+`ReasoningRouter`. Core owns audience rotation, privacy authority, state
+transitions, and provenance validation; providers receive bounded trust-labeled
+context and cannot invent Evidence, AudienceProfile identity, or authority.
+
+Reason:
+
+Keeping Challenge on the M2–M4 seams preserves project scoping, stale and
+prohibited-observation filtering, prompt-injection isolation, conflict
+handling, and the existing Local Only/Selected Context Cloud guarantees.
+
+## D-036 — Preferred Challenge answers use durable user-authored provenance
+
+**Status:** Accepted for Milestone 5
+
+An explicitly preferred Challenge answer is copied as a durable user-authored
+snapshot and promoted through the existing `KnowledgeItem` retrieval path with
+`kind=answer`, `preferred=true`, `use_rehearsal=true`, and `use_live=true`.
+The active promotion is replaced idempotently when another version is chosen;
+the session may then be deleted without leaving provenance that points only at
+session-owned rows. Evaluation prose is never promoted as user wording.
+
+Reason:
+
+Preferred practiced language should behave like other Project Brain evidence
+and survive session cleanup, while remaining distinguishable from document or
+transcript evidence.
+
+## D-037 — Deterministic fake reasoning is explicit developer-only smoke support
+
+**Status:** Accepted for Milestone 5
+
+The desktop sidecar keeps the OpenAI reference provider as its normal default.
+Deterministic fake reasoning is selected only when both
+`PRESENTER_COPILOT_DEV_MODE=1` and
+`PRESENTER_COPILOT_TEST_PROVIDER=deterministic_fake` are explicitly present.
+It is local-only and cannot silently replace the normal provider or bypass
+project privacy routing.
+
+Reason:
+
+Offline deterministic Electron acceptance must be possible without a provider
+credential, while missing production credentials must not create a hidden cloud
+or fake fallback.

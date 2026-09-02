@@ -80,7 +80,7 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "provider.openai.responses",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 4}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 5}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:

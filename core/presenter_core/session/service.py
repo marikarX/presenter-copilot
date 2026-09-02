@@ -48,10 +48,10 @@ class SessionService:
         mode = params.get("mode", "teach")
         if not isinstance(mode, str) or mode not in SESSION_MODES:
             raise invalid_request("mode is not supported.", field="mode")
-        if mode != "teach":
+        if mode not in {"teach", "challenge"}:
             raise CoreDomainError(
                 "MODE_NOT_IMPLEMENTED",
-                "Only Teach sessions are implemented in Milestone 3.",
+                "Only Teach and Challenge sessions are implemented.",
                 details={"mode": mode},
             )
         with self._storage.project_database(project_id) as connection:
@@ -71,7 +71,7 @@ class SessionService:
             if "privacy_mode" in params and params["privacy_mode"] != privacy_mode:
                 raise CoreDomainError(
                     "PRIVACY_MODE_OVERRIDE",
-                    "A Teach session cannot grant broader privacy authority than its project.",
+                    "A session cannot grant broader privacy authority than its project.",
                     details={"project_privacy_mode": privacy_mode},
                 )
             self._validate_enum(style_policy, STYLE_POLICIES, "style_policy")
@@ -97,11 +97,12 @@ class SessionService:
                 INSERT INTO sessions (
                     id, project_id, mode, started_at, ended_at, style_policy,
                     privacy_mode, provider_id, current_slide_start, status, teach_state
-                ) VALUES (?, ?, 'teach', ?, NULL, ?, ?, ?, ?, 'active', 'ready_for_prompt')
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'active', 'ready_for_prompt')
                 """,
                 (
                     session_id,
                     project_id,
+                    mode,
                     started_at,
                     style_policy,
                     privacy_mode,
@@ -123,21 +124,23 @@ class SessionService:
         with self._storage.project_database(project_id) as connection:
             row = self._session_row(connection, project_id, session_id)
             if row["status"] == "active":
-                pending = connection.execute(
-                    "SELECT 1 FROM teach_candidates "
-                    "WHERE session_id = ? AND status = 'pending' LIMIT 1",
-                    (session_id,),
-                ).fetchone()
-                if pending is not None:
-                    raise CoreDomainError(
-                        "TEACH_CANDIDATE_PENDING",
-                        "Confirm or reject the current Teach candidate before ending the session.",
-                    )
-                if row["teach_state"] == "candidate_ready":
-                    raise CoreDomainError(
-                        "TEACH_ANSWER_PENDING",
-                        "Save or discard the current Teach answer before ending the session.",
-                    )
+                if row["mode"] == "teach":
+                    pending = connection.execute(
+                        "SELECT 1 FROM teach_candidates "
+                        "WHERE session_id = ? AND status = 'pending' LIMIT 1",
+                        (session_id,),
+                    ).fetchone()
+                    if pending is not None:
+                        raise CoreDomainError(
+                            "TEACH_CANDIDATE_PENDING",
+                            "Confirm or reject the current Teach candidate before ending "
+                            "the session.",
+                        )
+                    if row["teach_state"] == "candidate_ready":
+                        raise CoreDomainError(
+                            "TEACH_ANSWER_PENDING",
+                            "Save or discard the current Teach answer before ending the session.",
+                        )
                 ended_at = utc_now()
                 connection.execute(
                     """

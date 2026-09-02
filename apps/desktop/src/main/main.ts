@@ -170,6 +170,8 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
             ? 10 * 60_000
             : request.method === "teach.next_prompt" ||
                 request.method === "teach.submit_text" ||
+                request.method === "challenge.next_question" ||
+                request.method === "challenge.submit_answer" ||
                 request.method === "provider.test"
               ? 30_000
               : undefined;

@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 4
+PROJECT_SCHEMA_VERSION = 5
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -647,6 +647,191 @@ def _migrate_project_v4(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (4,))
 
 
+def _migrate_project_v5(connection: sqlite3.Connection) -> None:
+    """Add session-owned Challenge history and explicit answer promotion state."""
+    connection.execute(
+        """
+        CREATE TABLE challenge_configurations (
+            session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+            intensity TEXT NOT NULL CHECK (
+                intensity IN ('normal', 'skeptical', 'adversarial')
+            ),
+            allow_follow_ups INTEGER NOT NULL CHECK (allow_follow_ups IN (0, 1)),
+            scope TEXT NOT NULL CHECK (scope IN ('full_deck', 'slide_range')),
+            slide_start INTEGER NULL CHECK (slide_start IS NULL OR slide_start >= 1),
+            slide_end INTEGER NULL CHECK (slide_end IS NULL OR slide_end >= 1),
+            state TEXT NOT NULL CHECK (
+                state IN ('ready_for_question', 'awaiting_answer', 'evaluated')
+            ),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (
+                (scope = 'full_deck' AND slide_start IS NULL AND slide_end IS NULL)
+                OR
+                (scope = 'slide_range' AND slide_start IS NOT NULL AND slide_end IS NOT NULL
+                 AND slide_start <= slide_end)
+            )
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE challenge_audiences (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            audience_profile_id TEXT NULL
+                REFERENCES audience_profiles(id) ON DELETE SET NULL,
+            selection_order INTEGER NOT NULL CHECK (selection_order BETWEEN 0 AND 2),
+            display_name_snapshot TEXT NOT NULL,
+            role_snapshot TEXT NULL,
+            organization_snapshot TEXT NULL,
+            selected_at TEXT NOT NULL,
+            UNIQUE(session_id, audience_profile_id),
+            UNIQUE(session_id, selection_order)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX challenge_audiences_profile_idx "
+        "ON challenge_audiences(audience_profile_id, session_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE questions (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            asked_by_audience_profile_id TEXT NULL
+                REFERENCES audience_profiles(id) ON DELETE SET NULL,
+            parent_question_id TEXT NULL
+                REFERENCES questions(id) ON DELETE SET NULL,
+            provider_run_id TEXT NULL REFERENCES provider_runs(id) ON DELETE SET NULL,
+            audience_display_name_snapshot TEXT NOT NULL,
+            audience_role_snapshot TEXT NULL,
+            text TEXT NOT NULL,
+            origin TEXT NOT NULL CHECK (origin = 'simulated'),
+            rationale TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX questions_session_idx ON questions(session_id, created_at, id)"
+    )
+    connection.execute(
+        "CREATE INDEX questions_profile_idx "
+        "ON questions(asked_by_audience_profile_id, created_at, id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE question_evidence (
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            evidence_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            source_unit_id TEXT NULL,
+            label TEXT NOT NULL,
+            available INTEGER NOT NULL DEFAULT 1 CHECK (available IN (0, 1)),
+            PRIMARY KEY (question_id, evidence_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX question_evidence_source_idx "
+        "ON question_evidence(source_type, source_id, source_unit_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE question_audience_observations (
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            observation_id TEXT NOT NULL,
+            available INTEGER NOT NULL DEFAULT 1 CHECK (available IN (0, 1)),
+            PRIMARY KEY (question_id, observation_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE answer_versions (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            provider_run_id TEXT NULL REFERENCES provider_runs(id) ON DELETE SET NULL,
+            text TEXT NOT NULL,
+            origin TEXT NOT NULL CHECK (
+                origin IN ('user_typed', 'user_spoken', 'user_edited', 'ai_suggested')
+            ),
+            preferred INTEGER NOT NULL DEFAULT 0 CHECK (preferred IN (0, 1)),
+            correctness_score REAL NULL CHECK (
+                correctness_score IS NULL OR correctness_score BETWEEN 0.0 AND 1.0
+            ),
+            directness_score REAL NULL CHECK (
+                directness_score IS NULL OR directness_score BETWEEN 0.0 AND 1.0
+            ),
+            completeness_score REAL NULL CHECK (
+                completeness_score IS NULL OR completeness_score BETWEEN 0.0 AND 1.0
+            ),
+            concision_score REAL NULL CHECK (
+                concision_score IS NULL OR concision_score BETWEEN 0.0 AND 1.0
+            ),
+            style_match_score REAL NULL CHECK (
+                style_match_score IS NULL OR style_match_score BETWEEN 0.0 AND 1.0
+            ),
+            source_support_status TEXT NULL CHECK (
+                source_support_status IS NULL OR source_support_status IN (
+                    'supported', 'partially_supported', 'unsupported', 'conflicted'
+                )
+            ),
+            source_support_feedback TEXT NULL,
+            evaluation_json TEXT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX answer_versions_question_idx ON answer_versions(question_id, created_at, id)"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX answer_versions_one_preferred_idx "
+        "ON answer_versions(question_id) WHERE preferred = 1"
+    )
+    connection.execute(
+        """
+        CREATE TABLE answer_evidence (
+            answer_version_id TEXT NOT NULL REFERENCES answer_versions(id) ON DELETE CASCADE,
+            evidence_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            source_unit_id TEXT NULL,
+            label TEXT NOT NULL,
+            available INTEGER NOT NULL DEFAULT 1 CHECK (available IN (0, 1)),
+            PRIMARY KEY (answer_version_id, evidence_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX answer_evidence_source_idx "
+        "ON answer_evidence(source_type, source_id, source_unit_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE challenge_answer_promotions (
+            question_id TEXT PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
+            answer_version_id TEXT NOT NULL UNIQUE
+                REFERENCES answer_versions(id) ON DELETE CASCADE,
+            knowledge_item_id TEXT NOT NULL UNIQUE
+                REFERENCES knowledge_items(id) ON DELETE CASCADE,
+            promoted_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX challenge_promotions_knowledge_idx "
+        "ON challenge_answer_promotions(knowledge_item_id)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (5,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -676,6 +861,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (2, _migrate_project_v2),
             (3, _migrate_project_v3),
             (4, _migrate_project_v4),
+            (5, _migrate_project_v5),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

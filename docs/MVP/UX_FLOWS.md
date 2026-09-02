@@ -176,24 +176,34 @@ Question view:
 Jane · CFO
 "Why wouldn't we extend the existing platform for one more year?"
 
-[Hold to answer] / live mic
+[Type your answer]
+[Submit answer]
 ```
 
 After answer:
 
 ```text
+Correctness      Good
 Directness       Good
 Completeness     Missing status-quo risk
-Evidence         2 sources available
-Length           54 sec · target 25 sec
+Concision        Could be tighter
+Style match      Not enough style evidence
+Source support   Partially supported
+Length           28 words · estimated 13 sec · target 25 sec
 
 Your strongest prior phrasing:
 "..."
 
-[Retry] [Next question] [Save as preferred]
+[Retry] [Next question] [Follow-up] [Save as preferred]
 ```
 
 Scoring must be advisory and explainable, not presented as scientific truth.
+Challenge is typed-first in M5. There is no microphone control, spoken-answer
+timing measurement, ASR, or live meeting capture until M6. Retry keeps the same
+Question and creates another immutable AnswerVersion; Save as preferred is an
+explicit promotion into Project Brain knowledge. The expandable “Why this
+question / Sources” view shows only the concise rationale, accepted audience
+basis, and canonical source labels—not hidden model reasoning.
 
 ## 9. Run mode
 

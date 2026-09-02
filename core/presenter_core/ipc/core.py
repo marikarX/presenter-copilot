@@ -11,6 +11,7 @@ from typing import Any
 
 from presenter_core import CORE_VERSION
 from presenter_core.audience.service import AudienceModelService
+from presenter_core.challenge.service import ChallengeService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.knowledge.service import KnowledgeService
@@ -70,8 +71,8 @@ class CoreService:
             self._storage,
             self._emit_event,
             transcript_reconciler=self._transcript.reconcile_speaker_maps,
-            source_delete_hook=self._audience.before_source_delete,
-            source_reindex_hook=self._audience.after_source_reindex,
+            source_delete_hook=self._before_source_delete,
+            source_reindex_hook=self._after_source_reindex,
         )
         self._retrieval = LexicalRetrievalService(self._storage)
         self._hybrid_retrieval = HybridRetrievalService(
@@ -89,6 +90,7 @@ class CoreService:
             self._storage,
             after_delete=self._synchronize_semantic_index,
             after_mapping_delete=self._hybrid_retrieval.invalidate_project_mappings,
+            before_delete=self._before_knowledge_delete,
         )
         self._providers = ProviderService(self._storage, reasoning_provider)
         self._context_builder = ProviderContextBuilder(
@@ -103,6 +105,16 @@ class CoreService:
             self._providers,
             self._context_builder,
             self._emit_service_event,
+        )
+        self._challenge = ChallengeService(
+            self._storage,
+            self._sessions,
+            self._hybrid_retrieval,
+            self._providers,
+            self._context_builder,
+            self._audience,
+            self._emit_service_event,
+            self._synchronize_semantic_index,
         )
         self._projects = ProjectService(
             self._storage,
@@ -372,6 +384,20 @@ class CoreService:
             return make_response(request_id, result=self._teach.confirm_knowledge_item(params))
         if method == "teach.reject_knowledge_item":
             return make_response(request_id, result=self._teach.reject_knowledge_item(params))
+        if method == "challenge.configure":
+            return make_response(request_id, result=self._challenge.configure(params))
+        if method == "challenge.next_question":
+            return make_response(request_id, result=self._challenge.next_question(params))
+        if method == "challenge.submit_answer":
+            return make_response(request_id, result=self._challenge.submit_answer(params))
+        if method == "challenge.retry_question":
+            return make_response(request_id, result=self._challenge.retry_question(params))
+        if method == "challenge.save_preferred_answer":
+            return make_response(request_id, result=self._challenge.save_preferred_answer(params))
+        if method == "challenge.get_state":
+            return make_response(request_id, result=self._challenge.get_state(params))
+        if method == "challenge.list_history":
+            return make_response(request_id, result=self._challenge.list_history(params))
         if method == "knowledge.list":
             return make_response(request_id, result=self._knowledge.list(params))
         if method == "knowledge.update_flags":
@@ -409,6 +435,19 @@ class CoreService:
 
     def _emit_service_event(self, event: str, payload: dict[str, Any]) -> None:
         self._emit_event(event, payload)
+
+    def _before_source_delete(self, connection: Any, document_id: str) -> None:
+        self._audience.before_source_delete(connection, document_id)
+        self._challenge.before_source_delete(connection, document_id)
+
+    def _after_source_reindex(
+        self, connection: Any, document_id: str, previous_unit_ids: set[str]
+    ) -> None:
+        self._audience.after_source_reindex(connection, document_id, previous_unit_ids)
+        self._challenge.after_source_reindex(connection, document_id, previous_unit_ids)
+
+    def _before_knowledge_delete(self, connection: Any, knowledge_item_id: str) -> None:
+        self._challenge.before_knowledge_delete(connection, knowledge_item_id)
 
     def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
         """Refresh an active index after a knowledge deletion without undoing the delete."""

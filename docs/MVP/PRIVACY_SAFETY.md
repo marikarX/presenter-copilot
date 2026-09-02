@@ -98,10 +98,13 @@ content-processing path. Update checks/optional external links must be
 separable from session processing and disabled in the network-isolation test
 environment.
 
-The project row is authoritative for this decision. A Teach session cannot
-select a broader privacy mode, and changing an active project's mode to
-`local_only` immediately prevents subsequent remote Teach calls; the session's
-stored mode is not an authority override.
+The project row is authoritative for this decision. A Teach or Challenge
+session cannot select a broader privacy mode, and changing an active project's
+mode to `local_only` immediately prevents subsequent remote content calls; the
+session's stored mode is not an authority override. Challenge question and
+evaluation requests use the same local/remote router and selected-context
+manifest path as the rest of the product. Challenge history is local project
+state; it is not uploaded as a corpus.
 
 ### Selected Context Cloud
 
@@ -118,7 +121,11 @@ The app records a metadata-only context manifest before every remote call. It
 identifies provider, task, privacy mode, sent provenance classes/IDs, and
 explicit false values for raw audio, full documents/corpus, and private items.
 The request is bounded selected context; it does not upload files, raw audio,
-or the full project history.
+or the full project history. For Challenge, the selected packet may contain
+only the current question or typed answer, canonical selected Evidence,
+accepted active AudienceContext, approved style evidence, and bounded prior
+preferred wording needed for the operation. Pending, rejected, stale, or
+unresolved audience material is excluded.
 
 ### Full Context Cloud
 

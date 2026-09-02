@@ -20,10 +20,12 @@ class KnowledgeService:
         storage: StorageManager,
         after_delete: Callable[[str], dict[str, Any]] | None = None,
         after_mapping_delete: Callable[[str], None] | None = None,
+        before_delete: Callable[[sqlite3.Connection, str], None] | None = None,
     ) -> None:
         self._storage = storage
         self._after_delete = after_delete
         self._after_mapping_delete = after_mapping_delete
+        self._before_delete = before_delete
 
     def list(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "usage"})
@@ -100,6 +102,8 @@ class KnowledgeService:
             self._knowledge_row(connection, project_id, item_id)
             # embedding_vectors is intentionally polymorphic, so this explicit
             # cleanup is the authoritative KnowledgeItem delete hook.
+            if self._before_delete is not None:
+                self._before_delete(connection, item_id)
             connection.execute(
                 "DELETE FROM embedding_vectors "
                 "WHERE entity_type = 'knowledge_item' AND entity_id = ?",

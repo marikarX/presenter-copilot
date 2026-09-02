@@ -16,6 +16,7 @@ import {
   unwrapInvokeResult,
 } from "../shared/protocol";
 import { AudiencePanel } from "./AudiencePanel";
+import { ChallengePanel } from "./ChallengePanel";
 import { TeachPanel } from "./TeachPanel";
 import {
   requiresTranscriptDisclosure,
@@ -577,7 +578,7 @@ export function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Milestone 4 · transcript Audience Model</p>
+          <p className="eyebrow">Milestone 5 · Challenge Mode</p>
           <h1>Presenter Copilot</h1>
           <p className="lede">
             Import presentation material, preserve its boundaries, and inspect
@@ -788,6 +789,13 @@ export function App() {
 
               {selectedProject.storage_status === "ready" ? (
                 <TeachPanel project={selectedProject} />
+              ) : null}
+
+              {selectedProject.storage_status === "ready" ? (
+                <ChallengePanel
+                  project={selectedProject}
+                  refreshToken={audienceRefreshToken}
+                />
               ) : null}
 
               <div className="source-heading section-heading">

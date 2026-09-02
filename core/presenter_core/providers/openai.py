@@ -1,4 +1,4 @@
-"""Official OpenAI Responses API adapter for bounded M3 Teach tasks."""
+"""Official OpenAI Responses API adapter for bounded Teach and Challenge tasks."""
 
 from __future__ import annotations
 
@@ -47,7 +47,13 @@ class OpenAIReasoningProvider(ReasoningProvider):
             structured_outputs=True,
             streaming=False,
             cancellation=False,
-            task_types=("teach_question", "teach_candidate"),
+            task_types=(
+                "teach_question",
+                "teach_candidate",
+                "challenge_question",
+                "challenge_follow_up",
+                "challenge_evaluation",
+            ),
         )
 
     def health(self) -> ProviderHealth:
@@ -82,9 +88,18 @@ class OpenAIReasoningProvider(ReasoningProvider):
 
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
         client = self._load_client()
-        schema_name = (
-            "teach_question" if request.task_type == "teach_question" else "teach_candidate"
-        )
+        schema_name = {
+            "teach_question": "teach_question",
+            "teach_candidate": "teach_candidate",
+            "challenge_question": "challenge_question",
+            "challenge_follow_up": "challenge_follow_up",
+            "challenge_evaluation": "challenge_evaluation",
+        }.get(request.task_type)
+        if schema_name is None:
+            raise ProviderError(
+                "PROVIDER_REQUEST_FAILED",
+                "The reasoning task is not supported.",
+            )
         started = monotonic()
         try:
             response = client.responses.create(

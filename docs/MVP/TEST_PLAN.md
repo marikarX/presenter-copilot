@@ -231,7 +231,46 @@ the separate explicit approval action.
 
 ### E2E-04 Challenge
 
-Select two audience profiles -> generate grounded question -> answer -> evaluation -> retry -> save preferred answer -> verify preferred answer retrieval.
+Use the canonical synthetic project, deck, supporting documents, and
+`PriorMeeting.vtt`. Index the project, map Jane Smith and Robert Chen to two
+project-local AudienceProfiles, and create/accept safe observations for both.
+Start a Challenge session with both profiles, a non-default intensity, and
+follow-ups enabled. Generate a grounded Jane question, inspect its rationale
+and canonical sources, submit a weak typed answer, retry the same Question,
+submit a stronger typed answer, and verify two immutable AnswerVersions under
+one Question. Explicitly save the stronger version and verify it is returned
+by normal `usage=rehearsal` retrieval as user/practiced evidence. Generate the
+next root question and verify Robert context is used. Restart core/app,
+reopen the active session, and verify Question, AnswerVersion, evaluation,
+preference, and evidence state is recovered without provider regeneration.
+Also run disposable-session deletion and disposable-project cleanup checks.
+
+The canonical flow must keep the unresolved `Conference Room` transcript
+label out of AudienceContext, preserve the fixture's prompt-injection text as
+untrusted evidence, keep private KnowledgeItems out of remote packets, and
+keep source/profile deletion references truthful.
+
+### M5 Challenge regression matrix
+
+The deterministic core suite covers at minimum:
+
+- v4 -> v5, new v5, no-op v5, and future-version-without-mutation migration;
+- 1–3 unique active project-local profiles, invalid ranges, profile deletion,
+  and stable cross-project/state errors;
+- round-robin audience selection, role/observation-specific questions,
+  accepted active evidence only, slide-range filtering, prior-question
+  de-duplication, intensity framing, and insufficient-context failure;
+- strict question/evaluation output bounds, provider-invented evidence
+  rejection, conflict status, unavailable style score, and bounded feedback;
+- typed answer persistence, one-Question retry history, bounded follow-up
+  parentage, and restart recovery without regeneration;
+- explicit/idempotent preferred-answer promotion, replacement without duplicate
+  active knowledge, immediate lexical retrieval, best-effort semantic sync,
+  durable user-authored provenance after session deletion, and knowledge/index
+  deletion cleanup;
+- Local Only no-remote-call behavior, current privacy reread, selected-context
+  manifests, absence of full corpus/raw transcript/private content, inert
+  prompt injection, and renderer-safe serializable errors.
 
 ### E2E-05 Run
 
@@ -360,6 +399,22 @@ delete behavior, renderer disclosure/IPC boundaries, `pnpm check`,
 `pnpm build`, the real-model acceptance and 50k benchmark (or record their
 unavailable status without fabricating results), hosted CI, and trusted Local
 CI on the same final SHA. Do not require a provider key for M4.
+
+### M5 milestone gate
+
+Before opening the M5 review PR, verify the v4 -> v5 migration preserves all
+M0–M4 project/source/retrieval/Teach/Speaker Profile/transcript/Audience Model
+state; E2E-04 and the M5 Challenge regression matrix pass; Challenge config,
+questions, evidence, typed answer versions, evaluations, retry/follow-up,
+preferred promotion, deletion, and restart semantics are verified; Local Only
+and selected-context privacy tests pass; renderer/main/preload allowlists and
+serializable error envelopes remain intact; `pnpm setup`, `pnpm check`,
+`pnpm build`, the real embedding acceptance, and the 50k retrieval benchmark
+are run or their unavailable status is recorded precisely; real provider
+acceptance is run only with `OPENAI_API_KEY`; Windows Electron smoke, hosted
+CI, and trusted Local CI pass on the same final SHA. Do not require a provider
+key for deterministic M5 CI. Do not start Run, ASR, HUD, or any M6 work as
+part of this gate.
 
 A pre-1.0 MVP release requires:
 

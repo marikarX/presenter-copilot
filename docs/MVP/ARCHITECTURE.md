@@ -203,6 +203,23 @@ Owns modes:
 
 It records mode/session events but delegates ASR, retrieval, provider reasoning, and persistence to other services.
 
+Challenge mode is a typed-first vertical slice owned by the Python core. Its
+`ChallengeService` owns the project-local session state machine, selected
+AudienceProfile joins, question/evaluation history, retry and bounded
+follow-up relationships, and explicit preferred-answer promotion. It composes
+`AudienceContextBuilder`, `RetrievalService`, `ProviderContextBuilder`, and
+`ReasoningRouter`; it does not introduce a second retrieval store, persona
+builder, provider abstraction, or database. Question and evaluation provider
+calls are made outside SQLite write transactions and are committed only after
+core revalidates the session and validates every returned provenance ID.
+
+The renderer receives only bounded Challenge state/history projections through
+explicit IPC methods. It never reconstructs Challenge authority from button
+state and never receives source excerpts outside the existing bounded,
+trust-labeled provider context path. Ordinary Challenge history remains
+session-owned until the user explicitly promotes an answer through the
+existing KnowledgeItem and durable user-statement pipeline.
+
 ### CueService
 
 Turns evidence/answer structures into HUD-sized cues.

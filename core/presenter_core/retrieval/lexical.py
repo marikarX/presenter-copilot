@@ -92,6 +92,12 @@ def _chunk_select_sql(
         parameters.extend(filters.document_ids)
     if filters.source_types:
         _append_source_type_filter(clauses, parameters, filters.source_types, "documents")
+    if filters.slide_start is not None and filters.slide_end is not None:
+        clauses.append(
+            "(documents.kind <> 'presentation' OR "
+            "(source_units.unit_type = 'slide' AND source_units.ordinal BETWEEN ? AND ?))"
+        )
+        parameters.extend([filters.slide_start, filters.slide_end])
     if lexical_tokens:
         token_clauses = " OR ".join(
             "instr(' ' || chunks.lexical_text || ' ', ' ' || ? || ' ') > 0" for _ in lexical_tokens
@@ -151,6 +157,7 @@ def _knowledge_select_sql(filters: RetrievalFilters) -> tuple[str, list[Any]]:
             'knowledge_item' AS entity_type,
             'user_knowledge' AS source_class,
             k.id AS knowledge_item_id,
+            k.kind AS knowledge_kind,
             k.private AS private,
             k.preferred AS preferred,
             k.use_live AS use_live,
@@ -210,6 +217,11 @@ def _record_from_row(row: sqlite3.Row | Any) -> ChunkRecord:
         knowledge_item_id=(
             str(row["knowledge_item_id"])
             if "knowledge_item_id" in keys and row["knowledge_item_id"] is not None
+            else None
+        ),
+        knowledge_kind=(
+            str(row["knowledge_kind"])
+            if "knowledge_kind" in keys and row["knowledge_kind"] is not None
             else None
         ),
         user_statement_id=(
@@ -403,7 +415,9 @@ def _candidate_evidence(candidate: LexicalCandidate, *, rank: int) -> Evidence:
         source_id=record.source_id or record.document_id,
         source_unit_id=record.source_unit_id,
         label=(
-            "Your Teach explanation"
+            "Your practiced answer"
+            if record.entity_type == "knowledge_item" and record.knowledge_kind == "answer"
+            else "Your Teach explanation"
             if record.entity_type == "knowledge_item"
             else provenance_label(
                 record.original_name,
