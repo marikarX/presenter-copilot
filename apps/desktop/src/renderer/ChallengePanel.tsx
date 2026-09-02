@@ -651,6 +651,33 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     setMessage(null);
   }, []);
 
+  const deleteChallengeSession = useCallback(async () => {
+    if (!session) return;
+    if (
+      !window.confirm(
+        "Delete this Challenge session and its unsaved history? Explicitly saved preferred answers remain in Project Brain.",
+      )
+    ) {
+      return;
+    }
+    setBusy("delete-session");
+    setMessage(null);
+    try {
+      await requestCore("session.delete", {
+        project_id: project.id,
+        session_id: session.id,
+      });
+      beginNewChallenge();
+      setMessage(
+        "Challenge session deleted. Saved preferred answers remain available.",
+      );
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }, [beginNewChallenge, project.id, session]);
+
   const observationById = useMemo(
     () => new Map(observations.map((item) => [item.id, item])),
     [observations],
@@ -1031,6 +1058,14 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
               : historyOpen
                 ? "Hide history"
                 : "Inspect history"}
+          </button>
+          <button
+            type="button"
+            className="text-button danger-text"
+            onClick={() => void deleteChallengeSession()}
+            disabled={busy !== null}
+          >
+            {busy === "delete-session" ? "Deleting…" : "Delete session"}
           </button>
         </div>
       ) : null}

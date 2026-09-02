@@ -86,6 +86,9 @@ export function App() {
   );
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [audienceRefreshToken, setAudienceRefreshToken] = useState(0);
+  const refreshAudiencePanels = useCallback(() => {
+    setAudienceRefreshToken((value) => value + 1);
+  }, []);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SourcePreviewResult | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -954,6 +957,7 @@ export function App() {
                 <AudiencePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
+                  onAudienceChange={refreshAudiencePanels}
                 />
               ) : null}
 

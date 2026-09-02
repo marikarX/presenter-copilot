@@ -16,6 +16,7 @@ import {
 type AudiencePanelProps = {
   project: ReadyProjectSummary;
   refreshToken: number;
+  onAudienceChange: () => void;
 };
 
 type ProfileListResult = { profiles: AudienceProfile[] };
@@ -150,7 +151,11 @@ function ObservationTypeSelect({
   );
 }
 
-export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
+export function AudiencePanel({
+  project,
+  refreshToken,
+  onAudienceChange,
+}: AudiencePanelProps) {
   const [profiles, setProfiles] = useState<AudienceProfile[]>([]);
   const [speakers, setSpeakers] = useState<TranscriptSpeakerSummary[]>([]);
   const [observations, setObservations] = useState<AudienceObservation[]>([]);
@@ -228,13 +233,14 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
       });
       setProfileDraft(EMPTY_PROFILE_DRAFT);
       await loadData();
+      onAudienceChange();
       setMessage("Audience profile created locally.");
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
       setBusy(null);
     }
-  }, [loadData, profileDraft, project.id]);
+  }, [loadData, onAudienceChange, profileDraft, project.id]);
 
   const beginProfileEdit = useCallback((profile: AudienceProfile) => {
     setEditingProfileId(profile.id);
@@ -263,6 +269,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setEditingProfileId(null);
         setProfileDraft(EMPTY_PROFILE_DRAFT);
         await loadData();
+        onAudienceChange();
         setMessage("Audience profile updated locally.");
       } catch (error) {
         setMessage(errorMessage(error));
@@ -270,7 +277,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, profileDraft, project.id],
+    [loadData, onAudienceChange, profileDraft, project.id],
   );
 
   const toggleProfile = useCallback(
@@ -284,13 +291,14 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           active: !profile.active,
         });
         await loadData();
+        onAudienceChange();
       } catch (error) {
         setMessage(errorMessage(error));
       } finally {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const deleteProfile = useCallback(
@@ -309,6 +317,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           audience_profile_id: profile.id,
         });
         await loadData();
+        onAudienceChange();
         setMessage("Audience profile deleted; transcript evidence remains.");
       } catch (error) {
         setMessage(errorMessage(error));
@@ -316,7 +325,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const setSpeakerMapping = useCallback(
@@ -339,6 +348,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           });
         }
         await loadData();
+        onAudienceChange();
         setMessage(
           profileId
             ? "Speaker mapping saved. Derived observations were revalidated."
@@ -350,7 +360,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const createFromSpeaker = useCallback((speaker: TranscriptSpeakerSummary) => {
@@ -379,6 +389,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           audience_profile_id: profile.id,
         });
         await loadData();
+        onAudienceChange();
         setMessage(
           `Created ${result.created_candidate_count} provisional candidate(s) from ${result.matched_segment_count} matched transcript segment(s); retained ${result.evidence_segment_count} evidence example(s); skipped ${result.skipped_duplicate_count} duplicate(s).`,
         );
@@ -388,7 +399,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const acceptCandidate = useCallback(
@@ -409,6 +420,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           observation_type: draft.observation_type,
         });
         await loadData();
+        onAudienceChange();
         setMessage("Observation accepted into the active Audience Model.");
       } catch (error) {
         setMessage(errorMessage(error));
@@ -416,7 +428,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [candidateDrafts, loadData, project.id],
+    [candidateDrafts, loadData, onAudienceChange, project.id],
   );
 
   const rejectCandidate = useCallback(
@@ -429,6 +441,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           candidate_id: candidate.id,
         });
         await loadData();
+        onAudienceChange();
         setMessage(
           "Provisional candidate rejected and retained as project-local review history.",
         );
@@ -438,7 +451,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const updateObservation = useCallback(
@@ -459,6 +472,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           observation_type: draft.observation_type,
         });
         await loadData();
+        onAudienceChange();
         setMessage("Observation updated and safety policy rechecked.");
       } catch (error) {
         setMessage(errorMessage(error));
@@ -466,7 +480,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, observationDrafts, project.id],
+    [loadData, observationDrafts, onAudienceChange, project.id],
   );
 
   const deleteObservation = useCallback(
@@ -479,6 +493,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
           observation_id: observation.id,
         });
         await loadData();
+        onAudienceChange();
         setMessage("Observation deleted from the project Audience Model.");
       } catch (error) {
         setMessage(errorMessage(error));
@@ -486,7 +501,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [loadData, onAudienceChange, project.id],
   );
 
   const createUserObservation = useCallback(async () => {
@@ -502,6 +517,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
       });
       setUserObservationText("");
       await loadData();
+      onAudienceChange();
       setMessage(
         "User-entered observation saved locally without transcript evidence.",
       );
@@ -512,6 +528,7 @@ export function AudiencePanel({ project, refreshToken }: AudiencePanelProps) {
     }
   }, [
     loadData,
+    onAudienceChange,
     project.id,
     userObservationProfileId,
     userObservationText,
