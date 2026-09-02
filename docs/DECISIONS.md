@@ -334,3 +334,39 @@ Electron IPC does not preserve arbitrary custom properties on rejected Error
 objects. Returning structured data keeps core-domain errors reliable in the
 renderer without expanding renderer authority or creating a second error
 model.
+
+## D-025 — M2 uses a pinned local FastEmbed adapter with offline normal operation
+
+**Status:** Accepted for Milestone 2
+
+Use `fastembed==0.8.0` with `BAAI/bge-small-en-v1.5` through a replaceable
+`EmbeddingAdapter`. The normal application, indexing, and query paths use
+CPU/ONNX execution with local-files-only loading. Model acquisition is limited
+to the explicit developer bootstrap command and is never exposed through
+renderer IPC.
+
+Reason:
+
+The M2 retrieval path must remain local, provider-neutral, reproducible, and
+usable when the model cache is absent. A deterministic injectable adapter keeps
+CI independent of internet/model availability without silently becoming the
+production fallback.
+
+## D-026 — Project embeddings use generation-based memory-mapped NumPy matrices
+
+**Status:** Accepted for Milestone 2
+
+Persist normalized float32 vectors in project-local `.npy` matrices under one
+active generation record. Rebuilds write and fsync a staging matrix, atomically
+activate the completed file through a transactional metadata switch, preserve
+compatible vectors by chunk ID/content hash/model identity, retire all inactive
+generation rows after activation, and garbage-collect orphaned derived files
+best-effort. The previous generation remains the sole usable generation if the
+activation transaction fails.
+
+Reason:
+
+The frozen MVP scale is at most 50,000 chunks, where an in-process vectorized
+dot product is simpler and more inspectable than a vector database or ANN
+service. Generations keep SQLite metadata and the matrix from exposing a
+half-written index while preserving a later seam for additional entity types.

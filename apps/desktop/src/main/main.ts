@@ -160,7 +160,11 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
     return invokeResult(async () => {
       const request = validateRendererRequest(value);
       const timeoutMs =
-        request.method === "source.reindex" ? 60_000 : undefined;
+        request.method === "source.reindex"
+          ? 60_000
+          : request.method === "retrieval.rebuild"
+            ? 10 * 60_000
+            : undefined;
       return timeoutMs === undefined
         ? requireClient().request(request.method, request.params)
         : requireClient().request(request.method, request.params, timeoutMs);

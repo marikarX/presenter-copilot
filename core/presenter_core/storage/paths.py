@@ -119,12 +119,13 @@ class AppPaths:
         )
 
     def create_project_directories(self, project_id: str) -> ProjectPaths:
-        """Create a new vault with the M1 source directory only."""
+        """Create a new vault with project-owned derived-data directories."""
         paths = self.project(project_id)
         if paths.root.exists():
             raise CoreDomainError("PROJECT_ALREADY_EXISTS", "Project already exists.")
         paths.root.mkdir()
         paths.sources.mkdir()
+        paths.embeddings.mkdir()
         return paths
 
     def snapshot_path(
@@ -173,6 +174,67 @@ class AppPaths:
         if resolved_sources.parent != paths.root.resolve() or resolved_sources.name != "sources":
             raise CoreDomainError("SOURCE_PATH_UNSAFE", "The project source directory is not safe.")
         return paths.sources
+
+    def safe_embeddings_directory(self, project_id: str, *, create: bool = False) -> Path:
+        """Return the project embedding directory only when it is vault-local."""
+        paths = self.project(project_id, require_exists=True)
+        if create:
+            paths.embeddings.mkdir(exist_ok=True)
+        if paths.embeddings.is_symlink() or not paths.embeddings.is_dir():
+            raise CoreDomainError(
+                "EMBEDDING_PATH_UNSAFE",
+                "The project embedding directory is not safe.",
+            )
+        resolved_embeddings = paths.embeddings.resolve()
+        if (
+            resolved_embeddings.parent != paths.root.resolve()
+            or resolved_embeddings.name != "embeddings"
+        ):
+            raise CoreDomainError(
+                "EMBEDDING_PATH_UNSAFE",
+                "The project embedding directory is not safe.",
+            )
+        return paths.embeddings
+
+    def embedding_matrix_path(
+        self,
+        project_id: str,
+        relative_path: str,
+        *,
+        require_exists: bool = False,
+    ) -> Path:
+        """Resolve one stored matrix path inside the project embedding directory."""
+        paths = self.project(project_id, require_exists=True)
+        embeddings_root = self.safe_embeddings_directory(project_id)
+        if not isinstance(relative_path, str) or not relative_path or "\x00" in relative_path:
+            raise CoreDomainError("EMBEDDING_PATH_UNSAFE", "Stored embedding path is invalid.")
+
+        normalized = relative_path.replace("\\", "/")
+        posix_path = PurePosixPath(normalized)
+        windows_path = PureWindowsPath(normalized)
+        if (
+            posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or bool(windows_path.drive)
+            or ".." in posix_path.parts
+            or len(posix_path.parts) != 2
+            or posix_path.parts[0] != "embeddings"
+            or not posix_path.parts[1].endswith(".npy")
+        ):
+            raise CoreDomainError("EMBEDDING_PATH_UNSAFE", "Stored embedding path is invalid.")
+
+        candidate = paths.root / Path(*posix_path.parts)
+        resolved_candidate = candidate.resolve()
+        if candidate.is_symlink() or not resolved_candidate.is_relative_to(
+            embeddings_root.resolve()
+        ):
+            raise CoreDomainError("EMBEDDING_PATH_UNSAFE", "Stored embedding path is invalid.")
+        if require_exists and not candidate.is_file():
+            raise CoreDomainError(
+                "RETRIEVAL_INDEX_CORRUPT",
+                "The active embedding matrix is missing.",
+            )
+        return candidate
 
     def _safe_projects_root(self) -> Path:
         if self.projects.is_symlink() or not self.projects.is_dir():

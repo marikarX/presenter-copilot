@@ -48,11 +48,23 @@ The fixture should include at least these facts:
 ### Retrieval
 
 - exact number query returns correct source;
+- deterministic semantic paraphrase ranking and hybrid lexical/semantic fusion;
+- exact-number precedence, stable tie-breaking, and source/document filters;
 - current-slide boost works;
-- user preferred explanation outranks generic semantic match when appropriate;
-- `use_live=false` knowledge excluded from Live Assist;
+- adjacent-slide boost is smaller and never applies to supporting PDF pages;
+- persisted generation reloads after restart and unchanged chunks reuse vectors;
+- D07 User-preferred answer/explanation boost is deferred until
+  KnowledgeItem/practiced-answer entities arrive;
+- D08 `use_live` filter is deferred until the later live-context entities
+  arrive;
 - conflicting facts are detectable;
-- deletion removes vectors/index entries.
+- repeated rebuilds retain one generation, one mapping set, and one matrix;
+- failed activation preserves the prior generation and removes the orphan
+  matrix;
+- source deletion removes vectors by captured Chunk IDs and project deletion
+  removes project embedding files without touching the shared model cache;
+- malformed/mismatched matrix state degrades to lexical retrieval without an
+  implicit model download.
 
 ### Speaker Profile
 
@@ -206,6 +218,19 @@ Assert context manifest precisely identifies sent source IDs/classes.
 - malformed provider output cannot inject executable HTML into HUD.
 
 ## 11. Performance benchmarks
+
+M2 also provides a separate local retrieval benchmark:
+
+```text
+pnpm model:prepare:embeddings
+pnpm benchmark:retrieval
+```
+
+It uses the actual pinned model dimension with 50,000 seeded float32 vectors,
+measures cold model load separately from warm query embedding, matrix cosine
+search, and total metadata/rerank retrieval, and records p50/p95/max metadata
+without source text or queries. The reference target is warm retrieval p95 <=
+250 ms; hosted CI must not treat that manual hardware target as a brittle SLA.
 
 Run on at least:
 

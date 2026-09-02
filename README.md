@@ -91,10 +91,11 @@ dev` opens the desktop shell, which starts the Python core sidecar
 automatically. The shell should show `CORE READY`, protocol `1`, core version
 `0.1.0`, and health `OK`.
 
-Milestone 1 adds the local project vault flow: create/open a project, import
-PPTX/PDF/TXT/Markdown sources through the native file picker, inspect bounded
-slide/page/section previews with provenance, re-index from the stored snapshot,
-and delete sources or whole projects. The normal data root is
+Milestones 1 and 2 add the local project vault flow: create/open a project,
+import PPTX/PDF/TXT/Markdown sources through the native file picker, inspect
+bounded slide/page/section previews with provenance, re-index from the stored
+snapshot, delete sources or whole projects, and inspect local hybrid semantic
+retrieval. The normal data root is
 `%LOCALAPPDATA%\PresenterCopilot` on Windows. Tests use a temporary root; a
 controlled run can set `PRESENTER_COPILOT_DATA_ROOT` explicitly.
 
@@ -108,10 +109,15 @@ pnpm lint           # ESLint plus Ruff
 pnpm typecheck      # TypeScript plus mypy
 pnpm format:check   # Prettier plus Ruff format check
 pnpm check          # formatting, lint, typecheck, and all tests
+pnpm model:prepare:embeddings  # explicit, network-dependent model bootstrap
+pnpm test:embedding-real       # real local FastEmbed acceptance; cache required
+pnpm benchmark:retrieval       # reproducible 50k-vector local benchmark
 ```
 
-Milestone 1 intentionally does not include embeddings, semantic search, ASR,
-model providers, sessions, or the real presentation HUD. See
+Model preparation is the only command above that may use the network. Normal
+startup, source indexing, and retrieval use local-files-only model loading and
+never download a model implicitly. Milestone 2 intentionally does not include
+ASR, model providers, sessions, or the real presentation HUD. See
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
 commands.
 
@@ -142,7 +148,8 @@ commands.
 ## Repository status
 
 Milestone 0 — repository scaffold — is merged into `main`. The current
-implementation slice is Milestone 1 — local project vault and ingestion.
+implementation slice is Milestone 2 — local project vault, ingestion,
+embeddings, and hybrid retrieval.
 
 ## License
 

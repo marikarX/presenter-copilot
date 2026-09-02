@@ -15,6 +15,9 @@ export const CORE_METHODS = [
   "source.delete",
   "source.reindex",
   "search.lexical",
+  "retrieval.health",
+  "retrieval.query",
+  "retrieval.rebuild",
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
@@ -29,6 +32,9 @@ export const RENDERER_CORE_METHODS = [
   "source.preview",
   "source.delete",
   "source.reindex",
+  "retrieval.health",
+  "retrieval.query",
+  "retrieval.rebuild",
 ] as const;
 export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
 export type JsonObject = Record<string, unknown>;
@@ -193,6 +199,98 @@ export interface SourceSummary {
   chunks_count: number;
   snapshot_name: string | null;
   metadata: JsonObject;
+}
+
+export interface RetrievalHealthResult {
+  project_id: string;
+  status: string;
+  model_available: boolean;
+  model_loaded: boolean;
+  adapter_id: string;
+  model_id: string;
+  model_fingerprint: string | null;
+  dimension: number | null;
+  model_load_ms: number | null;
+  active_generation_id: string | null;
+  matrix_row_count: number;
+  current_indexed_mappings: number;
+  current_project_chunk_count: number;
+  semantic_coverage: number;
+  stale_reason: string | null;
+  index_model_id: string | null;
+  index_model_fingerprint: string | null;
+  index_dimension: number | null;
+}
+
+export interface RetrievalSemanticStatus {
+  status: string;
+  coverage: number;
+  adapter_id: string;
+  model_id: string;
+  model_fingerprint: string | null;
+  dimension: number | null;
+  model_loaded: boolean;
+  generation_id: string | null;
+  matrix_row_count: number;
+  stale_reason: string | null;
+}
+
+export interface RetrievalHit {
+  evidence: {
+    evidence_id: string;
+    source_type: string;
+    source_id: string;
+    source_unit_id: string;
+    label: string;
+    text: string;
+    rank: number;
+    score: number;
+    fact_safe: boolean;
+  };
+  scores: {
+    semantic: number;
+    lexical: number;
+    lexical_raw: number;
+    slide_boost: number;
+    final: number;
+  };
+  reasons: string[];
+}
+
+export interface RetrievalConflict {
+  kind: string;
+  subject: string;
+  value_type: string;
+  values: Array<{
+    normalized_value: string;
+    value_type: string;
+    evidence_ids: string[];
+  }>;
+  evidence: Array<{ evidence_id: string; label: string }>;
+}
+
+export interface RetrievalQueryResult {
+  project_id: string;
+  query: string;
+  mode: string;
+  latency_ms: number;
+  semantic: RetrievalSemanticStatus;
+  hits: RetrievalHit[];
+  conflicts: RetrievalConflict[];
+}
+
+export interface RetrievalRebuildResult {
+  project_id: string;
+  status: string;
+  generation_id: string;
+  model_id: string;
+  model_fingerprint: string;
+  dimension: number;
+  matrix_row_count: number;
+  indexed_count: number;
+  coverage: number;
+  reused_count: number;
+  embedded_count: number;
 }
 
 export interface SourceUnitPreview {

@@ -30,7 +30,10 @@
             "source.preview",
             "source.delete",
             "source.reindex",
-            "search.lexical"
+            "search.lexical",
+            "retrieval.health",
+            "retrieval.query",
+            "retrieval.rebuild"
           ],
           "events": [
             "core.ready",
@@ -45,12 +48,15 @@
           "pdf.pypdf",
           "pptx.python-pptx",
           "text.stdlib",
+          "embedding.fastembed",
+          "retrieval.numpy",
+          "retrieval.hybrid",
           "retrieval.lexical"
         ],
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 1,
-          "project_schema_version": 1
+          "project_schema_version": 2
         }
       }
     },
@@ -87,7 +93,10 @@
             "source.preview",
             "source.delete",
             "source.reindex",
-            "search.lexical"
+            "search.lexical",
+            "retrieval.health",
+            "retrieval.query",
+            "retrieval.rebuild"
           ],
           "events": [
             "core.ready",
@@ -102,12 +111,15 @@
           "pdf.pypdf",
           "pptx.python-pptx",
           "text.stdlib",
+          "embedding.fastembed",
+          "retrieval.numpy",
+          "retrieval.hybrid",
           "retrieval.lexical"
         ],
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 1,
-          "project_schema_version": 1
+          "project_schema_version": 2
         }
       }
     },

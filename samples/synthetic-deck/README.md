@@ -3,7 +3,9 @@
 This directory contains only fictional, distributable material for testing
 Presenter Copilot's local project vault and ingestion flow. It includes a
 22-slide PPTX with speaker notes, a four-page PDF cost model, a Markdown
-architecture note, expected lexical targets, and bounded security fixtures.
+architecture note, expected lexical/semantic/hybrid retrieval targets, and
+bounded security fixtures. The retrieval goldens use top-K expectations rather
+than exact floating-point scores.
 
 Regenerate the binary/text assets deterministically from the repository root:
 

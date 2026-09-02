@@ -10,7 +10,8 @@ For the first executable Windows MVP:
 - core/ML sidecar: Python;
 - desktop/core IPC: newline-delimited JSON over child-process stdio;
 - structured local state: SQLite;
-- local embeddings: project-local float32 matrix/in-process search for P0 scale;
+- local embeddings: FastEmbed BGE-small CPU/ONNX adapter plus a project-local
+  float32 matrix/in-process search for P0 scale;
 - reference ASR adapter: `faster-whisper` behind a replaceable interface;
 - provider integrations behind a single reasoning-provider interface;
 - Windows 11 is the reference platform;
@@ -30,7 +31,7 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
-## Milestone 1 setup and commands
+## Milestone 2 setup and commands
 
 The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
 3.13, and uv. Install the locked JavaScript and Python environments from the
@@ -43,7 +44,8 @@ pnpm setup
 `pnpm setup` runs `pnpm install --frozen-lockfile`, makes sure the pinned
 Electron development binary is available, and runs `uv sync --project core
 --locked`. The locked Python environment includes the M1 `pypdf` and
-`python-pptx` parser adapters plus pytest, Ruff, and mypy.
+`python-pptx` parser adapters, the pinned `fastembed`/NumPy retrieval runtime,
+plus pytest, Ruff, and mypy.
 
 Run the desktop shell:
 
@@ -69,11 +71,30 @@ pnpm check
 pnpm core:dev
 ```
 
-`pnpm test` includes the TypeScript Electron-side client tests, Python
-storage/parser/IPC tests, and integration tests that spawn the real Python
-sidecar across a restart.
+`pnpm test` includes the TypeScript Electron-side client tests, deterministic
+Python retrieval/storage/parser/IPC tests, and integration tests that spawn
+the real Python sidecar across a restart. Hosted CI does not download the
+embedding model or require provider credentials; real-model acceptance and the
+full 50,000-vector benchmark are manual developer checks after explicit
+bootstrap.
 `pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
 bundle Python into an installer; release bundling is a later packaging slice.
+
+The M2 developer-only model and retrieval commands are:
+
+```text
+pnpm model:prepare:embeddings
+pnpm test:embedding-real
+pnpm benchmark:retrieval
+```
+
+`pnpm model:prepare:embeddings` is an explicit, network-dependent bootstrap
+operation. It stores only the pinned `BAAI/bge-small-en-v1.5` model in the
+shared application model cache and reports its local artifact fingerprint and
+dimension. The acceptance test and normal application paths use
+`local_files_only=true`; they fail or fall back to lexical retrieval when the
+cache is absent. The full benchmark uses 50,000 seeded float32 vectors and
+writes only metadata/timings to `artifacts/m2-retrieval-benchmark.json`.
 
 ## CI environments
 
@@ -135,15 +156,18 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## Milestone 1 boundary
+## Milestone 2 boundary
 
 The current implementation includes the local project vault and ingestion
-vertical slice: app/project SQLite migrations, UUID-keyed project directories,
-source snapshots, PDF/PPTX/TXT/Markdown parsing, SourceUnits, deterministic
-unit-local chunks, provenance-backed previews, source deletion/re-indexing, and
-lexical retrieval. It does not load ASR models, call providers, create
-embeddings, persist sessions, or expose the real HUD. Those features remain
-behind the interfaces and later milestones defined in `docs/MVP/`.
+vertical slice plus M2 retrieval: app/project SQLite migrations, UUID-keyed
+project directories, source snapshots, PDF/PPTX/TXT/Markdown parsing,
+SourceUnits, deterministic unit-local chunks, provenance-backed previews,
+source deletion/re-indexing, a replaceable local embedding adapter,
+project-local generation-based NumPy matrices, semantic cosine candidates,
+hybrid lexical ranking, current-slide boosts, conflict detection, and a
+development retrieval inspector. It does not load ASR models, call providers,
+persist sessions, or expose the real HUD. Those features remain behind the
+interfaces and later milestones defined in `docs/MVP/`.
 
 The Python core resolves one authoritative data root. Set
 `PRESENTER_COPILOT_DATA_ROOT` for controlled tests or local integration runs;
