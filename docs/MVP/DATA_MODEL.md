@@ -402,6 +402,12 @@ vectors without replacing the store. M2 only writes `entity_type=chunk` and
 The active matrix is stored as a normalized float32 NumPy `.npy` file under the
 project's `embeddings/` directory and is opened with memory mapping for query
 time access. The shared FastEmbed model cache is outside project vaults.
+M2 retains exactly one `embedding_generations` row: the active generation and
+its current `embedding_vectors` mapping set. A successful rebuild writes and
+fsyncs the new matrix before the activation transaction, then retires the old
+rows through the foreign-key cascade. If activation fails, the prior active
+row and matrix remain usable and the newly written matrix is an orphan that
+cleanup may remove.
 
 ```text
 embedding_generations

@@ -266,6 +266,131 @@ def test_exact_number_slide_boost_reuse_and_embedding_keys(tmp_path: Path) -> No
         core.close()
 
 
+def test_repeated_rebuild_retires_generations_and_converges_filesystem_state(
+    tmp_path: Path,
+) -> None:
+    core, adapter, project_id, _ = build_fixture(tmp_path)
+    try:
+        adapter.set_query_vector("rebuild lifecycle query", [1.0, 0.0, 0.0, 0.0])
+        rebuilds = [
+            call(core, "rebuild-1", "retrieval.rebuild", {"project_id": project_id})["result"],
+            call(core, "rebuild-2", "retrieval.rebuild", {"project_id": project_id})["result"],
+            call(core, "rebuild-3", "retrieval.rebuild", {"project_id": project_id})["result"],
+        ]
+        chunk_count = rebuilds[0]["matrix_row_count"]
+        assert chunk_count > 0
+        assert rebuilds[1]["reused_count"] == chunk_count
+        assert rebuilds[1]["embedded_count"] == 0
+        assert rebuilds[2]["reused_count"] == chunk_count
+        assert rebuilds[2]["embedded_count"] == 0
+        assert len({item["generation_id"] for item in rebuilds}) == 3
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            assert (
+                connection.execute("SELECT COUNT(*) FROM embedding_generations").fetchone()[0] == 1
+            )
+            active_id = connection.execute(
+                "SELECT id FROM embedding_generations WHERE is_active = 1"
+            ).fetchone()[0]
+            assert (
+                connection.execute("SELECT COUNT(*) FROM embedding_vectors").fetchone()[0]
+                == chunk_count
+            )
+            keys = connection.execute(
+                "SELECT embedding_key FROM chunks WHERE embedding_key IS NOT NULL"
+            ).fetchall()
+        assert keys and all(str(row[0]).startswith(f"{active_id}:") for row in keys)
+
+        embedding_directory = core._storage.paths.safe_embeddings_directory(project_id)  # type: ignore[attr-defined]
+        matrix_files = sorted(embedding_directory.glob("vectors-*.npy"))
+        assert len(matrix_files) == 1
+        assert not list(embedding_directory.glob(".staging-*.npy"))
+
+        # Health is also allowed to repair derived files left by an interrupted
+        # cleanup without changing the active DB generation.
+        orphan_matrix = embedding_directory / "vectors-orphan.npy"
+        orphan_staging = embedding_directory / ".staging-orphan.npy"
+        orphan_matrix.write_bytes(b"orphan")
+        orphan_staging.write_bytes(b"staging")
+        health = call(core, "health", "retrieval.health", {"project_id": project_id})
+        assert health["result"]["status"] == "ready"
+        assert not orphan_matrix.exists()
+        assert not orphan_staging.exists()
+
+        queried = call(
+            core,
+            "query-after-rebuilds",
+            "retrieval.query",
+            {"project_id": project_id, "query": "rebuild lifecycle query", "limit": 3},
+        )["result"]
+        assert queried["hits"]
+    finally:
+        core.close()
+
+
+def test_failed_generation_activation_rolls_back_and_cleans_orphan_matrix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core, adapter, project_id, _ = build_fixture(tmp_path)
+    try:
+        adapter.set_query_vector("rollback lifecycle query", [1.0, 0.0, 0.0, 0.0])
+        first = call(core, "initial-build", "retrieval.rebuild", {"project_id": project_id})[
+            "result"
+        ]
+        data_root = tmp_path / "data"
+        project_database = data_root / "projects" / project_id / "project.db"
+        with sqlite3.connect(project_database) as connection:
+            active_before = connection.execute(
+                "SELECT id, matrix_relative_path FROM embedding_generations WHERE is_active = 1"
+            ).fetchone()
+            mapping_count_before = connection.execute(
+                "SELECT COUNT(*) FROM embedding_vectors"
+            ).fetchone()[0]
+        assert active_before is not None
+        active_id, active_relative = active_before
+        active_matrix = data_root / "projects" / project_id / active_relative
+        assert active_matrix.is_file()
+
+        def fail_commit(connection: sqlite3.Connection) -> None:
+            del connection
+            raise sqlite3.OperationalError("injected generation activation failure")
+
+        monkeypatch.setattr(
+            core._hybrid_retrieval,  # type: ignore[attr-defined]
+            "_commit_generation_transaction",
+            fail_commit,
+        )
+        failed = call(core, "failed-build", "retrieval.rebuild", {"project_id": project_id})
+        assert failed["ok"] is False
+        assert failed["error"]["code"] == "RETRIEVAL_REBUILD_FAILED"
+
+        with sqlite3.connect(project_database) as connection:
+            generations = connection.execute(
+                "SELECT id, is_active FROM embedding_generations"
+            ).fetchall()
+            assert generations == [(active_id, 1)]
+            assert (
+                connection.execute("SELECT COUNT(*) FROM embedding_vectors").fetchone()[0]
+                == mapping_count_before
+            )
+        assert active_matrix.is_file()
+        embedding_directory = data_root / "projects" / project_id / "embeddings"
+        assert len(list(embedding_directory.glob("vectors-*.npy"))) == 1
+        assert not list(embedding_directory.glob(".staging-*.npy"))
+
+        queried = call(
+            core,
+            "query-after-failed-build",
+            "retrieval.query",
+            {"project_id": project_id, "query": "rollback lifecycle query", "limit": 3},
+        )["result"]
+        assert queried["hits"]
+        assert queried["semantic"]["generation_id"] == active_id
+        assert first["generation_id"] == active_id
+    finally:
+        core.close()
+
+
 def test_unchanged_source_reindex_restores_reusable_active_vectors(tmp_path: Path) -> None:
     core, adapter, project_id, document_ids = build_fixture(tmp_path)
     try:
@@ -424,6 +549,21 @@ def test_deletion_restart_corruption_and_model_mismatch_degrade_safely(tmp_path:
                 {"project_id": project_id},
             )["result"]
             assert restarted_health["status"] == "ready"
+            with restarted._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+                target_chunk_ids = [
+                    str(row["id"])
+                    for row in connection.execute(
+                        """
+                        SELECT c.id
+                        FROM chunks AS c
+                        JOIN source_units AS su ON su.id = c.source_unit_id
+                        WHERE su.document_id = ?
+                        ORDER BY c.id
+                        """,
+                        (document_ids["presentation.pptx"],),
+                    ).fetchall()
+                ]
+            assert target_chunk_ids
             deleted = call(
                 restarted,
                 "delete",
@@ -432,17 +572,12 @@ def test_deletion_restart_corruption_and_model_mismatch_degrade_safely(tmp_path:
             )
             assert deleted["result"]["deleted"] is True
             with restarted._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+                placeholders = ", ".join("?" for _ in target_chunk_ids)
                 assert (
                     connection.execute(
-                        """
-                    SELECT COUNT(*) FROM embedding_vectors
-                    WHERE entity_id IN (
-                        SELECT c.id FROM chunks AS c
-                        JOIN source_units AS su ON su.id = c.source_unit_id
-                        WHERE su.document_id = ?
-                    )
-                    """,
-                        (document_ids["presentation.pptx"],),
+                        "SELECT COUNT(*) FROM embedding_vectors "
+                        "WHERE entity_type = 'chunk' AND entity_id IN (" + placeholders + ")",
+                        target_chunk_ids,
                     ).fetchone()[0]
                     == 0
                 )
@@ -453,7 +588,10 @@ def test_deletion_restart_corruption_and_model_mismatch_degrade_safely(tmp_path:
                 {"project_id": project_id, "query": "$980,000", "limit": 5},
             )["result"]
             assert all(
-                "presentation.pptx" not in hit["evidence"]["label"] for hit in after_delete["hits"]
+                hit["evidence"]["evidence_id"] not in target_chunk_ids
+                and hit["evidence"]["source_id"] != document_ids["presentation.pptx"]
+                and "presentation.pptx" not in hit["evidence"]["label"]
+                for hit in after_delete["hits"]
             )
         finally:
             restarted.close()
@@ -463,6 +601,42 @@ def test_deletion_restart_corruption_and_model_mismatch_degrade_safely(tmp_path:
                 core.close()
             except sqlite3.ProgrammingError:
                 pass
+
+
+def test_project_delete_removes_embedding_files_and_preserves_shared_model_cache(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "data"
+    core, adapter, project_id, _ = build_fixture(tmp_path)
+    model_cache = data_root / "models" / "embeddings"
+    model_cache.mkdir(parents=True, exist_ok=True)
+    marker = model_cache / "prepared-model.marker"
+    marker.write_text("keep", encoding="utf-8")
+    try:
+        adapter.set_query_vector("project deletion query", [1.0, 0.0, 0.0, 0.0])
+        built = call(core, "build", "retrieval.rebuild", {"project_id": project_id})
+        assert built["ok"] is True
+        queried = call(
+            core,
+            "populate-cache",
+            "retrieval.query",
+            {"project_id": project_id, "query": "project deletion query", "limit": 2},
+        )
+        assert queried["result"]["hits"]
+        project_root = data_root / "projects" / project_id
+        embedding_directory = project_root / "embeddings"
+        assert list(embedding_directory.glob("vectors-*.npy"))
+        assert core._hybrid_retrieval._matrix_cache  # type: ignore[attr-defined]
+
+        deleted = call(core, "delete-project", "project.delete", {"project_id": project_id})
+        assert deleted["ok"] is True
+        assert deleted["result"]["deleted"] is True
+        assert not project_root.exists()
+        assert not list(core._storage.list_app_rows())  # type: ignore[attr-defined]
+        assert marker.read_text(encoding="utf-8") == "keep"
+        assert core._hybrid_retrieval._matrix_cache == {}  # type: ignore[attr-defined]
+    finally:
+        core.close()
 
 
 def test_retrieval_ipc_methods_are_bounded_and_lexical_fallback_survives_missing_model(

@@ -135,7 +135,7 @@ class HybridRetrievalService:
                 status = "ready"
                 stale_reason = None
 
-            return self._health_result(
+            result = self._health_result(
                 project_id,
                 status=status,
                 adapter_health=adapter_health,
@@ -145,6 +145,8 @@ class HybridRetrievalService:
                 coverage=coverage,
                 stale_reason=stale_reason,
             )
+        self._cleanup_orphan_files(project_id)
+        return result
 
     def rebuild(self, params: dict[str, Any]) -> dict[str, Any]:
         """Build and atomically activate one compact project-local generation."""
@@ -156,7 +158,6 @@ class HybridRetrievalService:
         staging_path: Path | None = None
         final_path: Path | None = None
         activated = False
-        old_path: Path | None = None
         try:
             self._emit_progress(
                 project_id,
@@ -342,59 +343,24 @@ class HybridRetrievalService:
                     model_id=adapter_health.model_id,
                     generation_id=generation_id,
                 )
-                connection.execute("BEGIN IMMEDIATE")
-                connection.execute(
-                    """
-                    INSERT INTO embedding_generations (
-                        id, adapter_id, model_id, model_fingerprint, dimension,
-                        matrix_relative_path, matrix_row_count, is_active, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-                    """,
-                    (
-                        generation_id,
-                        adapter_health.adapter_id,
-                        adapter_health.model_id,
-                        model_fingerprint,
-                        dimension,
-                        final_relative,
-                        current_chunk_count,
-                        _utc_now(),
-                    ),
+                self._activate_generation(
+                    connection,
+                    generation_id=generation_id,
+                    adapter_health=adapter_health,
+                    model_fingerprint=model_fingerprint,
+                    dimension=dimension,
+                    final_relative=final_relative,
+                    matrix_row_count=current_chunk_count,
+                    vector_rows=vector_rows,
                 )
-                connection.executemany(
-                    """
-                    INSERT INTO embedding_vectors (
-                        generation_id, vector_id, entity_type, entity_id, project_id,
-                        source_class, row_index, content_sha256
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    vector_rows,
-                )
-                connection.execute("UPDATE embedding_generations SET is_active = 0")
-                connection.execute(
-                    "UPDATE embedding_generations SET is_active = 1 WHERE id = ?",
-                    (generation_id,),
-                )
-                connection.execute("UPDATE chunks SET embedding_key = NULL")
-                connection.execute(
-                    """
-                    UPDATE chunks
-                    SET embedding_key = ? || ':' || id
-                    WHERE id IN (
-                        SELECT entity_id FROM embedding_vectors
-                        WHERE generation_id = ? AND entity_type = 'chunk'
-                    )
-                    """,
-                    (generation_id, generation_id),
-                )
-                connection.commit()
                 activated = True
-                if active is not None:
-                    old_path = self._stored_generation_path(project_id, active)
                 old_matrix = None
 
-            self._matrix_cache.pop(project_id, None)
-            self._cleanup_orphan_files(project_id, keep_relative=final_relative)
+            # The old generation can be unlinked only after the activation
+            # transaction commits. Release any read-only mmap before cleanup;
+            # this is required for reliable replacement/deletion on Windows.
+            self._evict_matrix_cache(project_id)
+            self._cleanup_orphan_files(project_id)
             coverage = 1.0
             self._emit_progress(
                 project_id,
@@ -428,8 +394,6 @@ class HybridRetrievalService:
                 model_id=adapter_health.model_id,
                 generation_id=generation_id,
             )
-            if old_path is not None and old_path != final_path:
-                _remove_file_quietly(old_path)
             return {
                 "project_id": project_id,
                 "status": "ready",
@@ -660,8 +624,86 @@ class HybridRetrievalService:
 
     def close(self) -> None:
         """Drop mmap handles and release model state at core shutdown."""
-        self._matrix_cache.clear()
+        for project_id in tuple(self._matrix_cache):
+            self._evict_matrix_cache(project_id)
         self._embedding_adapter.close()
+
+    def evict_project(self, project_id: str) -> None:
+        """Release one project's cached matrix before its vault is deleted."""
+        self._evict_matrix_cache(normalize_project_id(project_id))
+
+    def _activate_generation(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        generation_id: str,
+        adapter_health: EmbeddingHealth,
+        model_fingerprint: str,
+        dimension: int,
+        final_relative: str,
+        matrix_row_count: int,
+        vector_rows: list[tuple[Any, ...]],
+    ) -> None:
+        """Commit one compact generation while preserving the old one on failure."""
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                INSERT INTO embedding_generations (
+                    id, adapter_id, model_id, model_fingerprint, dimension,
+                    matrix_relative_path, matrix_row_count, is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                """,
+                (
+                    generation_id,
+                    adapter_health.adapter_id,
+                    adapter_health.model_id,
+                    model_fingerprint,
+                    dimension,
+                    final_relative,
+                    matrix_row_count,
+                    _utc_now(),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO embedding_vectors (
+                    generation_id, vector_id, entity_type, entity_id, project_id,
+                    source_class, row_index, content_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                vector_rows,
+            )
+            connection.execute("UPDATE embedding_generations SET is_active = 0")
+            connection.execute(
+                "UPDATE embedding_generations SET is_active = 1 WHERE id = ?",
+                (generation_id,),
+            )
+            connection.execute("UPDATE chunks SET embedding_key = NULL")
+            connection.execute(
+                """
+                UPDATE chunks
+                SET embedding_key = ? || ':' || id
+                WHERE id IN (
+                    SELECT entity_id FROM embedding_vectors
+                    WHERE generation_id = ? AND entity_type = 'chunk'
+                )
+                """,
+                (generation_id, generation_id),
+            )
+            # Inactive rows are disposable metadata. Delete them only after
+            # the new generation is active; FK cascade removes their mappings.
+            connection.execute("DELETE FROM embedding_generations WHERE is_active = 0")
+            self._commit_generation_transaction(connection)
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+
+    @staticmethod
+    def _commit_generation_transaction(connection: sqlite3.Connection) -> None:
+        """Keep the commit seam deterministic for rollback regression coverage."""
+        connection.commit()
 
     def _lexical_candidates(
         self,
@@ -771,14 +813,18 @@ class HybridRetrievalService:
         self, project_id: str, generation: sqlite3.Row | Any
     ) -> np.ndarray[Any, Any]:
         relative_path = str(generation["matrix_relative_path"])
-        path = self._storage.paths.embedding_matrix_path(
-            project_id,
-            relative_path,
-            require_exists=True,
-        )
         try:
+            path = self._storage.paths.embedding_matrix_path(
+                project_id,
+                relative_path,
+                require_exists=True,
+            )
             stat = path.stat()
+        except CoreDomainError:
+            self._evict_matrix_cache(project_id)
+            raise
         except OSError as exc:
+            self._evict_matrix_cache(project_id)
             raise CoreDomainError(
                 "RETRIEVAL_INDEX_CORRUPT",
                 "The active embedding matrix is unavailable.",
@@ -787,13 +833,33 @@ class HybridRetrievalService:
         cached = self._matrix_cache.get(project_id)
         if cached is not None and cached[0] == str(generation["id"]) and cached[1] == signature:
             return cached[2]
-        matrix = NumpyEmbeddingIndex.load_matrix(
-            path,
-            expected_rows=int(generation["matrix_row_count"]),
-            expected_dimension=int(generation["dimension"]),
-        )
+        try:
+            matrix = NumpyEmbeddingIndex.load_matrix(
+                path,
+                expected_rows=int(generation["matrix_row_count"]),
+                expected_dimension=int(generation["dimension"]),
+            )
+        except CoreDomainError:
+            self._evict_matrix_cache(project_id)
+            raise
         self._matrix_cache[project_id] = (str(generation["id"]), signature, matrix)
         return matrix
+
+    def _evict_matrix_cache(self, project_id: str) -> None:
+        """Drop one cached matrix and explicitly close any underlying mmap."""
+        cached = self._matrix_cache.pop(project_id, None)
+        if cached is None:
+            return
+        matrix = cached[2]
+        if isinstance(matrix, np.memmap):
+            mmap_handle = getattr(matrix, "_mmap", None)
+            if mmap_handle is not None:
+                try:
+                    mmap_handle.close()
+                except (BufferError, OSError, ValueError):
+                    # The mapping may already have been closed by NumPy or a
+                    # prior cleanup path. The cache entry is still retired.
+                    pass
 
     @staticmethod
     def _active_generation(connection: sqlite3.Connection) -> sqlite3.Row | None:
@@ -1007,13 +1073,6 @@ class HybridRetrievalService:
         ).fetchall()
         return [_record_from_row(row) for row in rows]
 
-    def _stored_generation_path(self, project_id: str, generation: sqlite3.Row | Any) -> Path:
-        return self._storage.paths.embedding_matrix_path(
-            project_id,
-            str(generation["matrix_relative_path"]),
-            require_exists=False,
-        )
-
     def _health_result(
         self,
         project_id: str,
@@ -1084,25 +1143,30 @@ class HybridRetrievalService:
         if self._event_sink is not None:
             self._event_sink(event, payload)
 
-    def _cleanup_orphan_files(self, project_id: str, *, keep_relative: str) -> None:
+    def _cleanup_orphan_files(self, project_id: str) -> None:
         try:
             embedding_directory = self._storage.paths.safe_embeddings_directory(project_id)
             with self._storage.project_database(project_id) as connection:
-                referenced = {
-                    str(row["matrix_relative_path"])
-                    for row in connection.execute(
-                        "SELECT matrix_relative_path FROM embedding_generations"
-                    ).fetchall()
-                }
-            referenced.add(keep_relative)
-            for path in embedding_directory.iterdir():
-                if not path.is_file() or path.is_symlink():
-                    continue
-                if not (path.name.startswith("vectors-") or path.name.startswith(".staging-")):
-                    continue
-                relative = f"embeddings/{path.name}"
-                if relative not in referenced:
-                    _remove_file_quietly(path)
+                active = connection.execute(
+                    "SELECT matrix_relative_path FROM embedding_generations WHERE is_active = 1"
+                ).fetchone()
+                # Repair databases created by the pre-retirement M2 build as
+                # well as keeping the invariant for all future operations.
+                connection.execute("DELETE FROM embedding_generations WHERE is_active = 0")
+                connection.commit()
+            active_relative = str(active["matrix_relative_path"]) if active is not None else None
+            orphan_paths = [
+                path
+                for path in embedding_directory.iterdir()
+                if path.is_file()
+                and not path.is_symlink()
+                and (path.name.startswith("vectors-") or path.name.startswith(".staging-"))
+                and f"embeddings/{path.name}" != active_relative
+            ]
+            if orphan_paths:
+                self._evict_matrix_cache(project_id)
+            for path in orphan_paths:
+                _remove_file_quietly(path)
         except (CoreDomainError, OSError, sqlite3.Error):
             return
 

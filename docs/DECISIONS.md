@@ -356,11 +356,13 @@ production fallback.
 
 **Status:** Accepted for Milestone 2
 
-Persist normalized float32 vectors in project-local `.npy` matrices under an
+Persist normalized float32 vectors in project-local `.npy` matrices under one
 active generation record. Rebuilds write and fsync a staging matrix, atomically
 activate the completed file through a transactional metadata switch, preserve
-compatible vectors by chunk ID/content hash/model identity, and garbage-collect
-orphaned derived files best-effort.
+compatible vectors by chunk ID/content hash/model identity, retire all inactive
+generation rows after activation, and garbage-collect orphaned derived files
+best-effort. The previous generation remains the sole usable generation if the
+activation transaction fails.
 
 Reason:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
@@ -60,8 +61,13 @@ def _optional_string(
 class ProjectService:
     """Own project lifecycle state while delegating paths to StorageManager."""
 
-    def __init__(self, storage: StorageManager) -> None:
+    def __init__(
+        self,
+        storage: StorageManager,
+        before_delete: Callable[[str], None] | None = None,
+    ) -> None:
         self._storage = storage
+        self._before_delete = before_delete
 
     def create(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -220,6 +226,8 @@ class ProjectService:
         # Validate the registry-to-vault mapping before the one authoritative
         # filesystem delete path is allowed to run.
         self._storage.project_paths(project_id, require_exists=False)
+        if self._before_delete is not None:
+            self._before_delete(project_id)
         self._storage.paths.delete_project_directory(project_id)
         try:
             self._storage.remove_app_project(project_id)

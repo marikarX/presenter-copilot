@@ -53,10 +53,16 @@ The fixture should include at least these facts:
 - current-slide boost works;
 - adjacent-slide boost is smaller and never applies to supporting PDF pages;
 - persisted generation reloads after restart and unchanged chunks reuse vectors;
-- user preferred explanation outranks generic semantic match when appropriate;
-- `use_live=false` knowledge excluded from Live Assist;
+- D07 User-preferred answer/explanation boost is deferred until
+  KnowledgeItem/practiced-answer entities arrive;
+- D08 `use_live` filter is deferred until the later live-context entities
+  arrive;
 - conflicting facts are detectable;
-- deletion removes vectors/index entries;
+- repeated rebuilds retain one generation, one mapping set, and one matrix;
+- failed activation preserves the prior generation and removes the orphan
+  matrix;
+- source deletion removes vectors by captured Chunk IDs and project deletion
+  removes project embedding files without touching the shared model cache;
 - malformed/mismatched matrix state degrades to lexical retrieval without an
   implicit model download.
 

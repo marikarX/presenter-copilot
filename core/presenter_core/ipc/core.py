@@ -50,13 +50,16 @@ class CoreService:
         self._shutdown_requested = False
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
-        self._projects = ProjectService(self._storage)
         self._ingestion = IngestionService(self._storage, self._emit_event)
         self._retrieval = LexicalRetrievalService(self._storage)
         self._hybrid_retrieval = HybridRetrievalService(
             self._storage,
             embedding_adapter or FastEmbedAdapter(cache_dir=embedding_model_cache_dir(data_root)),
             self._emit_service_event,
+        )
+        self._projects = ProjectService(
+            self._storage,
+            before_delete=self._hybrid_retrieval.evict_project,
         )
 
     @property
