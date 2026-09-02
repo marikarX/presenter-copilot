@@ -18,6 +18,7 @@ from presenter_core.storage.paths import resolve_app_data_root
 EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"
 EMBEDDING_ADAPTER_ID = "fastembed"
 EMBEDDING_BATCH_SIZE = 256
+DEFAULT_EMBEDDING_THREADS = 1
 
 
 @dataclass(frozen=True)
@@ -184,7 +185,7 @@ class FastEmbedAdapter(EmbeddingAdapter):
         *,
         cache_dir: str | Path | None = None,
         local_files_only: bool = True,
-        threads: int | None = None,
+        threads: int | None = DEFAULT_EMBEDDING_THREADS,
     ) -> None:
         self._cache_dir = Path(cache_dir or embedding_model_cache_dir()).expanduser().resolve()
         self._local_files_only = local_files_only
