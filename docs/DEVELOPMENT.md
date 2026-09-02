@@ -31,7 +31,7 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
-## Milestone 2 setup and commands
+## Milestone 3 setup and commands
 
 The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
 3.13, and uv. Install the locked JavaScript and Python environments from the
@@ -45,7 +45,7 @@ pnpm setup
 Electron development binary is available, and runs `uv sync --project core
 --locked`. The locked Python environment includes the M1 `pypdf` and
 `python-pptx` parser adapters, the pinned `fastembed`/NumPy retrieval runtime,
-plus pytest, Ruff, and mypy.
+the official `openai==3.6.0` SDK, plus pytest, Ruff, and mypy.
 
 Run the desktop shell:
 
@@ -69,14 +69,14 @@ pnpm typecheck
 pnpm format:check
 pnpm check
 pnpm core:dev
+pnpm test:provider-real
 ```
 
 `pnpm test` includes the TypeScript Electron-side client tests, deterministic
-Python retrieval/storage/parser/IPC tests, and integration tests that spawn
-the real Python sidecar across a restart. Hosted CI does not download the
-embedding model or require provider credentials; real-model acceptance and the
-full 50,000-vector benchmark are manual developer checks after explicit
-bootstrap.
+Python retrieval/storage/parser/IPC/provider/Teach tests, and integration tests
+that spawn the real Python sidecar across a restart. Hosted CI does not
+download the embedding model, require provider credentials, or make provider
+calls; real-model and real-provider acceptance are manual developer checks.
 `pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
 bundle Python into an installer; release bundling is a later packaging slice.
 
@@ -88,10 +88,22 @@ pnpm test:embedding-real
 pnpm benchmark:retrieval
 ```
 
+The M3 provider acceptance command is opt-in and synthetic:
+
+```text
+pnpm test:provider-real
+```
+
+Without `OPENAI_API_KEY` it prints the exact not-executed status and exits
+successfully. With the key present it uses the official OpenAI Responses
+adapter against a disposable project and writes only metadata to
+`artifacts/m3-provider-acceptance.json`; it never prints or stores the key,
+prompt, or model response.
+
 `pnpm model:prepare:embeddings` is an explicit, network-dependent bootstrap
 operation. It stores only the pinned `BAAI/bge-small-en-v1.5` model in the
 shared application model cache and reports its local artifact fingerprint and
-dimension. The acceptance test and normal application paths use
+dimension. The retrieval acceptance test and normal application paths use
 `local_files_only=true`; they fail or fall back to lexical retrieval when the
 cache is absent. The full benchmark uses 50,000 seeded float32 vectors and
 writes only metadata/timings to `artifacts/m2-retrieval-benchmark.json`.
@@ -156,18 +168,19 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## Milestone 2 boundary
+## Milestone 3 boundary
 
-The current implementation includes the local project vault and ingestion
-vertical slice plus M2 retrieval: app/project SQLite migrations, UUID-keyed
-project directories, source snapshots, PDF/PPTX/TXT/Markdown parsing,
-SourceUnits, deterministic unit-local chunks, provenance-backed previews,
-source deletion/re-indexing, a replaceable local embedding adapter,
-project-local generation-based NumPy matrices, semantic cosine candidates,
-hybrid lexical ranking, current-slide boosts, conflict detection, and a
-development retrieval inspector. It does not load ASR models, call providers,
-persist sessions, or expose the real HUD. Those features remain behind the
-interfaces and later milestones defined in `docs/MVP/`.
+The current implementation includes the M1 vault/ingestion vertical slice, M2
+generation-based local retrieval, and M3 typed Teach/Speaker Profile behavior:
+app/project SQLite migrations, UUID-keyed project directories, source
+snapshots, PDF/PPTX/TXT/Markdown parsing, provenance-backed previews, source
+deletion/re-indexing, generic chunk/confirmed-KnowledgeItem indexing,
+hybrid lexical/semantic ranking, D07/D08 controls, project-local sessions,
+durable UserStatement provenance, provisional candidate approval, explicit
+Speaker Profile evidence, provider routing, bounded context manifests, and the
+official optional OpenAI Responses adapter. Voice ASR, Challenge, Run, the HUD,
+OS-backed secret storage, and full provider cancellation/resilience remain
+later milestones defined in `docs/MVP/`.
 
 The Python core resolves one authoritative data root. Set
 `PRESENTER_COPILOT_DATA_ROOT` for controlled tests or local integration runs;

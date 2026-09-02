@@ -18,6 +18,9 @@ describe("ProjectSummary recovery contract", () => {
       privacy_mode: "local_only",
       default_style_policy: "preserve_voice",
       custom_style_guidance: null,
+      style_override_enabled: false,
+      remote_reasoning_acknowledged_at: null,
+      remote_reasoning_acknowledged: false,
       source_count: 0,
     } satisfies ProjectSummary;
 

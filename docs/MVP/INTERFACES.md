@@ -88,6 +88,7 @@ project.create
 project.open
 project.list
 project.update_settings
+project.acknowledge_remote_reasoning
 project.delete
 ```
 
@@ -112,10 +113,13 @@ retrieval.rebuild
 
 `retrieval.query` requires `project_id` and a bounded `query`, and accepts
 optional `limit`, `document_ids`, `source_types`, `current_slide`, and
-`slide_window` fields. It returns the retrieval mode, latency, semantic health
-summary, bounded ranked hits, canonical document Evidence, ranking trace
-components, and deterministic conflict metadata. Semantic failure degrades to
-lexical fallback; a query never downloads or rebuilds a model/index implicitly.
+`slide_window`, `usage`, and `allow_private` fields. Confirmed Teach
+KnowledgeItems use the same Evidence contract as document chunks; candidates
+are not indexable. It returns the retrieval mode, latency, semantic health
+summary, generic index counts, bounded ranked hits, canonical Evidence,
+ranking-trace components, and deterministic conflict metadata. Semantic failure
+degrades to lexical fallback; a query never downloads or rebuilds a model/index
+implicitly.
 
 `retrieval.rebuild` explicitly creates and activates a project-local semantic
 generation. It returns model identity, dimension, coverage, and reuse/embed
@@ -196,6 +200,19 @@ teach.reject_knowledge_item
 
 Voice input arrives through ASR utterances rather than a separate audio upload method.
 
+### Knowledge management
+
+```text
+knowledge.list
+knowledge.update_flags
+knowledge.delete
+```
+
+`knowledge.update_flags` changes only the user-controlled `preferred`,
+`private`, `use_live`, and `use_rehearsal` fields. Confirmed KnowledgeItems
+remain immediately available to lexical retrieval; semantic synchronization is
+best-effort when the local embedding model is unavailable.
+
 ### Challenge
 
 ```text
@@ -230,7 +247,10 @@ provider.test
 provider.status
 ```
 
-Secrets are referenced by an opaque credential key managed by the desktop/OS credential layer; plaintext keys should not cross arbitrary renderer APIs.
+M3's OpenAI reference adapter reads only `OPENAI_API_KEY` from the core
+process environment. `provider.configure` accepts safe metadata such as
+`enabled` and `model_id`; it rejects API keys, tokens, cookies, and other
+secret fields. The renderer never receives or submits a provider secret.
 
 ## 4. Required P0 events
 
@@ -364,8 +384,8 @@ ReasoningProvider
 - id: str
 - capabilities() -> ProviderCapabilities
 - health() -> ProviderHealth
-- generate(request: ReasoningRequest) -> stream[ReasoningEvent]
-- cancel(run_id)
+- generate(request: ReasoningRequest) -> ReasoningResult
+- close()
 ```
 
 `ReasoningRequest` contains structured context fields:
@@ -373,10 +393,12 @@ ReasoningProvider
 ```text
 task_type
 question
+user_input
 current_slide_summary
 evidence[]
 preferred_user_explanations[]
-audience_context[]
+approved_speaker_style_evidence[]
+conflict_metadata[]
 style_policy
 privacy_mode
 output_schema
@@ -384,6 +406,12 @@ latency_budget_ms
 ```
 
 Provider adapters must not query project storage directly. Context assembly happens before provider invocation so privacy behavior is testable.
+
+M3 implements the `NONE`, `RETRIEVAL_ONLY`, `LOCAL_REASONING`, and
+`REMOTE_REASONING` route vocabulary for Teach. The deterministic fake provider
+is injectable for tests; the OpenAI adapter is remote-only and uses the official
+Responses API with strict task-specific JSON schemas, no tools, `store=false`,
+and a bounded timeout. Full cancellation/resilience remains deferred.
 
 ## 10. Retrieval interface
 
@@ -408,6 +436,10 @@ allow_user_private_notes
 allow_live_use_only
 ```
 
+M3 adds `usage = all | rehearsal | live`; the usage filter applies only to
+KnowledgeItems, never document chunks. `allow_private=false` excludes private
+KnowledgeItems from a provider-context retrieval request.
+
 ## 11. Privacy manifest
 
 Before every remote call, core emits/stores a manifest:
@@ -415,16 +447,24 @@ Before every remote call, core emits/stores a manifest:
 ```json
 {
   "provider_id": "...",
-  "task_type": "answer_scaffold",
+  "task_type": "teach_candidate",
   "privacy_mode": "selected_context_cloud",
-  "classes_sent": ["question", "document_excerpt", "user_preferred_answer"],
+  "classes_sent": ["application_policy", "question", "document_excerpt", "user_knowledge"],
   "source_ids": ["..."],
+  "knowledge_item_ids": ["..."],
+  "speaker_evidence_ids": [],
   "raw_audio_sent": false,
-  "full_document_sent": false
+  "full_document_sent": false,
+  "full_corpus_sent": false,
+  "private_items_sent": false
 }
 ```
 
-This is the auditable boundary. It should be inspectable from project history.
+For M3, the manifest is persisted in `ProviderRun` before the remote request
+and emitted as `privacy.remote_context_manifest` before invocation. It contains
+metadata and IDs only, not the prompt, source excerpts, response, or secrets.
+`full_context_cloud` still uses the same conservative selected-context packet
+in M3; full-corpus upload is deferred.
 
 ## 12. Versioning
 

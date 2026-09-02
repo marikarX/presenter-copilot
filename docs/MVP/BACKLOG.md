@@ -25,7 +25,7 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 - [x] B03 Implement ProjectService CRUD.
 - [x] B04 Implement source snapshot hashing/path sanitization.
 - [x] B05 Implement project delete cascade and filesystem cleanup.
-- [ ] B06 Implement session delete semantics (source deletion is delivered in M1; session persistence is deferred).
+- [x] B06 Implement session delete semantics (detaches confirmed Teach provenance before cascading session data).
 - [x] B07 Add migration/version fixture tests.
 
 ## Epic C — Ingestion and provenance
@@ -56,8 +56,8 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 - [x] D04 In-process cosine similarity search.
 - [x] D05 Lexical/exact-number scoring.
 - [x] D06 Current/adjacent slide boosts.
-- [ ] D07 User-preferred answer/explanation boost.
-- [ ] D08 `use_live` filter.
+- [x] D07 User-preferred answer/explanation boost for relevant confirmed KnowledgeItems.
+- [x] D08 `use_live` / `use_rehearsal` retrieval filters.
 - [x] D09 Conflict/ambiguity detection for exact facts.
 - [x] D10 Golden retrieval benchmark/tests up to 50k chunks.
 
@@ -65,14 +65,14 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] E01 Define ReasoningProvider interface.
-- [ ] E02 Implement deterministic fake provider.
-- [ ] E03 Implement one real provider adapter using user-owned credentials.
-- [ ] E04 Implement structured context builder.
-- [ ] E05 Implement ReasoningRouter classes: NONE/RETRIEVAL/LOCAL/REMOTE.
+- [x] E01 Define ReasoningProvider interface.
+- [x] E02 Implement deterministic fake provider.
+- [x] E03 Implement one real provider adapter using user-owned credentials.
+- [x] E04 Implement structured context builder.
+- [x] E05 Implement ReasoningRouter classes: NONE/RETRIEVAL/LOCAL/REMOTE.
 - [ ] E06 Implement provider cancellation/timeout/auth/quota errors.
-- [ ] E07 Implement provider health/status UI contract.
-- [ ] E08 Implement prompt-injection isolation: retrieved text is untrusted data.
+- [x] E07 Implement provider health/status UI contract.
+- [x] E08 Implement prompt-injection isolation: retrieved text is untrusted data.
 
 ### P1
 
@@ -83,27 +83,27 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] F01 Implement SpeakerProfile/SpeakerEvidence persistence.
-- [ ] F02 Speaker Profile settings/review UI.
-- [ ] F03 Style policy selector: Preserve / Light / Executive / Custom.
-- [ ] F04 Require user approval before project evidence becomes global speaker evidence.
-- [ ] F05 Implement preferred phrase/explanation retrieval.
-- [ ] F06 Implement project style override.
-- [ ] F07 Reset/remove profile evidence.
-- [ ] F08 Tests proving Preserve My Voice prefers accepted user wording.
+- [x] F01 Implement SpeakerProfile/SpeakerEvidence persistence.
+- [x] F02 Speaker Profile settings/review UI.
+- [x] F03 Style policy selector: Preserve / Light / Executive / Custom.
+- [x] F04 Require user approval before project evidence becomes global speaker evidence.
+- [x] F05 Implement preferred phrase/explanation retrieval.
+- [x] F06 Implement project style override.
+- [x] F07 Reset/remove profile evidence.
+- [x] F08 Tests proving Preserve My Voice prefers accepted user wording.
 
 ## Epic G — Teach mode
 
 ### P0
 
-- [ ] G01 Teach session state machine.
-- [ ] G02 Typed Teach conversation UI.
-- [ ] G03 Generate one focused clarification at a time.
-- [ ] G04 Extract KnowledgeItem candidate from user answer.
-- [ ] G05 Confirm/edit/reject KnowledgeItem UI.
-- [ ] G06 `preferred`, `private`, `use_live`, `use_rehearsal` controls.
-- [ ] G07 Store user-authored provenance separately from AI suggestions.
-- [ ] G08 Make confirmed Teach knowledge retrievable immediately.
+- [x] G01 Teach session state machine.
+- [x] G02 Typed Teach conversation UI.
+- [x] G03 Generate one focused clarification at a time.
+- [x] G04 Extract KnowledgeItem candidate from user answer.
+- [x] G05 Confirm/edit/reject KnowledgeItem UI.
+- [x] G06 `preferred`, `private`, `use_live`, `use_rehearsal` controls.
+- [x] G07 Store user-authored provenance separately from AI suggestions.
+- [x] G08 Make confirmed Teach knowledge retrievable immediately.
 
 ### P1
 

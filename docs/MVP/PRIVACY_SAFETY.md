@@ -62,6 +62,8 @@ P0 rules:
 
 - profile belongs to the user;
 - learned evidence is visible/removable;
+- only a confirmed project KnowledgeItem can be offered for promotion, and
+  promotion is a separate explicit user action;
 - project-derived evidence is not silently promoted globally;
 - AI-generated phrasing is not treated as the user's style unless accepted;
 - reset/export/delete is supported;
@@ -81,7 +83,12 @@ embeddings        -> local only
 reasoning context -> local only
 ```
 
-No provider/network request is allowed from the content-processing path. Update checks/optional external links must be separable from session processing and disabled in the network-isolation test environment.
+For M3 Teach, a remote provider is impossible in this mode. A configured local
+provider may be used locally; otherwise the typed direct-save/retrieval-only
+path remains available. No provider/network request is allowed from the
+content-processing path. Update checks/optional external links must be
+separable from session processing and disabled in the network-isolation test
+environment.
 
 ### Selected Context Cloud
 
@@ -94,17 +101,26 @@ retrieval         -> local
 remote payload    -> question + minimum selected excerpts/context
 ```
 
-The app records a context manifest before every remote call.
+The app records a metadata-only context manifest before every remote call. It
+identifies provider, task, privacy mode, sent provenance classes/IDs, and
+explicit false values for raw audio, full documents/corpus, and private items.
+The request is bounded selected context; it does not upload files, raw audio,
+or the full project history.
 
 ### Full Context Cloud
 
-Explicit opt-in only. UI must not switch to it automatically on provider error.
+Explicit opt-in only. M3 deliberately uses the same conservative selected
+context packet even when this setting is selected; it does not implement
+full-corpus upload. UI must not switch to it automatically on provider error.
 
 ## 6. Secrets
 
 - use OS credential storage for provider secrets where possible;
+- M3's OpenAI adapter reads only `OPENAI_API_KEY` from the core process
+  environment and persists only `credential_source = environment`;
 - never store API keys or OAuth refresh tokens in project DB/logs;
 - never expose secrets to renderer context;
+- never accept plaintext provider secrets through renderer IPC;
 - official provider auth only;
 - Codex integration, if added, must use documented app-server/SDK authentication surfaces;
 - never scrape ChatGPT cookies or call undocumented backend endpoints.
@@ -179,6 +195,9 @@ Default logs may include:
 - model/provider IDs;
 - non-sensitive counts/sizes.
 
+M3 may also record ProviderRun task/provider IDs, bounded latency and token
+counts, error codes, and the metadata-only context manifest.
+
 Default logs must not include:
 
 - raw audio;
@@ -205,6 +224,11 @@ P0 must support:
 
 Automated tests verify filesystem and DB removal.
 
+Deleting an individual session cascades its session, utterances, provider runs,
+and pending Teach candidates. Confirmed project KnowledgeItems survive through
+durable UserStatement snapshots; their old session and utterance IDs are
+detached. Approved global SpeakerEvidence also detaches a deleted session ID.
+
 ## 14. UX disclosures
 
 Before transcript/meeting import:
@@ -214,6 +238,11 @@ Before transcript/meeting import:
 Before remote reasoning is first enabled for a project:
 
 > Selected excerpts and the current question may be sent to your configured AI provider. Raw meeting audio remains local in this mode.
+
+The M3 Teach disclosure also states that private KnowledgeItems, raw audio, and
+the full corpus are excluded. A project must record an explicit acknowledgement
+before a remote reasoning call; configuring provider metadata alone is not
+consent.
 
 Keep disclosures concise and contextual rather than requiring broad legal acceptance for every session.
 

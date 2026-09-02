@@ -58,6 +58,8 @@ PRESENTATION_CURRENCY_TIE_BOOST = 0.05
 CURRENT_SLIDE_BOOST = 0.15
 ADJACENT_SLIDE_BOOST = 0.07
 WINDOW_SLIDE_BOOST = 0.03
+USER_KNOWLEDGE_BOOST = 0.08
+PREFERRED_KNOWLEDGE_BOOST = 0.22
 
 
 @dataclass
@@ -69,6 +71,7 @@ class _RankCandidate:
     semantic_component: float = 0.0
     lexical_component: float = 0.0
     slide_boost: float = 0.0
+    user_knowledge_boost: float = 0.0
 
 
 class HybridRetrievalService:
@@ -93,6 +96,10 @@ class HybridRetrievalService:
         with self._storage.project_database(project_id) as connection:
             active = self._active_generation(connection)
             current_chunk_count = self._current_chunk_count(connection, project_id)
+            current_knowledge_item_count = self._current_knowledge_item_count(
+                connection, project_id
+            )
+            current_indexable_entity_count = current_chunk_count + current_knowledge_item_count
             indexed_count = (
                 self._current_mapping_count(connection, project_id, str(active["id"]))
                 if active is not None
@@ -112,8 +119,8 @@ class HybridRetrievalService:
                         matrix_error = error
 
             coverage = (
-                indexed_count / current_chunk_count
-                if current_chunk_count
+                indexed_count / current_indexable_entity_count
+                if current_indexable_entity_count
                 else (1.0 if active is not None else 0.0)
             )
             if adapter_health.status != "ready":
@@ -130,7 +137,7 @@ class HybridRetrievalService:
                 stale_reason = matrix_error.code
             elif coverage < 1.0:
                 status = "partial"
-                stale_reason = "active generation does not cover every current project chunk"
+                stale_reason = "active generation does not cover every current project entity"
             else:
                 status = "ready"
                 stale_reason = None
@@ -141,6 +148,8 @@ class HybridRetrievalService:
                 adapter_health=adapter_health,
                 active=active,
                 current_chunk_count=current_chunk_count,
+                current_knowledge_item_count=current_knowledge_item_count,
+                current_indexable_entity_count=current_indexable_entity_count,
                 indexed_count=indexed_count,
                 coverage=coverage,
                 stale_reason=stale_reason,
@@ -201,7 +210,9 @@ class HybridRetrievalService:
                 project_id, final_relative, require_exists=False
             )
             with self._storage.project_database(project_id) as connection:
-                current_chunk_count = self._current_chunk_count(connection, project_id)
+                current_indexable_entity_count = self._current_indexable_entity_count(
+                    connection, project_id
+                )
                 active = self._active_generation(connection)
                 old_matrix: np.ndarray[Any, Any] | None = None
                 reusable: dict[str, tuple[str, int]] = {}
@@ -215,20 +226,14 @@ class HybridRetrievalService:
                         )
                         old_rows = connection.execute(
                             """
-                            SELECT ev.entity_id, ev.content_sha256, ev.row_index
+                            SELECT ev.entity_type, ev.entity_id, ev.content_sha256, ev.row_index
                             FROM embedding_vectors AS ev
-                            JOIN chunks AS c ON c.id = ev.entity_id
-                            JOIN source_units AS su ON su.id = c.source_unit_id
-                            JOIN documents AS d ON d.id = su.document_id
-                            WHERE ev.generation_id = ?
-                              AND ev.entity_type = 'chunk'
-                              AND d.project_id = ?
-                              AND d.parse_status = 'ready'
+                            WHERE ev.generation_id = ? AND ev.project_id = ?
                             """,
                             (str(active["id"]), project_id),
                         ).fetchall()
                         reusable = {
-                            str(row["entity_id"]): (
+                            f"{row['entity_type']}:{row['entity_id']}": (
                                 str(row["content_sha256"]),
                                 int(row["row_index"]),
                             )
@@ -242,14 +247,14 @@ class HybridRetrievalService:
                     project_id,
                     "scan",
                     0,
-                    current_chunk_count,
+                    current_indexable_entity_count,
                     "started",
                     model_id=adapter_health.model_id,
                     generation_id=generation_id,
                 )
                 staging_matrix = NumpyEmbeddingIndex.create_staging_matrix(
                     staging_path,
-                    rows=current_chunk_count,
+                    rows=current_indexable_entity_count,
                     dimension=dimension,
                 )
                 vector_rows: list[tuple[Any, ...]] = []
@@ -257,14 +262,25 @@ class HybridRetrievalService:
                 embedded_count = 0
                 cursor = connection.execute(
                     """
-                    SELECT c.id AS chunk_id, c.text AS chunk_text
+                    SELECT c.id AS entity_id, 'chunk' AS entity_type, c.text AS entity_text,
+                           'document' AS source_class
                     FROM chunks AS c
                     JOIN source_units AS su ON su.id = c.source_unit_id
                     JOIN documents AS d ON d.id = su.document_id
                     WHERE d.project_id = ? AND d.parse_status = 'ready'
-                    ORDER BY c.id
+                    UNION ALL
+                    SELECT k.id AS entity_id, 'knowledge_item' AS entity_type,
+                           k.text AS entity_text, 'user_knowledge' AS source_class
+                    FROM knowledge_items AS k
+                    WHERE k.project_id = ?
+                      AND EXISTS (
+                          SELECT 1 FROM knowledge_evidence AS ke
+                          WHERE ke.knowledge_item_id = k.id
+                            AND ke.provenance_type = 'user_statement'
+                      )
+                    ORDER BY entity_type, entity_id
                     """,
-                    (project_id,),
+                    (project_id, project_id),
                 )
                 row_index = 0
                 while True:
@@ -273,10 +289,12 @@ class HybridRetrievalService:
                         break
                     missing: list[tuple[int, str, str, str]] = []
                     for row in rows:
-                        chunk_id = str(row["chunk_id"])
-                        chunk_text = str(row["chunk_text"])
-                        content_sha256 = _content_sha256(chunk_text)
-                        old = reusable.get(chunk_id)
+                        entity_id = str(row["entity_id"])
+                        entity_type = str(row["entity_type"])
+                        entity_text = str(row["entity_text"])
+                        source_class = str(row["source_class"])
+                        content_sha256 = _content_sha256(entity_text)
+                        old = reusable.get(f"{entity_type}:{entity_id}")
                         if (
                             old is not None
                             and old[0] == content_sha256
@@ -286,15 +304,15 @@ class HybridRetrievalService:
                             staging_matrix[row_index] = old_matrix[old[1]]
                             reused_count += 1
                         else:
-                            missing.append((row_index, chunk_id, chunk_text, content_sha256))
+                            missing.append((row_index, entity_id, entity_text, content_sha256))
                         vector_rows.append(
                             (
                                 generation_id,
-                                chunk_id,
-                                "chunk",
-                                chunk_id,
+                                entity_id,
+                                entity_type,
+                                entity_id,
                                 project_id,
-                                "document",
+                                source_class,
                                 row_index,
                                 content_sha256,
                             )
@@ -323,8 +341,8 @@ class HybridRetrievalService:
                         project_id,
                         "reuse" if not missing else "embed",
                         row_index,
-                        current_chunk_count,
-                        "complete" if row_index == current_chunk_count else "running",
+                        current_indexable_entity_count,
+                        "complete" if row_index == current_indexable_entity_count else "running",
                         model_id=adapter_health.model_id,
                         generation_id=generation_id,
                     )
@@ -350,7 +368,7 @@ class HybridRetrievalService:
                     model_fingerprint=model_fingerprint,
                     dimension=dimension,
                     final_relative=final_relative,
-                    matrix_row_count=current_chunk_count,
+                    matrix_row_count=current_indexable_entity_count,
                     vector_rows=vector_rows,
                 )
                 activated = True
@@ -379,8 +397,8 @@ class HybridRetrievalService:
                     "generation_id": generation_id,
                     "model_id": adapter_health.model_id,
                     "dimension": dimension,
-                    "matrix_row_count": current_chunk_count,
-                    "indexed_count": current_chunk_count,
+                    "matrix_row_count": current_indexable_entity_count,
+                    "indexed_count": current_indexable_entity_count,
                     "coverage": coverage,
                     "status": "ready",
                 },
@@ -401,8 +419,8 @@ class HybridRetrievalService:
                 "model_id": adapter_health.model_id,
                 "model_fingerprint": model_fingerprint,
                 "dimension": dimension,
-                "matrix_row_count": current_chunk_count,
-                "indexed_count": current_chunk_count,
+                "matrix_row_count": current_indexable_entity_count,
+                "indexed_count": current_indexable_entity_count,
                 "coverage": coverage,
                 "reused_count": reused_count,
                 "embedded_count": embedded_count,
@@ -454,6 +472,8 @@ class HybridRetrievalService:
                 "source_types",
                 "current_slide",
                 "slide_window",
+                "usage",
+                "allow_private",
             },
         )
         project_id = self._project_id(params)
@@ -472,6 +492,10 @@ class HybridRetrievalService:
             )
             active = self._active_generation(connection)
             current_chunk_count = self._current_chunk_count(connection, project_id)
+            current_knowledge_item_count = self._current_knowledge_item_count(
+                connection, project_id
+            )
+            current_indexable_entity_count = current_chunk_count + current_knowledge_item_count
             indexed_count = (
                 self._current_mapping_count(connection, project_id, str(active["id"]))
                 if active is not None
@@ -484,8 +508,8 @@ class HybridRetrievalService:
             semantic_info: dict[str, Any] = {
                 "status": semantic_status,
                 "coverage": (
-                    indexed_count / current_chunk_count
-                    if current_chunk_count
+                    indexed_count / current_indexable_entity_count
+                    if current_indexable_entity_count
                     else (1.0 if active is not None else 0.0)
                 ),
                 "adapter_id": getattr(self._embedding_adapter, "adapter_id", None),
@@ -749,11 +773,23 @@ class HybridRetrievalService:
                 final += EXACT_NUMBER_BOOST
                 if query_has_currency and candidate.record.source_type == "pptx":
                     final += PRESENTATION_CURRENCY_TIE_BOOST
+            user_knowledge_boost = 0.0
+            if candidate.record.entity_type == "knowledge_item" and (
+                lexical is not None or candidate.semantic_score is not None
+            ):
+                user_knowledge_boost += USER_KNOWLEDGE_BOOST
+                if candidate.record.preferred:
+                    user_knowledge_boost += PREFERRED_KNOWLEDGE_BOOST
+            final += user_knowledge_boost
             final += slide_boost
             tie_breaker = (
                 -int(lexical is not None and lexical.exact_number),
                 -int(lexical is not None and lexical.exact_phrase),
                 -int(query_has_currency and candidate.record.source_type == "pptx"),
+                -int(
+                    candidate.record.entity_type == "knowledge_item" and candidate.record.preferred
+                ),
+                -int(candidate.record.entity_type == "knowledge_item"),
                 candidate.record.original_name.casefold(),
                 candidate.record.unit_type,
                 candidate.record.ordinal if candidate.record.ordinal is not None else 2**31,
@@ -764,6 +800,7 @@ class HybridRetrievalService:
             candidate.semantic_component = semantic_component
             candidate.lexical_component = lexical_component
             candidate.slide_boost = slide_boost
+            candidate.user_knowledge_boost = user_knowledge_boost
             scored.append((final, tie_breaker, candidate))
         scored.sort(key=lambda item: (-item[0], item[1]))
         return [candidate for _, _, candidate in scored]
@@ -781,22 +818,38 @@ class HybridRetrievalService:
             reasons.append("lexical")
         if candidate.semantic_score is not None:
             reasons.append("semantic")
+        if record.entity_type == "knowledge_item":
+            reasons.append("user_knowledge")
+            if record.preferred and candidate.user_knowledge_boost > USER_KNOWLEDGE_BOOST:
+                reasons.append("preferred_user_explanation")
         slide_boost = candidate.slide_boost
         if slide_boost == CURRENT_SLIDE_BOOST:
             reasons.append("current_slide")
         elif slide_boost > 0.0:
             reasons.append("adjacent_slide")
         evidence = Evidence(
-            evidence_id=record.chunk_id,
-            source_type="document",
-            source_id=record.document_id,
+            evidence_id=record.entity_id or record.chunk_id,
+            source_type=record.source_type
+            if record.entity_type == "knowledge_item"
+            else "document",
+            source_id=record.source_id or record.document_id,
             source_unit_id=record.source_unit_id,
-            label=provenance_label(record.original_name, record.unit_type, record.ordinal),
+            label=(
+                "Your Teach explanation"
+                if record.entity_type == "knowledge_item"
+                else provenance_label(record.original_name, record.unit_type, record.ordinal)
+            ),
             text=record.chunk_text,
             rank=0,
             score=final,
             fact_safe=True,
         ).to_dict()
+        if record.entity_type == "knowledge_item":
+            evidence["knowledge_item_id"] = record.knowledge_item_id or record.entity_id
+            evidence["preferred"] = record.preferred
+            evidence["private"] = record.private
+            evidence["use_live"] = record.use_live
+            evidence["use_rehearsal"] = record.use_rehearsal
         return {
             "evidence": evidence,
             "scores": {
@@ -804,6 +857,7 @@ class HybridRetrievalService:
                 "lexical": round(candidate.lexical_component, 6),
                 "lexical_raw": round(lexical.raw_score if lexical is not None else 0.0, 6),
                 "slide_boost": round(slide_boost, 6),
+                "user_knowledge_boost": round(candidate.user_knowledge_boost, 6),
                 "final": round(final, 6),
             },
             "reasons": reasons,
@@ -892,13 +946,36 @@ class HybridRetrievalService:
             """
             SELECT COUNT(*) AS count
             FROM embedding_vectors AS ev
-            WHERE ev.generation_id = ?
-              AND ev.entity_type = 'chunk'
-              AND ev.project_id = ?
+            WHERE ev.generation_id = ? AND ev.project_id = ?
             """,
             (generation_id, project_id),
         ).fetchone()
         return int(row["count"]) if row else 0
+
+    @staticmethod
+    def _current_knowledge_item_count(connection: sqlite3.Connection, project_id: str) -> int:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM knowledge_items AS k
+            WHERE k.project_id = ?
+              AND EXISTS (
+                  SELECT 1 FROM knowledge_evidence AS ke
+                  WHERE ke.knowledge_item_id = k.id
+                    AND ke.provenance_type = 'user_statement'
+              )
+            """,
+            (project_id,),
+        ).fetchone()
+        return int(row["count"]) if row else 0
+
+    @classmethod
+    def _current_indexable_entity_count(
+        cls, connection: sqlite3.Connection, project_id: str
+    ) -> int:
+        return cls._current_chunk_count(connection, project_id) + cls._current_knowledge_item_count(
+            connection, project_id
+        )
 
     @staticmethod
     def _validate_mapping_bounds(
@@ -952,45 +1029,64 @@ class HybridRetrievalService:
         filters: RetrievalFilters,
         generation: sqlite3.Row | Any,
     ) -> np.ndarray[Any, Any]:
+        values: list[int] = []
+        chunk_clauses = [
+            "ev.generation_id = ?",
+            "ev.entity_type = 'chunk'",
+            "ev.project_id = ?",
+            "d.project_id = ?",
+            "d.parse_status = 'ready'",
+        ]
+        chunk_parameters: list[Any] = [
+            str(generation["id"]),
+            filters.project_id,
+            filters.project_id,
+        ]
+        _append_filter_clauses(chunk_clauses, chunk_parameters, filters, table_alias="d")
+        chunk_rows = connection.execute(
+            """
+            SELECT ev.row_index
+            FROM embedding_vectors AS ev
+            JOIN chunks AS c ON c.id = ev.entity_id
+            JOIN source_units AS su ON su.id = c.source_unit_id
+            JOIN documents AS d ON d.id = su.document_id
+            WHERE """
+            + " AND ".join(chunk_clauses)
+            + " ORDER BY ev.row_index",
+            chunk_parameters,
+        ).fetchall()
+        values.extend(int(row["row_index"]) for row in chunk_rows)
+
         if not filters.document_ids and not filters.source_types:
-            cursor = connection.execute(
-                """
-                SELECT row_index
-                FROM embedding_vectors
-                WHERE generation_id = ? AND entity_type = 'chunk'
-                  AND project_id = ?
-                ORDER BY row_index
-                """,
-                (str(generation["id"]), filters.project_id),
-            )
-        else:
-            clauses = [
+            knowledge_clauses = [
                 "ev.generation_id = ?",
-                "ev.entity_type = 'chunk'",
+                "ev.entity_type = 'knowledge_item'",
                 "ev.project_id = ?",
-                "d.project_id = ?",
-                "d.parse_status = 'ready'",
+                "k.project_id = ?",
             ]
-            parameters = [str(generation["id"]), filters.project_id, filters.project_id]
-            _append_filter_clauses(clauses, parameters, filters, table_alias="d")
-            cursor = connection.execute(
+            knowledge_parameters: list[Any] = [
+                str(generation["id"]),
+                filters.project_id,
+                filters.project_id,
+            ]
+            if not filters.allow_private:
+                knowledge_clauses.append("k.private = 0")
+            if filters.usage == "live":
+                knowledge_clauses.append("k.use_live = 1")
+            elif filters.usage == "rehearsal":
+                knowledge_clauses.append("k.use_rehearsal = 1")
+            knowledge_rows = connection.execute(
                 """
                 SELECT ev.row_index
                 FROM embedding_vectors AS ev
-                JOIN chunks AS c ON c.id = ev.entity_id
-                JOIN source_units AS su ON su.id = c.source_unit_id
-                JOIN documents AS d ON d.id = su.document_id
+                JOIN knowledge_items AS k ON k.id = ev.entity_id
                 WHERE """
-                + " AND ".join(clauses)
+                + " AND ".join(knowledge_clauses)
                 + " ORDER BY ev.row_index",
-                parameters,
-            )
-        values: list[int] = []
-        while True:
-            rows = cursor.fetchmany(REBUILD_FETCH_SIZE)
-            if not rows:
-                break
-            values.extend(int(row["row_index"]) for row in rows)
+                knowledge_parameters,
+            ).fetchall()
+            values.extend(int(row["row_index"]) for row in knowledge_rows)
+        values.sort()
         return np.asarray(values, dtype=np.int64)
 
     @staticmethod
@@ -1034,7 +1130,54 @@ class HybridRetrievalService:
             + " AND ".join(clauses),
             parameters,
         ).fetchall()
-        return [(int(row["vector_row"]), _record_from_row(row)) for row in rows]
+        results = [(int(row["vector_row"]), _record_from_row(row)) for row in rows]
+        if not filters.document_ids and not filters.source_types:
+            knowledge_clauses = [
+                "ev.generation_id = ?",
+                "ev.entity_type = 'knowledge_item'",
+                "ev.row_index IN (" + placeholders + ")",
+                "ev.project_id = ?",
+                "k.project_id = ?",
+            ]
+            knowledge_parameters: list[Any] = [
+                generation_id,
+                *row_indices,
+                filters.project_id,
+                filters.project_id,
+            ]
+            if not filters.allow_private:
+                knowledge_clauses.append("k.private = 0")
+            if filters.usage == "live":
+                knowledge_clauses.append("k.use_live = 1")
+            elif filters.usage == "rehearsal":
+                knowledge_clauses.append("k.use_rehearsal = 1")
+            knowledge_rows = connection.execute(
+                """
+                SELECT ev.row_index AS vector_row,
+                       k.id AS chunk_id, k.text AS chunk_text, k.text AS lexical_text,
+                       0 AS chunk_index, NULL AS source_unit_id,
+                       'knowledge_item' AS unit_type, NULL AS ordinal,
+                       k.project_id AS document_id, 'Your Teach explanation' AS original_name,
+                       'user_knowledge' AS mime_type, 'knowledge_item' AS entity_type,
+                       'user_knowledge' AS source_class, k.id AS knowledge_item_id,
+                       k.private AS private, k.preferred AS preferred,
+                       k.use_live AS use_live, k.use_rehearsal AS use_rehearsal,
+                       (
+                           SELECT ke.provenance_id FROM knowledge_evidence AS ke
+                           WHERE ke.knowledge_item_id = k.id
+                             AND ke.provenance_type = 'user_statement'
+                           ORDER BY ke.provenance_id LIMIT 1
+                       ) AS user_statement_id
+                FROM embedding_vectors AS ev
+                JOIN knowledge_items AS k ON k.id = ev.entity_id
+                WHERE """
+                + " AND ".join(knowledge_clauses),
+                knowledge_parameters,
+            ).fetchall()
+            results.extend(
+                (int(row["vector_row"]), _record_from_row(row)) for row in knowledge_rows
+            )
+        return results
 
     @staticmethod
     def _current_slide_candidates(
@@ -1081,6 +1224,8 @@ class HybridRetrievalService:
         adapter_health: EmbeddingHealth,
         active: sqlite3.Row | Any | None,
         current_chunk_count: int,
+        current_knowledge_item_count: int,
+        current_indexable_entity_count: int,
         indexed_count: int,
         coverage: float,
         stale_reason: str | None,
@@ -1099,6 +1244,8 @@ class HybridRetrievalService:
             "matrix_row_count": int(active["matrix_row_count"]) if active is not None else 0,
             "current_indexed_mappings": indexed_count,
             "current_project_chunk_count": current_chunk_count,
+            "current_knowledge_item_count": current_knowledge_item_count,
+            "current_indexable_entity_count": current_indexable_entity_count,
             "semantic_coverage": round(coverage, 6),
             "stale_reason": stale_reason,
             "index_model_id": str(active["model_id"]) if active is not None else None,
@@ -1218,11 +1365,19 @@ def _parse_filters(
         minimum=0,
         maximum=MAX_SLIDE_WINDOW,
     )
+    usage = params.get("usage", "all")
+    if not isinstance(usage, str) or usage not in {"all", "rehearsal", "live"}:
+        raise invalid_request("usage must be all, rehearsal, or live.", field="usage")
+    allow_private = params.get("allow_private", True)
+    if not isinstance(allow_private, bool):
+        raise invalid_request("allow_private must be a boolean.", field="allow_private")
     return (
         RetrievalFilters(
             project_id=project_id,
             document_ids=tuple(document_ids),
             source_types=tuple(source_types),
+            usage=usage,
+            allow_private=allow_private,
         ),
         current_slide,
         slide_window,

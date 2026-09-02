@@ -62,6 +62,20 @@ def select_chunk_records(
     return [_record_from_row(row) for row in connection.execute(sql, parameters).fetchall()]
 
 
+def select_retrieval_records(
+    connection: sqlite3.Connection,
+    filters: RetrievalFilters,
+) -> list[ChunkRecord]:
+    """Read document chunks and confirmed project knowledge through one contract."""
+    records = select_chunk_records(connection, filters)
+    if not filters.document_ids and not filters.source_types:
+        sql, parameters = _knowledge_select_sql(filters)
+        records.extend(
+            _record_from_row(row) for row in connection.execute(sql, parameters).fetchall()
+        )
+    return records
+
+
 def _chunk_select_sql(
     filters: RetrievalFilters,
     *,
@@ -108,22 +122,103 @@ def _chunk_select_sql(
     return sql, parameters
 
 
+def _knowledge_select_sql(filters: RetrievalFilters) -> tuple[str, list[Any]]:
+    clauses = ["k.project_id = ?"]
+    parameters: list[Any] = [filters.project_id]
+    if not filters.allow_private:
+        clauses.append("k.private = 0")
+    if filters.usage == "live":
+        clauses.append("k.use_live = 1")
+    elif filters.usage == "rehearsal":
+        clauses.append("k.use_rehearsal = 1")
+    sql = (
+        """
+        SELECT
+            k.id AS chunk_id,
+            k.text AS chunk_text,
+            k.text AS lexical_text,
+            0 AS chunk_index,
+            NULL AS source_unit_id,
+            'knowledge_item' AS unit_type,
+            NULL AS ordinal,
+            k.project_id AS document_id,
+            'Your Teach explanation' AS original_name,
+            'user_knowledge' AS mime_type,
+            'knowledge_item' AS entity_type,
+            'user_knowledge' AS source_class,
+            k.id AS knowledge_item_id,
+            k.private AS private,
+            k.preferred AS preferred,
+            k.use_live AS use_live,
+            k.use_rehearsal AS use_rehearsal,
+            (
+                SELECT ke.provenance_id
+                FROM knowledge_evidence AS ke
+                WHERE ke.knowledge_item_id = k.id
+                  AND ke.provenance_type = 'user_statement'
+                ORDER BY ke.provenance_id
+                LIMIT 1
+            ) AS user_statement_id
+        FROM knowledge_items AS k
+        WHERE """
+        + " AND ".join(clauses)
+        + " AND EXISTS ("
+        + " SELECT 1 FROM knowledge_evidence AS ke"
+        + " WHERE ke.knowledge_item_id = k.id"
+        + " AND ke.provenance_type = 'user_statement'"
+        + " ) ORDER BY k.updated_at DESC, k.id"
+    )
+    return sql, parameters
+
+
 def _record_from_row(row: sqlite3.Row | Any) -> ChunkRecord:
+    keys = set(row.keys()) if isinstance(row, sqlite3.Row) else set()
+    entity_type = str(row["entity_type"]) if "entity_type" in keys else "chunk"
+    source_class = str(row["source_class"]) if "source_class" in keys else "document"
+    source_id = (
+        str(row["user_statement_id"])
+        if "user_statement_id" in keys and row["user_statement_id"] is not None
+        else str(row["document_id"])
+    )
+    raw_lexical_text = str(row["lexical_text"])
+    normalized_lexical_text = (
+        lexical_normalize(raw_lexical_text) if entity_type == "knowledge_item" else raw_lexical_text
+    )
     return ChunkRecord(
         chunk_id=str(row["chunk_id"]),
         chunk_text=str(row["chunk_text"]),
-        lexical_text=str(row["lexical_text"]),
+        lexical_text=normalized_lexical_text,
         chunk_index=int(row["chunk_index"]),
-        source_unit_id=str(row["source_unit_id"]),
+        source_unit_id=(str(row["source_unit_id"]) if row["source_unit_id"] is not None else None),
         unit_type=str(row["unit_type"]),
         ordinal=int(row["ordinal"]) if row["ordinal"] is not None else None,
         document_id=str(row["document_id"]),
         original_name=str(row["original_name"]),
         source_type=_source_type_from_mime(str(row["mime_type"])),
+        entity_type=entity_type,
+        entity_id=str(row["chunk_id"]),
+        source_class=source_class,
+        source_id=source_id,
+        knowledge_item_id=(
+            str(row["knowledge_item_id"])
+            if "knowledge_item_id" in keys and row["knowledge_item_id"] is not None
+            else None
+        ),
+        user_statement_id=(
+            str(row["user_statement_id"])
+            if "user_statement_id" in keys and row["user_statement_id"] is not None
+            else None
+        ),
+        private=bool(row["private"]) if "private" in keys else False,
+        preferred=bool(row["preferred"]) if "preferred" in keys else False,
+        use_live=bool(row["use_live"]) if "use_live" in keys else True,
+        use_rehearsal=bool(row["use_rehearsal"]) if "use_rehearsal" in keys else True,
     )
 
 
 def _source_type_from_mime(mime_type: str) -> str:
+    if mime_type == "user_knowledge":
+        return "user_statement"
     for source_type, known_mime in SOURCE_TYPE_MIME.items():
         if mime_type == known_mime:
             return source_type
@@ -182,25 +277,22 @@ def bounded_lexical_candidates(
     *,
     limit: int = LEXICAL_CANDIDATE_LIMIT,
 ) -> list[LexicalCandidate]:
-    """Scan chunk metadata in bounded batches and retain only top lexical rows."""
-    sql, parameters = _chunk_select_sql(filters, lexical_tokens=query_set)
-    cursor = connection.execute(sql, parameters)
-    candidates: list[LexicalCandidate] = []
+    """Scan current document and user-knowledge metadata for lexical matches."""
+    document_sql, document_parameters = _chunk_select_sql(filters, lexical_tokens=query_set)
+    cursor = connection.execute(document_sql, document_parameters)
+    records: list[ChunkRecord] = []
     while True:
         rows = cursor.fetchmany(LEXICAL_SCAN_BATCH_SIZE)
         if not rows:
             break
-        candidates.extend(
-            score_records(
-                [_record_from_row(row) for row in rows],
-                query_tokens,
-                query_set,
-                phrase,
-                limit=limit,
-            )
-        )
-        candidates = _sort_lexical_candidates(candidates)[:limit]
-    return candidates
+        records.extend(_record_from_row(row) for row in rows)
+    if not filters.document_ids and not filters.source_types:
+        knowledge_sql, knowledge_parameters = _knowledge_select_sql(filters)
+        knowledge_rows = connection.execute(knowledge_sql, knowledge_parameters).fetchall()
+        records.extend(_record_from_row(row) for row in knowledge_rows)
+    return _sort_lexical_candidates(
+        score_records(records, query_tokens, query_set, phrase, limit=limit)
+    )[:limit]
 
 
 class LexicalRetrievalService:
@@ -210,7 +302,7 @@ class LexicalRetrievalService:
         self._storage = storage
 
     def query(self, params: dict[str, Any]) -> dict[str, Any]:
-        reject_unknown_fields(params, {"project_id", "query", "limit"})
+        reject_unknown_fields(params, {"project_id", "query", "limit", "usage"})
         project_id = params.get("project_id")
         if not isinstance(project_id, str):
             raise invalid_request("project_id must be a UUID4.", field="project_id")
@@ -219,12 +311,15 @@ class LexicalRetrievalService:
         limit = params.get("limit", 10)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_RESULTS:
             raise invalid_request(f"limit must be between 1 and {MAX_RESULTS}.", field="limit")
+        usage = params.get("usage", "all")
+        if usage not in {"all", "live", "rehearsal"}:
+            raise invalid_request("usage must be all, live, or rehearsal.", field="usage")
 
         started = monotonic()
         with self._storage.project_database(project_id) as connection:
             candidates = bounded_lexical_candidates(
                 connection,
-                RetrievalFilters(project_id=project_id),
+                RetrievalFilters(project_id=project_id, usage=usage),
                 query_tokens,
                 query_set,
                 phrase,
@@ -246,10 +341,14 @@ def _candidate_evidence(candidate: LexicalCandidate, *, rank: int) -> Evidence:
     record = candidate.record
     return Evidence(
         evidence_id=record.chunk_id,
-        source_type="document",
-        source_id=record.document_id,
+        source_type="user_statement" if record.entity_type == "knowledge_item" else "document",
+        source_id=record.source_id or record.document_id,
         source_unit_id=record.source_unit_id,
-        label=provenance_label(record.original_name, record.unit_type, record.ordinal),
+        label=(
+            "Your Teach explanation"
+            if record.entity_type == "knowledge_item"
+            else provenance_label(record.original_name, record.unit_type, record.ordinal)
+        ),
         text=record.chunk_text,
         rank=rank,
         score=candidate.raw_score,

@@ -57,7 +57,7 @@ class Evidence:
     evidence_id: str
     source_type: str
     source_id: str
-    source_unit_id: str
+    source_unit_id: str | None
     label: str
     text: str
     rank: int = 0

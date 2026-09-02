@@ -15,6 +15,7 @@ import {
   type SourceSummary,
   unwrapInvokeResult,
 } from "../shared/protocol";
+import { TeachPanel } from "./TeachPanel";
 
 const initialStatus: CoreStatus = {
   state: "starting",
@@ -74,6 +75,7 @@ export function App() {
   const [privacyMode, setPrivacyMode] = useState("local_only");
   const [stylePolicy, setStylePolicy] = useState("preserve_voice");
   const [customGuidance, setCustomGuidance] = useState("");
+  const [styleOverrideEnabled, setStyleOverrideEnabled] = useState(false);
   const [newProjectName, setNewProjectName] = useState("Board proposal");
   const [importKind, setImportKind] = useState<"presentation" | "supporting">(
     "supporting",
@@ -193,7 +195,10 @@ export function App() {
           setProgress(null);
           const projectId = payloadString(event.payload, "project_id");
           const indexKind = payloadString(event.payload, "index_kind");
-          if (projectId && indexKind === "hybrid")
+          if (
+            projectId &&
+            (indexKind === "hybrid" || indexKind === "knowledge_item")
+          )
             void loadRetrievalHealth(projectId);
         }
       },
@@ -238,6 +243,7 @@ export function App() {
         setPrivacyMode(result.project.privacy_mode);
         setStylePolicy(result.project.default_style_policy);
         setCustomGuidance(result.project.custom_style_guidance ?? "");
+        setStyleOverrideEnabled(result.project.style_override_enabled);
         setPreview(null);
         setSelectedSourceId(null);
         setRetrievalResult(null);
@@ -265,6 +271,7 @@ export function App() {
       setPrivacyMode(result.project.privacy_mode);
       setStylePolicy(result.project.default_style_policy);
       setCustomGuidance(result.project.custom_style_guidance ?? "");
+      setStyleOverrideEnabled(result.project.style_override_enabled);
       setSources([]);
       setPreview(null);
       setRetrievalResult(null);
@@ -291,6 +298,7 @@ export function App() {
           privacy_mode: privacyMode,
           default_style_policy: stylePolicy,
           custom_style_guidance: customGuidance,
+          style_override_enabled: styleOverrideEnabled,
         },
       );
       setSelectedProject(result.project);
@@ -309,6 +317,7 @@ export function App() {
     projectName,
     selectedProject,
     stylePolicy,
+    styleOverrideEnabled,
   ]);
 
   const importSource = useCallback(async () => {
@@ -716,7 +725,7 @@ export function App() {
                     <option value="custom">Custom</option>
                   </select>
                 </label>
-                <label>
+                <label className="settings-guidance">
                   Custom guidance
                   <textarea
                     value={customGuidance}
@@ -724,6 +733,17 @@ export function App() {
                     maxLength={4000}
                     rows={2}
                   />
+                </label>
+                <label className="settings-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={styleOverrideEnabled}
+                    onChange={(event) =>
+                      setStyleOverrideEnabled(event.target.checked)
+                    }
+                  />
+                  Use this project style override before the global Speaker
+                  Profile
                 </label>
               </div>
               <button
@@ -734,6 +754,10 @@ export function App() {
               >
                 Save settings
               </button>
+
+              {selectedProject.storage_status === "ready" ? (
+                <TeachPanel project={selectedProject} />
+              ) : null}
 
               <div className="source-heading section-heading">
                 <div>
@@ -880,7 +904,7 @@ export function App() {
                         Retrieval inspector
                       </h2>
                     </div>
-                    <span className="count-badge">M2</span>
+                    <span className="count-badge">M2 · M3</span>
                   </div>
                   <p className="inspector-note">
                     Semantic retrieval is derived project data. Queries never
@@ -914,11 +938,17 @@ export function App() {
                       <strong>{retrievalHealth?.dimension ?? "—"}</strong>
                     </div>
                     <div>
-                      <span>Indexed chunks</span>
+                      <span>Indexed entities</span>
                       <strong>
                         {retrievalHealth
-                          ? `${retrievalHealth.current_indexed_mappings} / ${retrievalHealth.current_project_chunk_count}`
+                          ? `${retrievalHealth.current_indexed_mappings} / ${retrievalHealth.current_indexable_entity_count}`
                           : "—"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Knowledge items</span>
+                      <strong>
+                        {retrievalHealth?.current_knowledge_item_count ?? "—"}
                       </strong>
                     </div>
                     <div>

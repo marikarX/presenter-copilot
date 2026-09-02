@@ -72,7 +72,13 @@ class ProjectService:
     def create(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
             params,
-            {"name", "privacy_mode", "default_style_policy", "custom_style_guidance"},
+            {
+                "name",
+                "privacy_mode",
+                "default_style_policy",
+                "custom_style_guidance",
+                "style_override_enabled",
+            },
         )
         name = _required_string(params, "name", max_length=MAX_PROJECT_NAME_LENGTH)
         privacy_mode = params.get("privacy_mode", "local_only")
@@ -83,6 +89,11 @@ class ProjectService:
             params,
             "custom_style_guidance",
             max_length=MAX_STYLE_GUIDANCE_LENGTH,
+        )
+        style_override_enabled = self._optional_bool(
+            params,
+            "style_override_enabled",
+            default=("default_style_policy" in params or "custom_style_guidance" in params),
         )
 
         project_id = str(uuid.uuid4())
@@ -108,6 +119,22 @@ class ProjectService:
                         style_policy,
                         custom_guidance,
                         PROJECT_SCHEMA_VERSION,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO project_style_overrides
+                        (id, project_id, enabled, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(
+                            uuid.uuid5(uuid.NAMESPACE_URL, f"presenter-copilot:style:{project_id}")
+                        ),
+                        project_id,
+                        int(style_override_enabled),
+                        created_at,
+                        created_at,
                     ),
                 )
                 connection.commit()
@@ -169,12 +196,19 @@ class ProjectService:
                 "privacy_mode",
                 "default_style_policy",
                 "custom_style_guidance",
+                "style_override_enabled",
             },
         )
         project_id = self._project_id(params)
         if not any(
             field in params
-            for field in ("name", "privacy_mode", "default_style_policy", "custom_style_guidance")
+            for field in (
+                "name",
+                "privacy_mode",
+                "default_style_policy",
+                "custom_style_guidance",
+                "style_override_enabled",
+            )
         ):
             raise invalid_request("At least one project setting must be supplied.")
 
@@ -197,6 +231,14 @@ class ProjectService:
             if "custom_style_guidance" in params
             else current["custom_style_guidance"]
         )
+        style_fields_changed = any(
+            field in params for field in ("default_style_policy", "custom_style_guidance")
+        )
+        style_override_enabled = self._optional_bool(
+            params,
+            "style_override_enabled",
+            default=bool(current.get("style_override_enabled", False)) or style_fields_changed,
+        )
         updated_at = utc_now()
 
         with self._storage.project_database(project_id) as connection:
@@ -209,8 +251,38 @@ class ProjectService:
                 """,
                 (name, updated_at, privacy_mode, style_policy, custom_guidance, project_id),
             )
+            connection.execute(
+                """
+                UPDATE project_style_overrides
+                SET enabled = ?, updated_at = ?
+                WHERE project_id = ?
+                """,
+                (int(style_override_enabled), updated_at, project_id),
+            )
             connection.commit()
         self._storage.update_app_project(project_id, name=name, updated_at=updated_at)
+        return {"project": self._read_project(project_id)}
+
+    def acknowledge_remote_reasoning(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Record the explicit per-project remote reasoning disclosure acknowledgement."""
+        reject_unknown_fields(params, {"project_id"})
+        project_id = self._project_id(params)
+        acknowledged_at = utc_now()
+        with self._storage.project_database(project_id) as connection:
+            connection.execute(
+                """
+                UPDATE project
+                SET remote_reasoning_acknowledged_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (acknowledged_at, acknowledged_at, project_id),
+            )
+            connection.commit()
+        self._storage.update_app_project(
+            project_id,
+            name=str(self._read_project(project_id)["name"]),
+            updated_at=acknowledged_at,
+        )
         return {"project": self._read_project(project_id)}
 
     def delete(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -263,6 +335,10 @@ class ProjectService:
                 "privacy_mode": row["privacy_mode"],
                 "default_style_policy": row["default_style_policy"],
                 "custom_style_guidance": row["custom_style_guidance"],
+                "style_override_enabled": self._style_override_enabled(connection, project_id),
+                "remote_reasoning_acknowledged_at": row["remote_reasoning_acknowledged_at"],
+                "remote_reasoning_acknowledged": row["remote_reasoning_acknowledged_at"]
+                is not None,
                 "source_count": self._count(connection, "documents"),
                 "storage_status": "ready",
             }
@@ -277,6 +353,21 @@ class ProjectService:
     def _validate_enum(value: Any, allowed: frozenset[str], field: str) -> None:
         if not isinstance(value, str) or value not in allowed:
             raise invalid_request(f"{field} is not supported.", field=field)
+
+    @staticmethod
+    def _optional_bool(params: dict[str, Any], field: str, *, default: bool) -> bool:
+        value = params.get(field, default)
+        if not isinstance(value, bool):
+            raise invalid_request(f"{field} must be a boolean.", field=field)
+        return value
+
+    @staticmethod
+    def _style_override_enabled(connection: sqlite3.Connection, project_id: str) -> bool:
+        row = connection.execute(
+            "SELECT enabled FROM project_style_overrides WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        return bool(row[0]) if row is not None else False
 
     @staticmethod
     def _count(connection: sqlite3.Connection, table: str) -> int:

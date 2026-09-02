@@ -12,7 +12,11 @@ from typing import Any
 from presenter_core import CORE_VERSION
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
+from presenter_core.knowledge.service import KnowledgeService
 from presenter_core.project.service import ProjectService
+from presenter_core.providers.context import ProviderContextBuilder
+from presenter_core.providers.models import ReasoningProvider
+from presenter_core.providers.service import ProviderService
 from presenter_core.retrieval.embeddings import (
     EmbeddingAdapter,
     FastEmbedAdapter,
@@ -20,8 +24,11 @@ from presenter_core.retrieval.embeddings import (
 )
 from presenter_core.retrieval.lexical import LexicalRetrievalService
 from presenter_core.retrieval.service import HybridRetrievalService
+from presenter_core.session.service import SessionService
+from presenter_core.speaker.service import SpeakerProfileService
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
 from presenter_core.storage.service import StorageManager
+from presenter_core.teach.service import TeachService
 
 from .protocol import (
     PROTOCOL_VERSION,
@@ -44,6 +51,7 @@ class CoreService:
         data_root: str | Path | None = None,
         event_sink: EventSink | None = None,
         embedding_adapter: EmbeddingAdapter | None = None,
+        reasoning_provider: ReasoningProvider | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
@@ -55,6 +63,29 @@ class CoreService:
         self._hybrid_retrieval = HybridRetrievalService(
             self._storage,
             embedding_adapter or FastEmbedAdapter(cache_dir=embedding_model_cache_dir(data_root)),
+            self._emit_service_event,
+        )
+        self._speaker_profile = SpeakerProfileService(self._storage)
+        self._sessions = SessionService(
+            self._storage,
+            style_context=self._speaker_profile.build_style_context,
+        )
+        self._knowledge = KnowledgeService(
+            self._storage,
+            after_delete=self._synchronize_semantic_index,
+        )
+        self._providers = ProviderService(self._storage, reasoning_provider)
+        self._context_builder = ProviderContextBuilder(
+            self._storage,
+            self._hybrid_retrieval,
+            self._speaker_profile,
+        )
+        self._teach = TeachService(
+            self._storage,
+            self._sessions,
+            self._hybrid_retrieval,
+            self._providers,
+            self._context_builder,
             self._emit_service_event,
         )
         self._projects = ProjectService(
@@ -85,6 +116,8 @@ class CoreService:
                 "retrieval.numpy",
                 "retrieval.hybrid",
                 "retrieval.lexical",
+                "reasoning.fake",
+                "provider.openai.responses",
             ],
             "migration_status": "ready",
             "storage": {
@@ -99,6 +132,7 @@ class CoreService:
 
     def close(self) -> None:
         """Close SQLite handles before the sidecar exits."""
+        self._providers.close()
         self._hybrid_retrieval.close()
         self._storage.close()
 
@@ -234,6 +268,11 @@ class CoreService:
             return make_response(request_id, result=self._projects.list(params))
         if method == "project.update_settings":
             return make_response(request_id, result=self._projects.update_settings(params))
+        if method == "project.acknowledge_remote_reasoning":
+            return make_response(
+                request_id,
+                result=self._projects.acknowledge_remote_reasoning(params),
+            )
         if method == "project.delete":
             return make_response(request_id, result=self._projects.delete(params))
         if method == "source.import":
@@ -254,6 +293,52 @@ class CoreService:
             return make_response(request_id, result=self._hybrid_retrieval.query(params))
         if method == "retrieval.rebuild":
             return make_response(request_id, result=self._hybrid_retrieval.rebuild(params))
+        if method == "session.start":
+            return make_response(request_id, result=self._sessions.start(params))
+        if method == "session.stop":
+            return make_response(request_id, result=self._sessions.stop(params))
+        if method == "session.get":
+            return make_response(request_id, result=self._sessions.get(params))
+        if method == "session.list":
+            return make_response(request_id, result=self._sessions.list(params))
+        if method == "session.delete":
+            return make_response(request_id, result=self._sessions.delete(params))
+        if method == "teach.next_prompt":
+            return make_response(request_id, result=self._teach.next_prompt(params))
+        if method == "teach.submit_text":
+            return make_response(request_id, result=self._teach.submit_text(params))
+        if method == "teach.confirm_knowledge_item":
+            return make_response(request_id, result=self._teach.confirm_knowledge_item(params))
+        if method == "teach.reject_knowledge_item":
+            return make_response(request_id, result=self._teach.reject_knowledge_item(params))
+        if method == "knowledge.list":
+            return make_response(request_id, result=self._knowledge.list(params))
+        if method == "knowledge.update_flags":
+            return make_response(request_id, result=self._knowledge.update_flags(params))
+        if method == "knowledge.delete":
+            return make_response(request_id, result=self._knowledge.delete(params))
+        if method == "speaker_profile.get":
+            return make_response(request_id, result=self._speaker_profile.get(params))
+        if method == "speaker_profile.list_evidence":
+            return make_response(request_id, result=self._speaker_profile.list_evidence(params))
+        if method == "speaker_profile.approve_evidence":
+            return make_response(request_id, result=self._speaker_profile.approve_evidence(params))
+        if method == "speaker_profile.remove_evidence":
+            return make_response(request_id, result=self._speaker_profile.remove_evidence(params))
+        if method == "speaker_profile.update_settings":
+            return make_response(request_id, result=self._speaker_profile.update_settings(params))
+        if method == "speaker_profile.reset":
+            return make_response(request_id, result=self._speaker_profile.reset(params))
+        if method == "provider.list":
+            return make_response(request_id, result=self._providers.list(params))
+        if method == "provider.configure":
+            result = self._providers.configure(params)
+            self._emit_event("provider.status_changed", result)
+            return make_response(request_id, result=result)
+        if method == "provider.test":
+            return make_response(request_id, result=self._providers.test(params))
+        if method == "provider.status":
+            return make_response(request_id, result=self._providers.status(params))
 
         raise AssertionError(f"supported method has no handler: {method}")
 
@@ -263,3 +348,24 @@ class CoreService:
 
     def _emit_service_event(self, event: str, payload: dict[str, Any]) -> None:
         self._emit_event(event, payload)
+
+    def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
+        """Refresh an active index after a knowledge deletion without undoing the delete."""
+        with self._storage.project_database(project_id) as connection:
+            active = connection.execute(
+                "SELECT id FROM embedding_generations WHERE is_active = 1"
+            ).fetchone()
+        if active is None:
+            return {"status": "not_built", "embedded_count": 0, "reused_count": 0}
+        try:
+            rebuilt = self._hybrid_retrieval.rebuild({"project_id": project_id})
+            return {
+                "status": "ready",
+                "embedded_count": rebuilt["embedded_count"],
+                "reused_count": rebuilt["reused_count"],
+                "generation_id": rebuilt["generation_id"],
+            }
+        except CoreDomainError as error:
+            return {"status": "partial", "error_code": error.code}
+        except Exception:
+            return {"status": "partial", "error_code": "INDEX_SYNC_FAILED"}

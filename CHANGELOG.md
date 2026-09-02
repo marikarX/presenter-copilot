@@ -8,6 +8,17 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ### Added
 
+- Milestone 3 typed Teach and Speaker Profile vertical slice: project-local
+  sessions, durable user-statement provenance, provisional KnowledgeItem
+  candidates, explicit confirmation/edit/reject controls, preferred/private/
+  live/rehearsal retrieval flags, and explicit global style-evidence approval.
+- Generic local retrieval for confirmed KnowledgeItems with deterministic
+  preferred-user-explanation boosts, usage filters, immediate lexical access,
+  and best-effort semantic-generation synchronization.
+- Provider-neutral Teach routing, bounded structured context manifests,
+  deterministic fake-provider coverage, and an opt-in official OpenAI Responses
+  adapter using `OPENAI_API_KEY`, strict JSON schemas, no tools, `store=false`,
+  and bounded timeouts.
 - Milestone 2 local FastEmbed/BGE semantic retrieval with a replaceable
   deterministic test adapter, generation-based NumPy matrices, hybrid lexical
   ranking, current-slide boosts, exact-fact conflict detection, and a

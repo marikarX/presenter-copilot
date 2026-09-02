@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from presenter_core.ipc.core import CoreService
+from presenter_core.ipc.protocol import SUPPORTED_METHODS
 
 
 def request(request_id: str, method: str, *, protocol_version: int = 1) -> dict[str, Any]:
@@ -53,9 +54,11 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "retrieval.numpy",
         "retrieval.hybrid",
         "retrieval.lexical",
+        "reasoning.fake",
+        "provider.openai.responses",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 1, "project_schema_version": 2}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 3}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:
@@ -115,23 +118,7 @@ def test_unknown_method_returns_structured_error(tmp_path: Path) -> None:
         "details": {
             "method": "core.nope",
             "supported_methods": [
-                "core.hello",
-                "core.health",
-                "core.shutdown",
-                "project.create",
-                "project.open",
-                "project.list",
-                "project.update_settings",
-                "project.delete",
-                "source.import",
-                "source.list",
-                "source.preview",
-                "source.delete",
-                "source.reindex",
-                "search.lexical",
-                "retrieval.health",
-                "retrieval.query",
-                "retrieval.rebuild",
+                *SUPPORTED_METHODS,
             ],
         },
     }

@@ -53,10 +53,13 @@ The fixture should include at least these facts:
 - current-slide boost works;
 - adjacent-slide boost is smaller and never applies to supporting PDF pages;
 - persisted generation reloads after restart and unchanged chunks reuse vectors;
-- D07 User-preferred answer/explanation boost is deferred until
-  KnowledgeItem/practiced-answer entities arrive;
-- D08 `use_live` filter is deferred until the later live-context entities
-  arrive;
+- D07 User-preferred answer/explanation boost applies only to relevant,
+  confirmed KnowledgeItems and exposes `user_knowledge`/
+  `preferred_user_explanation` trace reasons;
+- D08 `usage = all | rehearsal | live` filters KnowledgeItems without
+  excluding document evidence;
+- confirmed KnowledgeItems share the generic embedding generation with document
+  chunks; candidates and rejected items are never indexable;
 - conflicting facts are detectable;
 - repeated rebuilds retain one generation, one mapping set, and one matrix;
 - failed activation preserves the prior generation and removes the orphan
@@ -69,9 +72,13 @@ The fixture should include at least these facts:
 ### Speaker Profile
 
 - only user-approved evidence becomes global SpeakerEvidence;
+- Teach candidates and provider output never become SpeakerEvidence
+  automatically;
 - rejected phrases do not affect prompt context;
 - project override wins over global default;
-- reset removes learned evidence.
+- reset removes learned evidence;
+- deleting a project removes its origin-linked global evidence, while unrelated
+  evidence survives.
 
 ### Audience Model
 
@@ -92,7 +99,10 @@ The fixture should include at least these facts:
 ### Privacy router
 
 - Local Only cannot select remote provider;
+- a local-only Teach submission cannot invoke a remote provider;
 - Selected Context Cloud excludes raw audio/full corpus;
+- private KnowledgeItems are excluded from remote context;
+- remote reasoning requires a project acknowledgement;
 - Full Context Cloud requires explicit project setting;
 - context manifest matches actual provider payload entity IDs/classes.
 
@@ -113,16 +123,17 @@ Every provider adapter runs the same suite:
 
 - health/status;
 - successful structured answer;
-- streaming partials where supported;
-- cancellation;
-- timeout;
+- bounded structured Teach question/candidate output;
+- bounded timeout;
 - authentication failure;
 - quota/rate-limit failure;
 - malformed model output;
 - no direct project storage access;
 - privacy manifest generated before invocation.
 
-A deterministic fake provider is required for CI.
+A deterministic fake provider is required for CI. M3 intentionally leaves full
+user-driven cancellation and resilience semantics for E06/the later provider
+milestone; the OpenAI reference adapter still has a bounded request timeout.
 
 ## 6. ASR tests
 
@@ -159,7 +170,15 @@ Import named transcript -> map two speakers -> leave one unresolved -> generate 
 
 ### E2E-03 Teach
 
-Start Teach -> submit user explanation -> confirm extracted KnowledgeItem -> mark preferred/use-live -> verify persisted and retrievable.
+Start typed Teach -> receive one focused question or retrieval-only fallback ->
+submit a user explanation -> inspect the separate provisional candidate -> edit
+and confirm it -> mark preferred/use-live -> verify persisted, immediately
+retrievable, and still present after session deletion.
+
+M3 adds the disposable-project acceptance path for a second direct-save answer:
+confirm it, set `use_live=false`, query `usage=live`, and verify the item is
+excluded. Promote only the first confirmed item to Speaker Profile through the
+separate explicit approval action.
 
 ### E2E-04 Challenge
 
@@ -187,9 +206,10 @@ Delete project -> project directory removed -> recent list removed -> no retriev
 
 Run app in Local Only with outbound networking blocked/monitored.
 
-Expected:
+The M3 automated scope is the Teach/provider routing boundary. Expected:
 
-- all core acceptance flows supported by configured local/mock adapters;
+- all M3 typed Teach acceptance flows supported by the deterministic local/fake
+  adapter;
 - no content-processing network attempt;
 - test fails on unexpected socket/connect call from core path.
 
@@ -206,6 +226,11 @@ Assert payload does not contain:
 
 Assert context manifest precisely identifies sent source IDs/classes.
 
+M3's real-provider acceptance is separate and opt-in. It uses only synthetic
+content, `OPENAI_API_KEY`, the official OpenAI Responses adapter, `store=false`,
+no tools, and a disposable project; no provider credential is required by
+normal CI.
+
 ## 10. Security tests
 
 - zip-slip/path traversal import fixture;
@@ -219,11 +244,12 @@ Assert context manifest precisely identifies sent source IDs/classes.
 
 ## 11. Performance benchmarks
 
-M2 also provides a separate local retrieval benchmark:
+M2/M3 provide separate local retrieval and optional provider acceptance checks:
 
 ```text
 pnpm model:prepare:embeddings
 pnpm benchmark:retrieval
+pnpm test:provider-real
 ```
 
 It uses the actual pinned model dimension with 50,000 seeded float32 vectors,
@@ -256,6 +282,10 @@ CPU/GPU utilization
 
 Store benchmark result JSON with build/version/hardware metadata; do not store source transcript content.
 
+The M3 provider path records bounded ProviderRun latency and optional token
+counts. It is not a live-cue latency gate, and full cancellation/resilience
+measurement remains deferred with E06.
+
 ## 12. UX/manual acceptance
 
 Before declaring MVP complete, test with at least five real presenters/decks under explicit permission.
@@ -270,6 +300,14 @@ For each session record qualitative answers:
 - What did they want to hide/disable?
 
 ## 13. Release gate
+
+### M3 milestone gate
+
+Before opening the M3 review PR, verify the typed Teach/Speaker Profile flow,
+session-delete provenance detachment, generic KnowledgeItem retrieval and
+usage filters, provider routing/manifest privacy tests, both schema migrations,
+`pnpm check`, `pnpm build`, and the real-model/provider acceptance commands (or
+record their unavailable status without fabricating results).
 
 A pre-1.0 MVP release requires:
 

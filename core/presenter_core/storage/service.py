@@ -27,6 +27,11 @@ class StorageManager:
         row = self._app.execute("PRAGMA user_version").fetchone()
         return int(row[0]) if row else 0
 
+    @contextmanager
+    def app_database(self) -> Iterator[sqlite3.Connection]:
+        """Expose the already-open app database for bounded app-scope services."""
+        yield self._app
+
     def close(self) -> None:
         self._app.close()
 
