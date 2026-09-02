@@ -58,6 +58,8 @@ The fixture should include at least these facts:
   `preferred_user_explanation` trace reasons;
 - D08 `usage = all | rehearsal | live` filters KnowledgeItems without
   excluding document evidence;
+- D08 covers rehearsal-disabled public items, private items, rehearsal-enabled
+  items, and the `allow_private` boundary while documents remain eligible;
 - confirmed KnowledgeItems share the generic embedding generation with document
   chunks; candidates and rejected items are never indexable;
 - conflicting facts are detectable;
@@ -68,6 +70,12 @@ The fixture should include at least these facts:
   removes project embedding files without touching the shared model cache;
 - malformed/mismatched matrix state degrades to lexical retrieval without an
   implicit model download.
+- an unfiltered semantic query with complete current mappings searches the
+  compact matrix without an eligibility join/materialized row mask;
+- an orphaned/deleted mapped entity disables that fast path and cannot appear
+  in returned evidence;
+- lexical retrieval processes document and knowledge candidates in bounded
+  batches rather than materializing an unbounded record list.
 
 ### Speaker Profile
 
@@ -104,7 +112,19 @@ The fixture should include at least these facts:
 - private KnowledgeItems are excluded from remote context;
 - remote reasoning requires a project acknowledgement;
 - Full Context Cloud requires explicit project setting;
-- context manifest matches actual provider payload entity IDs/classes.
+- context manifest matches actual provider payload entity IDs/classes;
+- project `privacy_mode` remains authoritative when a session attempts an
+  override or the project changes mode while the session is active.
+
+### Teach state and deletion recovery
+
+- core rejects submit/confirm/reject actions outside the authoritative state
+  transitions with stable `TEACH_STATE_INVALID`, `TEACH_ANSWER_PENDING`, and
+  `TEACH_SOURCE_INVALID` errors;
+- `teach.get_state` restores bounded prompt, pending-answer, and candidate
+  state after a core/app restart, including direct-save pending answers;
+- app-cleanup failure and project-delete failure each leave a retryable session
+  state with no partial project detachment.
 
 ## 4. IPC contract tests
 
@@ -130,6 +150,10 @@ Every provider adapter runs the same suite:
 - malformed model output;
 - no direct project storage access;
 - privacy manifest generated before invocation.
+
+The OpenAI adapter also maps nested `insufficient_quota`/quota codes before a
+generic HTTP 429, keeps `output_schema` out of the serialized user payload,
+and sends the strict schema only through the adapter request fields.
 
 A deterministic fake provider is required for CI. M3 intentionally leaves full
 user-driven cancellation and resilience semantics for E06/the later provider

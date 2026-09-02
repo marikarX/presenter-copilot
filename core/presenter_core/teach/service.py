@@ -67,35 +67,24 @@ class TeachService:
                     "TEACH_CANDIDATE_PENDING",
                     "Confirm or reject the current Teach candidate before asking another question.",
                 )
-            if session["teach_state"] == "candidate_ready":
+            if session["teach_state"] in {"candidate_ready", "awaiting_user"}:
                 raise CoreDomainError(
                     "TEACH_ANSWER_PENDING",
-                    "Save or discard the current Teach answer before asking another question.",
+                    "Submit and resolve the current Teach answer before asking another question.",
                 )
-            if session["teach_state"] == "awaiting_user":
-                existing = connection.execute(
-                    """
-                    SELECT id, text FROM utterances
-                    WHERE session_id = ? AND actor = 'ai_coach'
-                    ORDER BY created_at DESC, id DESC LIMIT 1
-                    """,
-                    (session_id,),
-                ).fetchone()
-                if existing is not None:
-                    return self._prompt_result(
-                        session,
-                        str(existing["id"]),
-                        str(existing["text"]),
-                        "awaiting_user",
-                        route="existing_prompt",
-                        focus="decision_rationale",
-                    )
+            if session["teach_state"] != "ready_for_prompt":
+                raise CoreDomainError(
+                    "TEACH_STATE_INVALID",
+                    "Teach cannot ask a question from the current session state.",
+                    details={"state": session["teach_state"]},
+                )
 
         project = self._project_row(project_id)
+        effective_privacy_mode = str(project["privacy_mode"])
         provider, health = self._provider_and_health()
         route = self._router.decide(
             task_type="teach_question",
-            privacy_mode=str(session["privacy_mode"]),
+            privacy_mode=effective_privacy_mode,
             remote_acknowledged=project["remote_reasoning_acknowledged_at"] is not None,
             provider=provider,
             provider_health=health,
@@ -114,7 +103,7 @@ class TeachService:
                     task_type="teach_question",
                     question=None,
                     user_input=None,
-                    privacy_mode=str(session["privacy_mode"]),
+                    privacy_mode=effective_privacy_mode,
                     style_policy=str(session["style_policy"]),
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
@@ -123,7 +112,7 @@ class TeachService:
                 result = self._run_provider(
                     project_id=project_id,
                     session_id=session_id,
-                    privacy_mode=str(session["privacy_mode"]),
+                    privacy_mode=effective_privacy_mode,
                     provider=provider,
                     request=request,
                     manifest=manifest,
@@ -191,6 +180,9 @@ class TeachService:
         if not isinstance(local_only, bool):
             raise invalid_request("local_only must be a boolean.", field="local_only")
         session = self._active_teach_session(project_id, session_id)
+        self._require_state(session, "awaiting_user")
+        project = self._project_row(project_id)
+        effective_privacy_mode = str(project["privacy_mode"])
         source_utterance_id = str(uuid.uuid4())
         created_at = utc_now()
         with self._storage.project_database(project_id) as connection:
@@ -202,6 +194,11 @@ class TeachService:
                 """,
                 (session_id,),
             ).fetchone()
+            if current_prompt is None:
+                raise CoreDomainError(
+                    "TEACH_STATE_INVALID",
+                    "The current Teach answer has no active prompt.",
+                )
             connection.execute(
                 """
                 INSERT INTO utterances (id, session_id, actor, text, created_at, is_final)
@@ -209,13 +206,26 @@ class TeachService:
                 """,
                 (source_utterance_id, session_id, text, created_at),
             )
+            transitioned = connection.execute(
+                """
+                UPDATE sessions
+                SET teach_state = 'candidate_ready'
+                WHERE id = ? AND project_id = ? AND teach_state = 'awaiting_user'
+                """,
+                (session_id, project_id),
+            )
+            if transitioned.rowcount != 1:
+                connection.rollback()
+                raise CoreDomainError(
+                    "TEACH_STATE_INVALID",
+                    "The Teach answer arrived after the session state changed.",
+                )
             connection.commit()
 
         provider, health = self._provider_and_health()
-        project = self._project_row(project_id)
         route = self._router.decide(
             task_type="teach_candidate",
-            privacy_mode=str(session["privacy_mode"]),
+            privacy_mode=effective_privacy_mode,
             remote_acknowledged=project["remote_reasoning_acknowledged_at"] is not None,
             provider=provider,
             provider_health=health,
@@ -249,7 +259,7 @@ class TeachService:
                     task_type="teach_candidate",
                     question=str(current_prompt["text"]) if current_prompt is not None else None,
                     user_input=text,
-                    privacy_mode=str(session["privacy_mode"]),
+                    privacy_mode=effective_privacy_mode,
                     style_policy=str(session["style_policy"]),
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
@@ -258,7 +268,7 @@ class TeachService:
                 result = self._run_provider(
                     project_id=project_id,
                     session_id=session_id,
-                    privacy_mode=str(session["privacy_mode"]),
+                    privacy_mode=effective_privacy_mode,
                     provider=provider,
                     request=request,
                     manifest=manifest,
@@ -328,13 +338,67 @@ class TeachService:
                 "status": "direct_save_only",
                 "reason": route.reason,
             }
-        with self._storage.project_database(project_id) as connection:
-            connection.execute(
-                "UPDATE sessions SET teach_state = 'candidate_ready' WHERE id = ?",
-                (session_id,),
-            )
-            connection.commit()
         return response
+
+    def get_state(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Return only the bounded, recoverable state of one active Teach session."""
+        reject_unknown_fields(params, {"project_id", "session_id"})
+        project_id = self._project_id(params)
+        session_id = self._uuid_param(params, "session_id")
+        session = self._active_teach_session(project_id, session_id)
+        with self._storage.project_database(project_id) as connection:
+            prompt = connection.execute(
+                """
+                SELECT id, text
+                FROM utterances
+                WHERE session_id = ? AND actor = 'ai_coach'
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            pending_answer = connection.execute(
+                """
+                SELECT id, text
+                FROM utterances
+                WHERE session_id = ? AND actor = 'user'
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            candidate = connection.execute(
+                """
+                SELECT * FROM teach_candidates
+                WHERE session_id = ? AND status = 'pending'
+                ORDER BY created_at DESC, id DESC LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            state = str(session["teach_state"])
+            prompt_result = (
+                {"utterance_id": str(prompt["id"]), "text": str(prompt["text"])}
+                if state in {"awaiting_user", "candidate_ready"} and prompt is not None
+                else None
+            )
+            pending_result = (
+                {
+                    "source_utterance_id": str(pending_answer["id"]),
+                    "text": str(pending_answer["text"]),
+                }
+                if state == "candidate_ready" and pending_answer is not None
+                else None
+            )
+            candidate_result = (
+                self._candidate_dict(candidate)
+                if state == "candidate_ready" and candidate is not None
+                else None
+            )
+        return {
+            "session_id": session_id,
+            "state": state,
+            "prompt": prompt_result,
+            "pending_answer": pending_result,
+            "candidate": candidate_result,
+        }
 
     def confirm_knowledge_item(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -354,7 +418,8 @@ class TeachService:
         )
         project_id = self._project_id(params)
         session_id = self._uuid_param(params, "session_id")
-        self._active_teach_session(project_id, session_id)
+        session = self._active_teach_session(project_id, session_id)
+        self._require_state(session, "candidate_ready")
         candidate_id = self._optional_uuid(params.get("candidate_id"), "candidate_id")
         source_utterance_id = self._optional_uuid(
             params.get("source_utterance_id"), "source_utterance_id"
@@ -365,6 +430,17 @@ class TeachService:
         use_rehearsal = self._flag(params, "use_rehearsal", True)
         with self._storage.project_database(project_id) as connection:
             candidate: sqlite3.Row | None = None
+            if candidate_id is None:
+                pending_candidate = connection.execute(
+                    "SELECT id FROM teach_candidates "
+                    "WHERE session_id = ? AND status = 'pending' LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if pending_candidate is not None:
+                    raise CoreDomainError(
+                        "TEACH_CANDIDATE_PENDING",
+                        "Confirm the current Teach candidate by id before saving an answer.",
+                    )
             if candidate_id is not None:
                 candidate = connection.execute(
                     """
@@ -390,7 +466,13 @@ class TeachService:
                         "TEACH_SOURCE_INVALID",
                         "Only a user utterance can support confirmed knowledge.",
                     )
-                source_utterance_id = str(candidate["source_utterance_id"])
+                candidate_source_id = str(candidate["source_utterance_id"])
+                if source_utterance_id is not None and source_utterance_id != candidate_source_id:
+                    raise CoreDomainError(
+                        "TEACH_SOURCE_INVALID",
+                        "The confirmation source must match the current Teach candidate.",
+                    )
+                source_utterance_id = candidate_source_id
             if source_utterance_id is None:
                 source = connection.execute(
                     """
@@ -409,6 +491,12 @@ class TeachService:
                 raise CoreDomainError(
                     "TEACH_SOURCE_INVALID",
                     "The confirmation source must be a user utterance in this Teach session.",
+                )
+            current_answer = self._current_pending_user_utterance(connection, session_id)
+            if current_answer is None or str(current_answer["id"]) != str(source["id"]):
+                raise CoreDomainError(
+                    "TEACH_SOURCE_INVALID",
+                    "The confirmation source must be the current pending Teach answer.",
                 )
             final_text = params.get("text")
             if final_text is None and candidate is not None:
@@ -515,7 +603,8 @@ class TeachService:
         reject_unknown_fields(params, {"project_id", "session_id", "candidate_id"})
         project_id = self._project_id(params)
         session_id = self._uuid_param(params, "session_id")
-        self._active_teach_session(project_id, session_id)
+        session = self._active_teach_session(project_id, session_id)
+        self._require_state(session, "candidate_ready")
         candidate_id = self._uuid_param(params, "candidate_id")
         with self._storage.project_database(project_id) as connection:
             candidate = connection.execute(
@@ -702,6 +791,52 @@ class TeachService:
             )
         return cast(sqlite3.Row, row)
 
+    @staticmethod
+    def _require_state(session: sqlite3.Row, expected: str) -> None:
+        """Enforce Teach transitions in core, independently of renderer controls."""
+        state = str(session["teach_state"])
+        if state == expected:
+            return
+        if expected in {"awaiting_user", "candidate_ready"} and state == "candidate_ready":
+            raise CoreDomainError(
+                "TEACH_ANSWER_PENDING",
+                "Resolve the current Teach answer before submitting another one.",
+                details={"state": state, "expected": expected},
+            )
+        raise CoreDomainError(
+            "TEACH_STATE_INVALID",
+            "The Teach action is not valid in the current session state.",
+            details={"state": state, "expected": expected},
+        )
+
+    @staticmethod
+    def _current_pending_user_utterance(
+        connection: sqlite3.Connection, session_id: str
+    ) -> sqlite3.Row | None:
+        """Return the latest user answer, which is the only direct-save source allowed."""
+        row = connection.execute(
+            """
+            SELECT id, actor, session_id, text
+            FROM utterances
+            WHERE session_id = ? AND actor = 'user'
+            ORDER BY created_at DESC, id DESC LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return cast(sqlite3.Row | None, row)
+
+    @staticmethod
+    def _candidate_dict(candidate: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": str(candidate["id"]),
+            "source_utterance_id": str(candidate["source_utterance_id"]),
+            "proposed_kind": str(candidate["proposed_kind"]),
+            "proposed_text": str(candidate["proposed_text"]),
+            "follow_up_question": None,
+            "provisional": True,
+            "created_by": "ai_suggestion",
+        }
+
     def _project_row(self, project_id: str) -> sqlite3.Row:
         with self._storage.project_database(project_id) as connection:
             row = connection.execute("SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
@@ -721,6 +856,7 @@ class TeachService:
                 "project_id": project_id,
                 "query": "rejected option decision rationale tradeoff risk assumption",
                 "limit": 6,
+                "usage": "rehearsal",
                 "allow_private": True,
             }
         )

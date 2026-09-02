@@ -38,6 +38,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "session.list",
     "session.delete",
     "teach.next_prompt",
+    "teach.get_state",
     "teach.submit_text",
     "teach.confirm_knowledge_item",
     "teach.reject_knowledge_item",

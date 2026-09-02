@@ -117,7 +117,6 @@ class ReasoningRequest:
             "conflict_metadata": list(self.conflict_metadata),
             "style_policy": self.style_policy,
             "privacy_mode": self.privacy_mode,
-            "output_schema": self.output_schema,
             "latency_budget_ms": self.latency_budget_ms,
         }
 

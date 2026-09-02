@@ -280,19 +280,31 @@ def bounded_lexical_candidates(
     """Scan current document and user-knowledge metadata for lexical matches."""
     document_sql, document_parameters = _chunk_select_sql(filters, lexical_tokens=query_set)
     cursor = connection.execute(document_sql, document_parameters)
-    records: list[ChunkRecord] = []
+    candidates: list[LexicalCandidate] = []
     while True:
         rows = cursor.fetchmany(LEXICAL_SCAN_BATCH_SIZE)
         if not rows:
             break
-        records.extend(_record_from_row(row) for row in rows)
+        batch = [_record_from_row(row) for row in rows]
+        candidates = _merge_lexical_candidates(
+            candidates,
+            score_records(batch, query_tokens, query_set, phrase, limit=limit),
+            limit=limit,
+        )
     if not filters.document_ids and not filters.source_types:
         knowledge_sql, knowledge_parameters = _knowledge_select_sql(filters)
-        knowledge_rows = connection.execute(knowledge_sql, knowledge_parameters).fetchall()
-        records.extend(_record_from_row(row) for row in knowledge_rows)
-    return _sort_lexical_candidates(
-        score_records(records, query_tokens, query_set, phrase, limit=limit)
-    )[:limit]
+        knowledge_cursor = connection.execute(knowledge_sql, knowledge_parameters)
+        while True:
+            knowledge_rows = knowledge_cursor.fetchmany(LEXICAL_SCAN_BATCH_SIZE)
+            if not knowledge_rows:
+                break
+            batch = [_record_from_row(row) for row in knowledge_rows]
+            candidates = _merge_lexical_candidates(
+                candidates,
+                score_records(batch, query_tokens, query_set, phrase, limit=limit),
+                limit=limit,
+            )
+    return candidates[:limit]
 
 
 class LexicalRetrievalService:
@@ -368,3 +380,15 @@ def _sort_lexical_candidates(candidates: list[LexicalCandidate]) -> list[Lexical
             candidate.record.chunk_id,
         ),
     )
+
+
+def _merge_lexical_candidates(
+    current: list[LexicalCandidate],
+    batch: list[LexicalCandidate],
+    *,
+    limit: int,
+) -> list[LexicalCandidate]:
+    """Merge only bounded top candidates so a large lexical match stays bounded."""
+    if not batch:
+        return current[:limit]
+    return _sort_lexical_candidates([*current, *batch])[:limit]

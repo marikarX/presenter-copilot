@@ -27,6 +27,7 @@ type ProviderListResult = { providers: ProviderStatus[] };
 type TeachPromptResult = {
   session_id: string;
   state: string;
+  utterance_id: string;
   question: string;
   focus: string;
   route: string;
@@ -60,6 +61,14 @@ type TeachSubmitResult = {
     model_id?: string;
     provider_error?: { code?: string; retryable?: boolean };
   };
+};
+
+type TeachStateResult = {
+  session_id: string;
+  state: string;
+  prompt: { utterance_id: string; text: string } | null;
+  pending_answer: { source_utterance_id: string; text: string } | null;
+  candidate: TeachCandidate | null;
 };
 
 const EVIDENCE_TYPES = [
@@ -145,6 +154,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
     setLastSourceUtteranceId("");
     setCandidate(null);
     setCandidateText("");
+    setKeepLocal(false);
     setKnowledgeItems([]);
     setSpeakerEvidence([]);
     setProvider(null);
@@ -152,7 +162,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
     setPromotionId(null);
     setPromotionText("");
     setAcknowledgedRemote(project.remote_reasoning_acknowledged);
-  }, [project.id, project.remote_reasoning_acknowledged]);
+  }, [project.id]);
 
   const loadData = useCallback(async () => {
     setMessage(null);
@@ -173,6 +183,46 @@ export function TeachPanel({ project }: TeachPanelProps) {
         (item) => item.mode === "teach" && item.status === "active",
       );
       setSession(activeSession ?? null);
+      setQuestion(null);
+      setAnswer("");
+      setLastSubmittedText("");
+      setLastSourceUtteranceId("");
+      setCandidate(null);
+      setCandidateText("");
+      setCandidateKind("rationale");
+      setKeepLocal(false);
+      if (activeSession) {
+        const recovered = await requestCore<TeachStateResult>(
+          "teach.get_state",
+          {
+            project_id: project.id,
+            session_id: activeSession.id,
+          },
+        );
+        const pending = recovered.pending_answer;
+        const recoveredCandidate = recovered.candidate;
+        if (recovered.prompt) {
+          setQuestion({
+            session_id: recovered.session_id,
+            state: recovered.state,
+            utterance_id: recovered.prompt.utterance_id,
+            question: recovered.prompt.text,
+            focus: "decision_rationale",
+            route: "recovered",
+            reasoning: { status: "recovered" },
+          });
+        }
+        setLastSubmittedText(pending?.text ?? "");
+        setLastSourceUtteranceId(pending?.source_utterance_id ?? "");
+        setCandidate(recoveredCandidate);
+        setCandidateText(
+          recoveredCandidate?.proposed_text ?? pending?.text ?? "",
+        );
+        setCandidateKind(recoveredCandidate?.proposed_kind ?? "rationale");
+        setSession((current) =>
+          current ? { ...current, teach_state: recovered.state } : current,
+        );
+      }
       setKnowledgeItems(knowledge.knowledge_items);
       setProfilePolicy(profileResult.profile.default_style_policy);
       setProfileGuidance(profileResult.profile.custom_style_guidance ?? "");
@@ -546,9 +596,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
     project.privacy_mode !== "local_only" && !acknowledgedRemote;
   const reasoningLabel = question?.reasoning?.provider_id
     ? `${question.reasoning.provider_id} · ${question.reasoning.model_id ?? "model"}`
-    : question?.route === "retrieval_only"
-      ? "Local retrieval-only"
-      : "Not used";
+    : question?.route === "recovered"
+      ? "Recovered Teach state"
+      : question?.route === "retrieval_only"
+        ? "Local retrieval-only"
+        : "Not used";
 
   return (
     <section
@@ -606,7 +658,8 @@ export function TeachPanel({ project }: TeachPanelProps) {
                 disabled={
                   busy !== null ||
                   candidate !== null ||
-                  lastSourceUtteranceId !== ""
+                  lastSourceUtteranceId !== "" ||
+                  session.teach_state !== "ready_for_prompt"
                 }
               >
                 {busy === "next-prompt" ? "Thinking…" : "Ask focused question"}
@@ -618,7 +671,8 @@ export function TeachPanel({ project }: TeachPanelProps) {
                 disabled={
                   busy !== null ||
                   candidate !== null ||
-                  lastSourceUtteranceId !== ""
+                  lastSourceUtteranceId !== "" ||
+                  session.teach_state !== "ready_for_prompt"
                 }
               >
                 End session
@@ -673,7 +727,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
               type="button"
               className="secondary-button"
               onClick={() => void submitAnswer()}
-              disabled={busy !== null || !answer.trim()}
+              disabled={
+                busy !== null ||
+                !answer.trim() ||
+                session.teach_state !== "awaiting_user"
+              }
             >
               {busy === "submit-answer" ? "Saving answer…" : "Submit answer"}
             </button>

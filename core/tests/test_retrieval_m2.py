@@ -9,6 +9,7 @@ import pytest
 from presenter_core.errors import CoreDomainError
 from presenter_core.ipc.core import CoreService
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter, FastEmbedAdapter
+from presenter_core.retrieval.index import NumpyEmbeddingIndex
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION, connect_project_database
 
 FIXTURE_ROOT = Path(__file__).parents[2] / "samples" / "synthetic-deck"
@@ -475,6 +476,82 @@ def test_current_and_adjacent_slide_boosts_only_apply_to_pptx(tmp_path: Path) ->
             },
         )["result"]
         assert no_pdf_boost["hits"][0]["scores"]["slide_boost"] == 0
+    finally:
+        core.close()
+
+
+def test_unfiltered_semantic_query_uses_compact_matrix_fast_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core, adapter, project_id, _ = build_fixture(tmp_path)
+    try:
+        call(core, "build", "retrieval.rebuild", {"project_id": project_id})
+
+        def fail_expensive_eligibility(*args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            raise AssertionError("the unfiltered semantic fast path built eligibility rows")
+
+        monkeypatch.setattr(
+            core._hybrid_retrieval,  # type: ignore[attr-defined]
+            "_eligible_row_indices",
+            fail_expensive_eligibility,
+        )
+        result = call(
+            core,
+            "fast-path",
+            "retrieval.query",
+            {"project_id": project_id, "query": "unfiltered semantic query", "limit": 3},
+        )
+        assert result["ok"] is True
+        assert result["result"]["semantic"]["status"] == "ready"
+    finally:
+        core.close()
+
+
+def test_orphaned_matrix_row_disables_all_row_fast_path_and_stays_out_of_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core, adapter, project_id, _ = build_fixture(tmp_path)
+    try:
+        del adapter
+        call(core, "build", "retrieval.rebuild", {"project_id": project_id})
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            deleted_chunk_id = str(
+                connection.execute("SELECT id FROM chunks ORDER BY id LIMIT 1").fetchone()[0]
+            )
+            connection.execute("DELETE FROM chunks WHERE id = ?", (deleted_chunk_id,))
+            connection.commit()
+
+        observed: dict[str, Any] = {}
+        original = NumpyEmbeddingIndex.cosine_search
+
+        def capture(
+            matrix: Any,
+            query_vector: Any,
+            *,
+            eligible_rows: Any,
+            limit: int,
+        ) -> Any:
+            observed["eligible_rows"] = eligible_rows
+            return original(
+                matrix,
+                query_vector,
+                eligible_rows=eligible_rows,
+                limit=limit,
+            )
+
+        monkeypatch.setattr(NumpyEmbeddingIndex, "cosine_search", staticmethod(capture))
+        result = call(
+            core,
+            "orphan-path",
+            "retrieval.query",
+            {"project_id": project_id, "query": "recovery", "limit": 5},
+        )
+        assert result["ok"] is True
+        assert observed["eligible_rows"] is not None
+        assert all(
+            hit["evidence"]["evidence_id"] != deleted_chunk_id for hit in result["result"]["hits"]
+        )
     finally:
         core.close()
 

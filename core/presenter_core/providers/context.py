@@ -56,6 +56,7 @@ class ProviderContextBuilder:
             "project_id": project_id,
             "query": query[:500],
             "limit": MAX_DOCUMENT_EVIDENCE + MAX_USER_KNOWLEDGE,
+            "usage": "rehearsal",
             "allow_private": allow_private,
         }
         if current_slide is not None:

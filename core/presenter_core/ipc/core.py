@@ -52,6 +52,7 @@ class CoreService:
         event_sink: EventSink | None = None,
         embedding_adapter: EmbeddingAdapter | None = None,
         reasoning_provider: ReasoningProvider | None = None,
+        session_app_cleanup: Callable[[str, str], None] | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
@@ -69,6 +70,7 @@ class CoreService:
         self._sessions = SessionService(
             self._storage,
             style_context=self._speaker_profile.build_style_context,
+            app_cleanup=session_app_cleanup,
         )
         self._knowledge = KnowledgeService(
             self._storage,
@@ -305,6 +307,8 @@ class CoreService:
             return make_response(request_id, result=self._sessions.delete(params))
         if method == "teach.next_prompt":
             return make_response(request_id, result=self._teach.next_prompt(params))
+        if method == "teach.get_state":
+            return make_response(request_id, result=self._teach.get_state(params))
         if method == "teach.submit_text":
             return make_response(request_id, result=self._teach.submit_text(params))
         if method == "teach.confirm_knowledge_item":

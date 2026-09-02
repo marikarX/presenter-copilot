@@ -169,6 +169,14 @@ session.list
 session.delete
 ```
 
+`session.start` reads the current project `privacy_mode`; a caller-provided
+`privacy_mode` is accepted only when it exactly matches the project value and
+can never broaden authority. Session deletion first clears app-level
+SpeakerEvidence session provenance, then detaches project UserStatement and
+KnowledgeItem session provenance and deletes the project session in one
+transaction. A failure in either phase is retryable and never deletes a
+project session partially.
+
 ### ASR
 
 ```text
@@ -193,12 +201,26 @@ presentation.status
 
 ```text
 teach.next_prompt
+teach.get_state
 teach.submit_text
 teach.confirm_knowledge_item
 teach.reject_knowledge_item
 ```
 
 Voice input arrives through ASR utterances rather than a separate audio upload method.
+
+Core owns the Teach state machine:
+
+```text
+ready_for_prompt -> next_prompt -> awaiting_user
+awaiting_user -> submit_text -> candidate_ready
+candidate_ready -> confirm/reject -> ready_for_prompt
+```
+
+`teach.get_state` returns only bounded active-session recovery data: the current
+prompt, pending user answer, and pending provisional candidate when present.
+Every Teach operation rereads the current project privacy mode, so changing a
+project to `local_only` takes effect for an already-active session.
 
 ### Knowledge management
 

@@ -552,7 +552,25 @@ class HybridRetrievalService:
                             self._validate_mapping_bounds(
                                 connection, str(active["id"]), matrix.shape[0]
                             )
-                            eligible_rows = self._eligible_row_indices(connection, filters, active)
+                            matrix_rows = int(matrix.shape[0])
+                            unfiltered = (
+                                not filters.document_ids
+                                and not filters.source_types
+                                and filters.usage == "all"
+                                and filters.allow_private
+                            )
+                            if unfiltered and indexed_count == matrix_rows:
+                                # Every active matrix row has a current,
+                                # project-owned mapping, so NumPy can search
+                                # the compact matrix without a 50k-row mask.
+                                eligible_rows = None
+                            else:
+                                eligible_rows = self._eligible_row_indices(
+                                    connection,
+                                    filters,
+                                    active,
+                                    current_only=indexed_count < matrix_rows,
+                                )
                             query_vector = self._embedding_adapter.embed_query(query)
                             for row_index, score in NumpyEmbeddingIndex.cosine_search(
                                 matrix,
@@ -947,8 +965,31 @@ class HybridRetrievalService:
             SELECT COUNT(*) AS count
             FROM embedding_vectors AS ev
             WHERE ev.generation_id = ? AND ev.project_id = ?
+              AND (
+                  ev.entity_type = 'chunk' AND EXISTS (
+                      SELECT 1
+                      FROM chunks AS c
+                      JOIN source_units AS su ON su.id = c.source_unit_id
+                      JOIN documents AS d ON d.id = su.document_id
+                      WHERE c.id = ev.entity_id
+                        AND d.project_id = ?
+                        AND d.parse_status = 'ready'
+                  )
+                  OR ev.entity_type = 'knowledge_item' AND EXISTS (
+                      SELECT 1
+                      FROM knowledge_items AS k
+                      WHERE k.id = ev.entity_id
+                        AND k.project_id = ?
+                        AND EXISTS (
+                            SELECT 1
+                            FROM knowledge_evidence AS ke
+                            WHERE ke.knowledge_item_id = k.id
+                              AND ke.provenance_type = 'user_statement'
+                        )
+                  )
+              )
             """,
-            (generation_id, project_id),
+            (generation_id, project_id, project_id, project_id),
         ).fetchone()
         return int(row["count"]) if row else 0
 
@@ -1028,33 +1069,52 @@ class HybridRetrievalService:
         connection: sqlite3.Connection,
         filters: RetrievalFilters,
         generation: sqlite3.Row | Any,
+        *,
+        current_only: bool,
     ) -> np.ndarray[Any, Any]:
         values: list[int] = []
-        chunk_clauses = [
-            "ev.generation_id = ?",
-            "ev.entity_type = 'chunk'",
-            "ev.project_id = ?",
-            "d.project_id = ?",
-            "d.parse_status = 'ready'",
-        ]
-        chunk_parameters: list[Any] = [
-            str(generation["id"]),
-            filters.project_id,
-            filters.project_id,
-        ]
-        _append_filter_clauses(chunk_clauses, chunk_parameters, filters, table_alias="d")
-        chunk_rows = connection.execute(
-            """
-            SELECT ev.row_index
-            FROM embedding_vectors AS ev
-            JOIN chunks AS c ON c.id = ev.entity_id
-            JOIN source_units AS su ON su.id = c.source_unit_id
-            JOIN documents AS d ON d.id = su.document_id
-            WHERE """
-            + " AND ".join(chunk_clauses)
-            + " ORDER BY ev.row_index",
-            chunk_parameters,
-        ).fetchall()
+        generation_id = str(generation["id"])
+        if current_only or filters.document_ids or filters.source_types:
+            chunk_clauses = [
+                "ev.generation_id = ?",
+                "ev.entity_type = 'chunk'",
+                "ev.project_id = ?",
+                "d.project_id = ?",
+                "d.parse_status = 'ready'",
+            ]
+            chunk_parameters: list[Any] = [
+                generation_id,
+                filters.project_id,
+                filters.project_id,
+            ]
+            _append_filter_clauses(chunk_clauses, chunk_parameters, filters, table_alias="d")
+            chunk_rows = connection.execute(
+                """
+                SELECT ev.row_index
+                FROM embedding_vectors AS ev
+                JOIN chunks AS c ON c.id = ev.entity_id
+                JOIN source_units AS su ON su.id = c.source_unit_id
+                JOIN documents AS d ON d.id = su.document_id
+                WHERE """
+                + " AND ".join(chunk_clauses)
+                + " ORDER BY ev.row_index",
+                chunk_parameters,
+            ).fetchall()
+        else:
+            # With no document/source filters, generation metadata already
+            # identifies document rows; do not join through the document
+            # hierarchy merely to prove that fact.
+            chunk_rows = connection.execute(
+                """
+                SELECT ev.row_index
+                FROM embedding_vectors AS ev
+                WHERE ev.generation_id = ?
+                  AND ev.entity_type = 'chunk'
+                  AND ev.project_id = ?
+                ORDER BY ev.row_index
+                """,
+                (generation_id, filters.project_id),
+            ).fetchall()
         values.extend(int(row["row_index"]) for row in chunk_rows)
 
         if not filters.document_ids and not filters.source_types:
@@ -1062,29 +1122,51 @@ class HybridRetrievalService:
                 "ev.generation_id = ?",
                 "ev.entity_type = 'knowledge_item'",
                 "ev.project_id = ?",
-                "k.project_id = ?",
             ]
             knowledge_parameters: list[Any] = [
-                str(generation["id"]),
-                filters.project_id,
+                generation_id,
                 filters.project_id,
             ]
-            if not filters.allow_private:
-                knowledge_clauses.append("k.private = 0")
-            if filters.usage == "live":
-                knowledge_clauses.append("k.use_live = 1")
-            elif filters.usage == "rehearsal":
-                knowledge_clauses.append("k.use_rehearsal = 1")
-            knowledge_rows = connection.execute(
-                """
-                SELECT ev.row_index
-                FROM embedding_vectors AS ev
-                JOIN knowledge_items AS k ON k.id = ev.entity_id
-                WHERE """
-                + " AND ".join(knowledge_clauses)
-                + " ORDER BY ev.row_index",
-                knowledge_parameters,
-            ).fetchall()
+            needs_knowledge_join = (
+                current_only or not filters.allow_private or filters.usage != "all"
+            )
+            if needs_knowledge_join:
+                knowledge_clauses.extend(
+                    [
+                        "k.project_id = ?",
+                        "EXISTS ("
+                        "SELECT 1 FROM knowledge_evidence AS ke "
+                        "WHERE ke.knowledge_item_id = k.id "
+                        "AND ke.provenance_type = 'user_statement'"
+                        ")",
+                    ]
+                )
+                knowledge_parameters.append(filters.project_id)
+                if not filters.allow_private:
+                    knowledge_clauses.append("k.private = 0")
+                if filters.usage == "live":
+                    knowledge_clauses.append("k.use_live = 1")
+                elif filters.usage == "rehearsal":
+                    knowledge_clauses.append("k.use_rehearsal = 1")
+                knowledge_sql = (
+                    """
+                    SELECT ev.row_index
+                    FROM embedding_vectors AS ev
+                    JOIN knowledge_items AS k ON k.id = ev.entity_id
+                    WHERE """
+                    + " AND ".join(knowledge_clauses)
+                    + " ORDER BY ev.row_index"
+                )
+            else:
+                knowledge_sql = (
+                    """
+                    SELECT ev.row_index
+                    FROM embedding_vectors AS ev
+                    WHERE """
+                    + " AND ".join(knowledge_clauses)
+                    + " ORDER BY ev.row_index"
+                )
+            knowledge_rows = connection.execute(knowledge_sql, knowledge_parameters).fetchall()
             values.extend(int(row["row_index"]) for row in knowledge_rows)
         values.sort()
         return np.asarray(values, dtype=np.int64)
@@ -1138,6 +1220,11 @@ class HybridRetrievalService:
                 "ev.row_index IN (" + placeholders + ")",
                 "ev.project_id = ?",
                 "k.project_id = ?",
+                "EXISTS ("
+                "SELECT 1 FROM knowledge_evidence AS ke "
+                "WHERE ke.knowledge_item_id = k.id "
+                "AND ke.provenance_type = 'user_statement'"
+                ")",
             ]
             knowledge_parameters: list[Any] = [
                 generation_id,

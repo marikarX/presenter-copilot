@@ -90,6 +90,11 @@ content-processing path. Update checks/optional external links must be
 separable from session processing and disabled in the network-isolation test
 environment.
 
+The project row is authoritative for this decision. A Teach session cannot
+select a broader privacy mode, and changing an active project's mode to
+`local_only` immediately prevents subsequent remote Teach calls; the session's
+stored mode is not an authority override.
+
 ### Selected Context Cloud
 
 Required invariant:
@@ -228,6 +233,12 @@ Deleting an individual session cascades its session, utterances, provider runs,
 and pending Teach candidates. Confirmed project KnowledgeItems survive through
 durable UserStatement snapshots; their old session and utterance IDs are
 detached. Approved global SpeakerEvidence also detaches a deleted session ID.
+Because app and project SQLite databases cannot share a transaction, deletion
+validates the project session, clears app-level session provenance first, then
+performs project detachment and session deletion transactionally. App cleanup
+failure leaves all project rows unchanged. A project-side failure after app
+cleanup leaves the session and project rows intact and returns a retryable
+error; retrying is safe.
 
 ## 14. UX disclosures
 

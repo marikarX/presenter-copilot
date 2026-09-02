@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from time import monotonic
 from typing import Any
 
@@ -199,6 +199,19 @@ class OpenAIReasoningProvider(ReasoningProvider):
         status = getattr(error, "status_code", None)
         if isinstance(status, str) and status.isdecimal():
             status = int(status)
+        provider_code = _provider_error_code(error)
+        if (
+            provider_code
+            in {
+                "insufficient_quota",
+                "quota_exceeded",
+                "billing_hard_limit_reached",
+            }
+            or "quota" in provider_code
+        ):
+            return ProviderError(
+                "PROVIDER_QUOTA_EXCEEDED", "The OpenAI provider quota was exceeded."
+            )
         if status == 401 or "authentication" in name or "permission" in name:
             return ProviderError("PROVIDER_AUTH_FAILED", "The OpenAI credential was rejected.")
         if status == 429 or "rate" in name:
@@ -206,10 +219,6 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 "PROVIDER_RATE_LIMITED",
                 "The OpenAI provider rate limit was reached.",
                 retryable=True,
-            )
-        if "quota" in name or "quota" in str(getattr(error, "code", "")).casefold():
-            return ProviderError(
-                "PROVIDER_QUOTA_EXCEEDED", "The OpenAI provider quota was exceeded."
             )
         if "timeout" in name or isinstance(error, TimeoutError):
             return ProviderError(
@@ -228,6 +237,24 @@ class OpenAIReasoningProvider(ReasoningProvider):
             "The OpenAI reasoning request failed.",
             retryable=True,
         )
+
+
+def _provider_error_code(error: Exception) -> str:
+    """Read only a safe provider code; never serialize or return the raw body."""
+    direct = getattr(error, "code", None)
+    if isinstance(direct, str):
+        return direct.casefold()
+    body = getattr(error, "body", None)
+    if isinstance(body, Mapping):
+        nested = body.get("error")
+        if isinstance(nested, Mapping):
+            nested_code = nested.get("code")
+            if isinstance(nested_code, str):
+                return nested_code.casefold()
+        body_code = body.get("code")
+        if isinstance(body_code, str):
+            return body_code.casefold()
+    return ""
 
 
 def _usage_int(usage: Any, field: str) -> int | None:

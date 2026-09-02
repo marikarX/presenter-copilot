@@ -26,9 +26,11 @@ class SessionService:
         self,
         storage: StorageManager,
         style_context: Callable[[str], dict[str, Any]] | None = None,
+        app_cleanup: Callable[[str, str], None] | None = None,
     ) -> None:
         self._storage = storage
         self._style_context = style_context
+        self._app_cleanup = app_cleanup or self._clear_app_session_provenance
 
     def start(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -65,7 +67,13 @@ class SessionService:
                     if self._style_context is not None
                     else project["default_style_policy"]
                 )
-            privacy_mode = params.get("privacy_mode", project["privacy_mode"])
+            privacy_mode = str(project["privacy_mode"])
+            if "privacy_mode" in params and params["privacy_mode"] != privacy_mode:
+                raise CoreDomainError(
+                    "PRIVACY_MODE_OVERRIDE",
+                    "A Teach session cannot grant broader privacy authority than its project.",
+                    details={"project_privacy_mode": privacy_mode},
+                )
             self._validate_enum(style_policy, STYLE_POLICIES, "style_policy")
             self._validate_enum(privacy_mode, PRIVACY_MODES, "privacy_mode")
             provider_id = params.get("provider_id")
@@ -125,7 +133,7 @@ class SessionService:
                         "TEACH_CANDIDATE_PENDING",
                         "Confirm or reject the current Teach candidate before ending the session.",
                     )
-                if row["teach_state"] == "candidate_ready":
+                if row["teach_state"] in {"awaiting_user", "candidate_ready"}:
                     raise CoreDomainError(
                         "TEACH_ANSWER_PENDING",
                         "Save or discard the current Teach answer before ending the session.",
@@ -165,40 +173,80 @@ class SessionService:
         reject_unknown_fields(params, {"project_id", "session_id"})
         project_id = self._project_id(params)
         session_id = self._uuid_param(params, "session_id")
+
+        # Validate before touching the app database. The two databases cannot
+        # share a transaction, so app cleanup is deliberately completed first;
+        # a project-side failure then leaves a retryable, still-present session.
         with self._storage.project_database(project_id) as connection:
             self._session_row(connection, project_id, session_id)
-            # Confirmed knowledge points at a durable UserStatement snapshot,
-            # but old session/utterance provenance is detached before cascade.
-            connection.execute(
-                """
-                UPDATE user_statements
-                SET origin_session_id = NULL, source_utterance_id = NULL
-                WHERE project_id = ? AND (
-                    origin_session_id = ? OR source_utterance_id IN (
-                        SELECT id FROM utterances WHERE session_id = ?
+        try:
+            self._app_cleanup(project_id, session_id)
+        except Exception as error:
+            raise CoreDomainError(
+                "SESSION_DELETE_APP_CLEANUP_FAILED",
+                "Session deletion could not clear its app-level provenance; retry is safe.",
+                retryable=True,
+                details={"phase": "app_cleanup"},
+            ) from error
+
+        try:
+            with self._storage.project_database(project_id) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    # Confirmed knowledge points at a durable UserStatement
+                    # snapshot, but old session/utterance provenance is
+                    # detached before the session cascade.
+                    connection.execute(
+                        """
+                        UPDATE user_statements
+                        SET origin_session_id = NULL, source_utterance_id = NULL
+                        WHERE project_id = ? AND (
+                            origin_session_id = ? OR source_utterance_id IN (
+                                SELECT id FROM utterances WHERE session_id = ?
+                            )
+                        )
+                        """,
+                        (project_id, session_id, session_id),
                     )
-                )
-                """,
-                (project_id, session_id, session_id),
-            )
-            connection.execute(
-                """
-                UPDATE knowledge_items
-                SET origin_session_id = NULL
-                WHERE project_id = ? AND origin_session_id = ?
-                """,
-                (project_id, session_id),
-            )
-            cursor = connection.execute(
-                "DELETE FROM sessions WHERE id = ? AND project_id = ?",
-                (session_id, project_id),
-            )
-            connection.commit()
-            # Approved global style evidence remains user-owned after a
-            # session delete, but it must not retain a dangling session
-            # provenance identifier.
-            with self._storage.app_database() as app_connection:
-                app_connection.execute(
+                    connection.execute(
+                        """
+                        UPDATE knowledge_items
+                        SET origin_session_id = NULL
+                        WHERE project_id = ? AND origin_session_id = ?
+                        """,
+                        (project_id, session_id),
+                    )
+                    cursor = connection.execute(
+                        "DELETE FROM sessions WHERE id = ? AND project_id = ?",
+                        (session_id, project_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise sqlite3.IntegrityError("the validated session disappeared")
+                    connection.commit()
+                except Exception:
+                    if connection.in_transaction:
+                        connection.rollback()
+                    raise
+        except CoreDomainError:
+            raise
+        except Exception as error:
+            raise CoreDomainError(
+                "SESSION_DELETE_FAILED",
+                "Session deletion failed after app provenance cleanup; retry is safe.",
+                retryable=True,
+                details={"phase": "project_delete"},
+            ) from error
+        return {
+            "project_id": project_id,
+            "session_id": session_id,
+            "deleted": True,
+        }
+
+    def _clear_app_session_provenance(self, project_id: str, session_id: str) -> None:
+        """Atomically remove only the stale session annotation from global evidence."""
+        with self._storage.app_database() as connection:
+            try:
+                connection.execute(
                     """
                     UPDATE speaker_evidence
                     SET origin_session_id = NULL
@@ -206,12 +254,11 @@ class SessionService:
                     """,
                     (project_id, session_id),
                 )
-                app_connection.commit()
-            return {
-                "project_id": project_id,
-                "session_id": session_id,
-                "deleted": cursor.rowcount == 1,
-            }
+                connection.commit()
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
 
     @staticmethod
     def _session_row(
