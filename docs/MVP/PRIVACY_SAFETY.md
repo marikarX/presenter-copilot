@@ -54,6 +54,14 @@ Do not infer/store sensitive or hidden traits such as:
 
 Do not implement workplace emotion recognition from voice/video.
 
+M4 enforces this boundary with one fail-closed observation policy at every
+user-entered, candidate-acceptance, and observation-edit gate. The policy
+rejects sensitive identity, health, criminal, political, religious, sexual,
+psychological, deception, intelligence, employability, and hidden-emotion
+wording. It also prevents source-derived rows from becoming active without
+exact transcript evidence. `sensitive_trait` is an explicit stored flag for
+the schema contract, but accepted M4 observations must have it false.
+
 ## 4. Speaker Profile boundary
 
 The user may intentionally let the app learn their own speaking style.
@@ -212,6 +220,15 @@ Default logs must not include:
 - audience sensitive data;
 - complete provider prompts.
 
+M4 transcript import, speaker mapping, extraction, and review logs contain
+only event names, bounded counts, IDs, statuses, and error codes. They never
+log full transcript text or raw transcript payloads. The same prohibited
+sensitive/hidden-trait policy applies to profile notes and observation text at
+write time and again at context assembly. AudienceContextBuilder labels
+profile notes as user-supplied content and includes only active profiles and
+active, evidence-valid observations; pending, rejected, stale, unresolved, and
+evidence-less source-derived rows are excluded.
+
 User-requested diagnostic export must be previewable/redactable before sharing.
 
 ## 13. Deletion
@@ -256,6 +273,12 @@ before a remote reasoning call; configuring provider metadata alone is not
 consent.
 
 Keep disclosures concise and contextual rather than requiring broad legal acceptance for every session.
+
+M4 implements this disclosure as a renderer gate: selecting Transcript shows
+the authorization message first, and the native file picker is not opened
+until the user explicitly continues. The selected path is handled by Electron
+main/preload authority and is not supplied by renderer code as arbitrary core
+filesystem authority.
 
 ## 15. P0 threat scenarios to test
 

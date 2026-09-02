@@ -1,6 +1,6 @@
 {
   "fixture_id": "synthetic-deck",
-  "status": "m1-complete",
+  "status": "m4-complete",
   "generator": "generate_fixture.py",
   "assets": {
     "presentation": "deck/presentation.pptx",
@@ -8,8 +8,17 @@
       "supporting/cost-model.pdf",
       "supporting/architecture-notes.md"
     ],
+    "transcripts": {
+      "canonical": "transcript/PriorMeeting.vtt",
+      "equivalent": [
+        "transcript/equivalent.srt",
+        "transcript/equivalent.txt",
+        "transcript/equivalent.json"
+      ]
+    },
     "expected": [
-      "expected/retrieval-goldens.json"
+      "expected/retrieval-goldens.json",
+      "expected/audience-goldens.json"
     ],
     "security": [
       "security/prompt-injection.md",
@@ -18,6 +27,12 @@
   },
   "slide_count": 22,
   "pdf_page_count": 4,
+  "transcript_segment_count": 7,
+  "transcript_native_speaker_labels": [
+    "Jane Smith",
+    "Robert Chen",
+    "Conference Room"
+  ],
   "required_facts": [
     "current_solution_three_year_cost",
     "proposed_solution_three_year_cost",

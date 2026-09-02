@@ -1,0 +1,53 @@
+{
+  "fixture_id": "synthetic-deck",
+  "canonical_transcript": "transcript/PriorMeeting.vtt",
+  "segment_count": 7,
+  "native_speaker_labels": [
+    "Conference Room",
+    "Jane Smith",
+    "Robert Chen"
+  ],
+  "expected_mappings": {
+    "Jane Smith": "jane-profile",
+    "Robert Chen": "robert-profile",
+    "Conference Room": null
+  },
+  "expected_candidates": [
+    {
+      "profile": "jane-profile",
+      "observation_type": "question_pattern",
+      "proposed_text": "Repeatedly asks for status-quo cost comparisons.",
+      "evidence_ordinals": [
+        1,
+        2
+      ]
+    },
+    {
+      "profile": "jane-profile",
+      "observation_type": "answer_preference",
+      "proposed_text": "Explicitly requests concise answers.",
+      "evidence_ordinals": [
+        3
+      ]
+    },
+    {
+      "profile": "robert-profile",
+      "observation_type": "question_pattern",
+      "proposed_text": "Repeatedly asks about rollback and failure modes.",
+      "evidence_ordinals": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "profile": "robert-profile",
+      "observation_type": "interaction_pattern",
+      "proposed_text": "Requests ownership clarification.",
+      "evidence_ordinals": [
+        6
+      ]
+    }
+  ],
+  "prompt_injection_ordinal": 7
+}

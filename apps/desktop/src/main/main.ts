@@ -101,13 +101,17 @@ function validateRendererRequest(value: unknown): {
 
 function validateImportPickerRequest(value: unknown): {
   projectId: string;
-  kind: "presentation" | "supporting";
+  kind: "presentation" | "supporting" | "transcript";
 } {
   if (!isJsonObject(value) || typeof value.project_id !== "string") {
     throw new Error("A project id is required to import a source.");
   }
   const kind = value.kind ?? "supporting";
-  if (kind !== "presentation" && kind !== "supporting") {
+  if (
+    kind !== "presentation" &&
+    kind !== "supporting" &&
+    kind !== "transcript"
+  ) {
     throw new Error("Source kind is invalid.");
   }
   return { projectId: value.project_id, kind };
@@ -178,13 +182,20 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(async () => {
       const request = validateImportPickerRequest(value);
+      const extensions =
+        request.kind === "transcript"
+          ? ["vtt", "srt", "txt", "json"]
+          : ["pdf", "pptx", "txt", "md", "markdown"];
       const selection = await dialog.showOpenDialog({
-        title: "Import presentation source",
+        title:
+          request.kind === "transcript"
+            ? "Import authorized transcript"
+            : "Import presentation source",
         properties: ["openFile"],
         filters: [
           {
             name: "Supported sources",
-            extensions: ["pdf", "pptx", "txt", "md", "markdown"],
+            extensions,
           },
         ],
       });

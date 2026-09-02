@@ -15,7 +15,12 @@ import {
   type SourceSummary,
   unwrapInvokeResult,
 } from "../shared/protocol";
+import { AudiencePanel } from "./AudiencePanel";
 import { TeachPanel } from "./TeachPanel";
+import {
+  requiresTranscriptDisclosure,
+  type SourceImportKind,
+} from "./transcript-import-gate";
 
 const initialStatus: CoreStatus = {
   state: "starting",
@@ -61,6 +66,16 @@ function optionalInteger(value: string): number | undefined {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
+function formatTimestamp(value: number | null): string | null {
+  if (value === null) return null;
+  const totalSeconds = Math.floor(value / 1000);
+  const milliseconds = value % 1000;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
+}
+
 export function App() {
   const [status, setStatus] = useState<CoreStatus>(initialStatus);
   const [health, setHealth] = useState<HealthResult | null>(null);
@@ -69,6 +84,7 @@ export function App() {
     null,
   );
   const [sources, setSources] = useState<SourceSummary[]>([]);
+  const [audienceRefreshToken, setAudienceRefreshToken] = useState(0);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SourcePreviewResult | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -77,9 +93,9 @@ export function App() {
   const [customGuidance, setCustomGuidance] = useState("");
   const [styleOverrideEnabled, setStyleOverrideEnabled] = useState(false);
   const [newProjectName, setNewProjectName] = useState("Board proposal");
-  const [importKind, setImportKind] = useState<"presentation" | "supporting">(
-    "supporting",
-  );
+  const [importKind, setImportKind] = useState<SourceImportKind>("supporting");
+  const [transcriptDisclosureOpen, setTranscriptDisclosureOpen] =
+    useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState("Waiting for core.ready");
@@ -320,41 +336,54 @@ export function App() {
     styleOverrideEnabled,
   ]);
 
-  const importSource = useCallback(async () => {
-    if (!selectedProject) return;
-    setBusy("import-source");
-    setNotice(null);
-    setProgressKind("import");
-    setProgress("snapshot · waiting for selection");
-    try {
-      const result = await window.presenterCopilot.source
-        .pickAndImport(selectedProject.id, importKind)
-        .then(unwrapInvokeResult);
-      if (result.cancelled) {
-        setProgress(null);
+  const importSource = useCallback(
+    async (transcriptAuthorized = false) => {
+      if (!selectedProject) return;
+      if (requiresTranscriptDisclosure(importKind, transcriptAuthorized)) {
+        setTranscriptDisclosureOpen(true);
         return;
       }
-      await loadSources(selectedProject.id);
-      await loadProjects();
-      await loadRetrievalHealth(selectedProject.id);
-      if (result.document) {
-        setNotice(
-          `Imported ${result.document.original_name} · ${result.source_units_count ?? 0} units`,
-        );
+      setBusy("import-source");
+      setNotice(null);
+      setProgressKind("import");
+      setProgress("snapshot · waiting for selection");
+      try {
+        const result = await window.presenterCopilot.source
+          .pickAndImport(selectedProject.id, importKind)
+          .then(unwrapInvokeResult);
+        if (result.cancelled) {
+          setProgress(null);
+          return;
+        }
+        await loadSources(selectedProject.id);
+        setAudienceRefreshToken((value) => value + 1);
+        await loadProjects();
+        await loadRetrievalHealth(selectedProject.id);
+        if (result.document) {
+          setNotice(
+            `Imported ${result.document.original_name} · ${result.source_units_count ?? 0} units`,
+          );
+        }
+      } catch (error) {
+        setProgress(null);
+        setNotice(errorMessage(error));
+      } finally {
+        setBusy(null);
       }
-    } catch (error) {
-      setProgress(null);
-      setNotice(errorMessage(error));
-    } finally {
-      setBusy(null);
-    }
-  }, [
-    importKind,
-    loadProjects,
-    loadRetrievalHealth,
-    loadSources,
-    selectedProject,
-  ]);
+    },
+    [
+      importKind,
+      loadProjects,
+      loadRetrievalHealth,
+      loadSources,
+      selectedProject,
+    ],
+  );
+
+  const continueTranscriptImport = useCallback(() => {
+    setTranscriptDisclosureOpen(false);
+    void importSource(true);
+  }, [importSource]);
 
   const inspectSource = useCallback(
     async (source: SourceSummary) => {
@@ -393,6 +422,7 @@ export function App() {
           document_id: source.id,
         });
         await loadSources(selectedProject.id);
+        setAudienceRefreshToken((value) => value + 1);
         await loadRetrievalHealth(selectedProject.id);
         setNotice(
           `Re-indexed ${source.original_name} from its stored snapshot.`,
@@ -423,6 +453,7 @@ export function App() {
         setSources((current) =>
           current.filter((item) => item.id !== source.id),
         );
+        setAudienceRefreshToken((value) => value + 1);
         await loadProjects();
         await loadRetrievalHealth(selectedProject.id);
         if (selectedSourceId === source.id) {
@@ -546,7 +577,7 @@ export function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Milestone 1 · local project vault</p>
+          <p className="eyebrow">Milestone 4 · transcript Audience Model</p>
           <h1>Presenter Copilot</h1>
           <p className="lede">
             Import presentation material, preserve its boundaries, and inspect
@@ -770,12 +801,14 @@ export function App() {
                     value={importKind}
                     onChange={(event) =>
                       setImportKind(
-                        event.target.value as "presentation" | "supporting",
+                        event.target.value as
+                          "presentation" | "supporting" | "transcript",
                       )
                     }
                   >
                     <option value="presentation">Presentation</option>
                     <option value="supporting">Supporting document</option>
+                    <option value="transcript">Authorized transcript</option>
                   </select>
                   <button
                     type="button"
@@ -804,7 +837,8 @@ export function App() {
                 {sources.length === 0 ? (
                   <p className="muted">
                     No sources imported. Add the canonical PPTX, PDF, and
-                    Markdown fixtures to inspect provenance.
+                    Markdown fixtures, or an authorized transcript, to inspect
+                    provenance.
                   </p>
                 ) : null}
                 {sources.map((source) => (
@@ -861,6 +895,10 @@ export function App() {
                     <span className="count-badge">{preview.total} units</span>
                   </div>
                   {preview.units.map((unit) => {
+                    const transcriptPreview =
+                      preview.document.kind === "transcript";
+                    const start = formatTimestamp(unit.start_ms);
+                    const end = formatTimestamp(unit.end_ms);
                     const label =
                       typeof unit.provenance.label === "string"
                         ? unit.provenance.label
@@ -872,9 +910,23 @@ export function App() {
                     return (
                       <article className="unit-card" key={unit.id}>
                         <div className="unit-heading">
-                          <span>{label}</span>
+                          {transcriptPreview ? (
+                            <span className="transcript-cue-heading">
+                              {start
+                                ? `${start}${end ? `–${end}` : ""}`
+                                : `Segment ${unit.ordinal ?? "—"}`}
+                              <strong>
+                                {unit.speaker_label ?? "Unlabeled speaker"}
+                              </strong>
+                            </span>
+                          ) : (
+                            <span>{label}</span>
+                          )}
                           {unit.title ? <strong>{unit.title}</strong> : null}
                         </div>
+                        {transcriptPreview ? (
+                          <p className="transcript-provenance-label">{label}</p>
+                        ) : null}
                         <pre>
                           {unit.text || "(No extractable text on this unit)"}
                         </pre>
@@ -888,6 +940,13 @@ export function App() {
                     );
                   })}
                 </section>
+              ) : null}
+
+              {selectedProject.storage_status === "ready" ? (
+                <AudiencePanel
+                  project={selectedProject}
+                  refreshToken={audienceRefreshToken}
+                />
               ) : null}
 
               {import.meta.env.DEV ? (
@@ -1121,6 +1180,42 @@ export function App() {
           )}
         </section>
       </div>
+      {transcriptDisclosureOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transcript-disclosure-title"
+          >
+            <p className="eyebrow">Before transcript import</p>
+            <h2 id="transcript-disclosure-title">
+              Confirm you are authorized to use this transcript
+            </h2>
+            <p>
+              Only analyze recordings or transcripts you are authorized to use.
+              Local processing does not change your legal or organizational
+              obligations.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setTranscriptDisclosureOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={continueTranscriptImport}
+              >
+                Continue to file picker
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

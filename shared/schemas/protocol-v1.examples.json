@@ -31,6 +31,21 @@
             "source.preview",
             "source.delete",
             "source.reindex",
+            "transcript.list_speakers",
+            "transcript.map_speaker",
+            "transcript.unmap_speaker",
+            "audience.create",
+            "audience.update",
+            "audience.list",
+            "audience.delete",
+            "audience.extract_observations",
+            "audience.list_observations",
+            "audience.accept_observation",
+            "audience.reject_observation",
+            "audience.create_observation",
+            "audience.update_observation",
+            "audience.delete_observation",
+            "audience.build_context",
             "search.lexical",
             "retrieval.health",
             "retrieval.query",
@@ -73,11 +88,16 @@
             "privacy.remote_context_manifest"
           ]
         },
-        "adapters": [
-          "pdf.pypdf",
-          "pptx.python-pptx",
-          "text.stdlib",
-          "embedding.fastembed",
+          "adapters": [
+            "pdf.pypdf",
+            "pptx.python-pptx",
+            "text.stdlib",
+            "transcript.vtt",
+            "transcript.srt",
+            "transcript.named-text",
+            "transcript.json",
+            "audience.observable-patterns",
+            "embedding.fastembed",
           "retrieval.numpy",
           "retrieval.hybrid",
           "retrieval.lexical",
@@ -87,7 +107,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 3
+          "project_schema_version": 4
         }
       }
     },
@@ -125,6 +145,21 @@
             "source.preview",
             "source.delete",
             "source.reindex",
+            "transcript.list_speakers",
+            "transcript.map_speaker",
+            "transcript.unmap_speaker",
+            "audience.create",
+            "audience.update",
+            "audience.list",
+            "audience.delete",
+            "audience.extract_observations",
+            "audience.list_observations",
+            "audience.accept_observation",
+            "audience.reject_observation",
+            "audience.create_observation",
+            "audience.update_observation",
+            "audience.delete_observation",
+            "audience.build_context",
             "search.lexical",
             "retrieval.health",
             "retrieval.query",
@@ -167,11 +202,16 @@
             "privacy.remote_context_manifest"
           ]
         },
-        "adapters": [
-          "pdf.pypdf",
-          "pptx.python-pptx",
-          "text.stdlib",
-          "embedding.fastembed",
+          "adapters": [
+            "pdf.pypdf",
+            "pptx.python-pptx",
+            "text.stdlib",
+            "transcript.vtt",
+            "transcript.srt",
+            "transcript.named-text",
+            "transcript.json",
+            "audience.observable-patterns",
+            "embedding.fastembed",
           "retrieval.numpy",
           "retrieval.hybrid",
           "retrieval.lexical",
@@ -181,7 +221,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 3
+          "project_schema_version": 4
         }
       }
     },

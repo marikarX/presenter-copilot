@@ -200,6 +200,22 @@ Create project -> import sample deck/docs -> index ready -> inspect source prove
 
 Import named transcript -> map two speakers -> leave one unresolved -> generate evidence-backed audience observations.
 
+M4 acceptance expands this scenario across the four transcript adapters:
+VTT, SRT, named TXT with `kind=transcript`, and structured JSON. Assert that
+ordinary TXT without that kind remains a supporting source. Preview and
+retrieval must retain exact cue timestamps, native labels, transcript
+provenance, deterministic unchanged-reindex IDs, and existing M2/M3 behavior.
+Audience extraction must be local/deterministic, create only provisional
+candidates, and attach exact transcript SourceUnit evidence before acceptance.
+
+The M4 lifecycle suite also asserts: unresolved labels are excluded from
+profile context; candidate edits are reviewable; rejected fingerprints are
+not immediately regenerated; safe user observations may omit evidence;
+remap/unmap and removed re-index evidence stale derived rows without transfer;
+profile deletion unresolves speakers without deleting transcript content;
+transcript deletion removes mappings/evidence while preserving user-entered
+observations; and project deletion removes all project-local M4 rows/files.
+
 ### E2E-03 Teach
 
 Start typed Teach -> receive one focused question or retrieval-only fallback ->
@@ -334,13 +350,16 @@ For each session record qualitative answers:
 
 ## 13. Release gate
 
-### M3 milestone gate
+### M4 milestone gate
 
-Before opening the M3 review PR, verify the typed Teach/Speaker Profile flow,
-session-delete provenance detachment, generic KnowledgeItem retrieval and
-usage filters, provider routing/manifest privacy tests, both schema migrations,
-`pnpm check`, `pnpm build`, and the real-model/provider acceptance commands (or
-record their unavailable status without fabricating results).
+Before opening the M4 review PR, verify the M3 typed Teach/Speaker Profile
+flow remains intact, the v3 -> v4 migration preserves existing rows, all four
+transcript adapters and ordinary TXT behavior, explicit mapping/remap/stale
+semantics, candidate review and sensitive-category rejection, restart and
+delete behavior, renderer disclosure/IPC boundaries, `pnpm check`,
+`pnpm build`, the real-model acceptance and 50k benchmark (or record their
+unavailable status without fabricating results), hosted CI, and trusted Local
+CI on the same final SHA. Do not require a provider key for M4.
 
 A pre-1.0 MVP release requires:
 

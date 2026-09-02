@@ -1,0 +1,22 @@
+{
+  "segments": [
+    {
+      "speaker": "Jane Smith",
+      "start_ms": 1000,
+      "end_ms": 4200,
+      "text": "What is the status-quo cost?"
+    },
+    {
+      "speaker": "Robert Chen",
+      "start_ms": 5000,
+      "end_ms": 8000,
+      "text": "What happens if rollback fails?"
+    },
+    {
+      "speaker": null,
+      "start_ms": null,
+      "end_ms": null,
+      "text": "An unlabeled segment remains unresolved."
+    }
+  ]
+}

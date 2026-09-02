@@ -28,6 +28,7 @@ from .lexical import (
     MAX_RESULTS,
     SOURCE_TYPE_MIME,
     LexicalCandidate,
+    _append_source_type_filter,
     _record_from_row,
     bounded_lexical_candidates,
     validate_query,
@@ -872,15 +873,27 @@ class HybridRetrievalService:
             reasons.append("adjacent_slide")
         evidence = Evidence(
             evidence_id=record.entity_id or record.chunk_id,
-            source_type=record.source_type
-            if record.entity_type == "knowledge_item"
-            else "document",
+            source_type=(
+                record.source_type
+                if record.entity_type == "knowledge_item"
+                else "transcript"
+                if record.source_type == "transcript"
+                else "document"
+            ),
             source_id=record.source_id or record.document_id,
             source_unit_id=record.source_unit_id,
             label=(
                 "Your Teach explanation"
                 if record.entity_type == "knowledge_item"
-                else provenance_label(record.original_name, record.unit_type, record.ordinal)
+                else provenance_label(
+                    record.original_name,
+                    record.unit_type,
+                    record.ordinal,
+                    start_ms=record.start_ms,
+                    end_ms=record.end_ms,
+                    speaker_label=record.speaker_label,
+                    transcript=record.source_type == "transcript",
+                )
             ),
             text=record.chunk_text,
             rank=0,
@@ -1242,8 +1255,10 @@ class HybridRetrievalService:
                    c.id AS chunk_id, c.text AS chunk_text, c.lexical_text AS lexical_text,
                    c.chunk_index AS chunk_index, su.id AS source_unit_id,
                    su.unit_type AS unit_type, su.ordinal AS ordinal,
+                   su.start_ms AS start_ms, su.end_ms AS end_ms,
+                   su.speaker_label AS speaker_label,
                    d.id AS document_id, d.original_name AS original_name,
-                   d.mime_type AS mime_type
+                   d.mime_type AS mime_type, d.kind AS document_kind
             FROM embedding_vectors AS ev
             JOIN chunks AS c ON c.id = ev.entity_id
             JOIN source_units AS su ON su.id = c.source_unit_id
@@ -1330,8 +1345,10 @@ class HybridRetrievalService:
             SELECT c.id AS chunk_id, c.text AS chunk_text, c.lexical_text AS lexical_text,
                    c.chunk_index AS chunk_index, su.id AS source_unit_id,
                    su.unit_type AS unit_type, su.ordinal AS ordinal,
+                   su.start_ms AS start_ms, su.end_ms AS end_ms,
+                   su.speaker_label AS speaker_label,
                    d.id AS document_id, d.original_name AS original_name,
-                   d.mime_type AS mime_type
+                   d.mime_type AS mime_type, d.kind AS document_kind
             FROM chunks AS c
             JOIN source_units AS su ON su.id = c.source_unit_id
             JOIN documents AS d ON d.id = su.document_id
@@ -1471,7 +1488,7 @@ def _parse_filters(
         raise invalid_request("source_types must be a list.", field="source_types")
     source_types: list[str] = []
     for value in source_types_value:
-        if not isinstance(value, str) or value not in SOURCE_TYPE_MIME:
+        if not isinstance(value, str) or (value != "transcript" and value not in SOURCE_TYPE_MIME):
             raise invalid_request(
                 "source_types contains an unsupported type.",
                 field="source_types",
@@ -1523,10 +1540,7 @@ def _append_filter_clauses(
         clauses.append(f"{table_alias}.id IN ({placeholders})")
         parameters.extend(filters.document_ids)
     if filters.source_types:
-        mime_types = [SOURCE_TYPE_MIME[source_type] for source_type in filters.source_types]
-        placeholders = ", ".join("?" for _ in mime_types)
-        clauses.append(f"{table_alias}.mime_type IN ({placeholders})")
-        parameters.extend(mime_types)
+        _append_source_type_filter(clauses, parameters, filters.source_types, table_alias)
 
 
 def _slide_boost(record: ChunkRecord, current_slide: int | None, slide_window: int) -> float:

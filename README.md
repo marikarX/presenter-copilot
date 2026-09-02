@@ -91,14 +91,17 @@ dev` opens the desktop shell, which starts the Python core sidecar
 automatically. The shell should show `CORE READY`, protocol `1`, core version
 `0.1.0`, and health `OK`.
 
-Milestones 1–3 add the local project vault flow: create/open a project, import
-PPTX/PDF/TXT/Markdown sources through the native file picker, inspect bounded
-slide/page/section previews with provenance, re-index from the stored snapshot,
-delete sources or whole projects, inspect local hybrid semantic retrieval, and
-use the typed Teach/Speaker Profile vertical slice. M3 supports project-local
-sessions, confirmed user knowledge, explicit style-evidence promotion, and an
-optional bounded OpenAI Responses call; voice Teach, Challenge, Run, and the
-HUD remain later milestones. The normal data root is
+Milestones 1–4 add the local project vault flow: create/open a project, import
+PPTX/PDF/TXT/Markdown and explicitly authorized VTT/SRT/named-TXT/structured
+JSON transcript sources through the native file picker, inspect bounded
+slide/page/section/transcript previews with provenance, re-index from the
+stored snapshot, delete sources or whole projects, inspect local hybrid
+semantic retrieval, use the typed Teach/Speaker Profile vertical slice, and
+review a project-local Audience Model. M3 supports project-local sessions,
+confirmed user knowledge, explicit style-evidence promotion, and an optional
+bounded OpenAI Responses call. M4 audience extraction is deterministic and
+local; it never sends transcript content to a provider. Voice Teach, Challenge,
+Run, and the HUD remain later milestones. The normal data root is
 `%LOCALAPPDATA%\PresenterCopilot` on Windows. Tests use a temporary root; a
 controlled run can set `PRESENTER_COPILOT_DATA_ROOT` explicitly.
 
@@ -120,9 +123,10 @@ pnpm test:provider-real        # opt-in synthetic OpenAI acceptance; key require
 
 Model preparation and the explicitly opt-in real-provider acceptance are the
 only commands above that may use the network. Normal startup, source indexing,
-retrieval, and fake-provider tests use local-only behavior and never download a
-model or call a provider implicitly. M3 intentionally does not include voice
-ASR, Challenge, Run, or the real presentation HUD. See
+retrieval, M4 audience extraction, and fake-provider tests use local-only
+behavior and never download a model or call a provider implicitly. M4 does not
+include Teams/Webex-specific export connectors, audio/video, diarization, or
+Challenge mode. See
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
 commands.
 
@@ -153,8 +157,9 @@ commands.
 ## Repository status
 
 Milestone 0 — repository scaffold — is merged into `main`. The current
-implementation slice is Milestone 3 — local project vault, ingestion,
-embeddings, hybrid retrieval, typed Teach, and Speaker Profile.
+implementation slice is Milestone 4 — local project vault, transcript
+ingestion, embeddings, hybrid retrieval, typed Teach, Speaker Profile, and the
+project-local Audience Model.
 
 ## License
 

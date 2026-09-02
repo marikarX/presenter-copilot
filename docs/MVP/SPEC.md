@@ -60,6 +60,11 @@ MVP may learn from:
 
 MVP models observable interaction patterns, not hidden psychological or sensitive traits.
 
+In M4, named transcript labels remain unresolved metadata until the user
+explicitly maps them to project-local AudienceProfiles. Deterministic local
+extraction creates provisional, evidence-backed candidates for review; it
+does not call a remote provider or silently activate observations.
+
 ## 4. Supported inputs
 
 P0:
@@ -229,6 +234,8 @@ Reference machine class: modern Windows laptop/desktop; RTX GPU is optional.
 - mobile parity;
 - team/enterprise admin plane;
 - automatic CRM/LMS integration;
+- Teams/Webex-specific transcript connectors, audio/video import, and
+  diarization fallback;
 - invisible/undetectable-cheating marketing.
 
 ## 12. MVP success criteria

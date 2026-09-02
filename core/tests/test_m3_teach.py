@@ -1803,9 +1803,9 @@ def test_migrations_advance_both_scopes_without_losing_rows(tmp_path: Path) -> N
         connection.commit()
     migrated = connect_project_database(project_path)
     try:
-        assert PROJECT_SCHEMA_VERSION == 3
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 3
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 3
+        assert PROJECT_SCHEMA_VERSION == 4
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 4
         assert (
             migrated.execute(
                 "SELECT COUNT(*) FROM embedding_generations WHERE is_active = 1"
@@ -1818,6 +1818,20 @@ def test_migrations_advance_both_scopes_without_losing_rows(tmp_path: Path) -> N
             == 1
         )
         assert migrated.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
+        assert {
+            row[0]
+            for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        } >= {
+            "audience_profiles",
+            "transcript_speaker_maps",
+            "audience_observations",
+            "audience_observation_evidence",
+            "audience_observation_candidates",
+            "audience_observation_candidate_evidence",
+        }
+        assert migrated.execute("SELECT COUNT(*) FROM audience_profiles").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM project_style_overrides").fetchone()[0] == 1
     finally:
         migrated.close()

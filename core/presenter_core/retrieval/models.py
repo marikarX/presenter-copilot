@@ -36,3 +36,7 @@ class ChunkRecord:
     preferred: bool = False
     use_live: bool = True
     use_rehearsal: bool = True
+    document_kind: str | None = None
+    start_ms: int | None = None
+    end_ms: int | None = None
+    speaker_label: str | None = None

@@ -113,16 +113,16 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] H01 VTT transcript adapter.
-- [ ] H02 SRT transcript adapter.
-- [ ] H03 Generic named text/structured transcript adapter.
-- [ ] H04 Preserve native speaker labels/timestamps.
-- [ ] H05 Transcript speaker mapping UI.
-- [ ] H06 AudienceProfile CRUD.
-- [ ] H07 Extract evidence-backed observable audience observations.
-- [ ] H08 Observation review/edit/delete UI.
-- [ ] H09 Prohibited sensitive-observation filter.
-- [ ] H10 Tests: unresolved speaker, remap, delete profile.
+- [x] H01 VTT transcript adapter.
+- [x] H02 SRT transcript adapter.
+- [x] H03 Generic named text/structured transcript adapter.
+- [x] H04 Preserve native speaker labels/timestamps.
+- [x] H05 Transcript speaker mapping UI.
+- [x] H06 AudienceProfile CRUD.
+- [x] H07 Extract evidence-backed observable audience observations.
+- [x] H08 Observation review/edit/delete UI.
+- [x] H09 Prohibited sensitive-observation filter.
+- [x] H10 Tests: unresolved speaker, remap, delete profile.
 
 ### P1
 
@@ -134,6 +134,10 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 - [ ] H13 Audio/video import.
 - [ ] H14 Diarization fallback without persistent voice identity.
 - [ ] H15 Direct conferencing connectors.
+
+H11–H15 remain deferred: M4 supports generic standards and local project
+mapping only. No Teams/Webex connector, media/diarization fallback, or direct
+conferencing integration is part of this milestone.
 
 ## Epic I — Challenge mode
 

@@ -15,6 +15,21 @@ export const CORE_METHODS = [
   "source.preview",
   "source.delete",
   "source.reindex",
+  "transcript.list_speakers",
+  "transcript.map_speaker",
+  "transcript.unmap_speaker",
+  "audience.create",
+  "audience.update",
+  "audience.list",
+  "audience.delete",
+  "audience.extract_observations",
+  "audience.list_observations",
+  "audience.accept_observation",
+  "audience.reject_observation",
+  "audience.create_observation",
+  "audience.update_observation",
+  "audience.delete_observation",
+  "audience.build_context",
   "search.lexical",
   "retrieval.health",
   "retrieval.query",
@@ -58,6 +73,20 @@ export const RENDERER_CORE_METHODS = [
   "source.preview",
   "source.delete",
   "source.reindex",
+  "transcript.list_speakers",
+  "transcript.map_speaker",
+  "transcript.unmap_speaker",
+  "audience.create",
+  "audience.update",
+  "audience.list",
+  "audience.delete",
+  "audience.extract_observations",
+  "audience.list_observations",
+  "audience.accept_observation",
+  "audience.reject_observation",
+  "audience.create_observation",
+  "audience.update_observation",
+  "audience.delete_observation",
   "retrieval.health",
   "retrieval.query",
   "retrieval.rebuild",
@@ -362,6 +391,9 @@ export interface SourceUnitPreview {
   id: string;
   unit_type: string;
   ordinal: number | null;
+  start_ms: number | null;
+  end_ms: number | null;
+  speaker_label: string | null;
   title: string | null;
   title_truncated: boolean;
   text: string;
@@ -386,6 +418,78 @@ export interface ImportSourceResult {
   source_units_count?: number;
   chunks_count?: number;
   status?: string;
+}
+
+export interface AudienceProfileSummary {
+  id: string;
+  display_name: string;
+  role: string | null;
+  organization: string | null;
+  active: boolean;
+}
+
+export interface TranscriptSpeakerSummary {
+  document_id: string;
+  document_name: string;
+  native_speaker_label: string;
+  segment_count: number;
+  first_start_ms: number | null;
+  last_end_ms: number | null;
+  audience_profile: AudienceProfileSummary | null;
+}
+
+export interface AudienceProfile extends AudienceProfileSummary {
+  project_id: string;
+  user_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AudienceEvidence {
+  provenance_type: "transcript";
+  provenance_id: string;
+  source_type: "transcript";
+  source_id: string;
+  source_unit_id: string;
+  label: string;
+  text: string;
+}
+
+export type AudienceObservationType =
+  | "topic_interest"
+  | "question_pattern"
+  | "answer_preference"
+  | "recurring_objection"
+  | "interaction_pattern"
+  | "decision_criterion";
+
+export interface AudienceObservation {
+  id: string;
+  audience_profile_id: string;
+  observation_type: AudienceObservationType;
+  text: string;
+  derivation: "user_entered" | "source_derived" | "ai_inferred";
+  confidence: number | null;
+  sensitive_trait: boolean;
+  review_status: "active" | "stale";
+  created_at: string;
+  updated_at: string;
+  evidence: AudienceEvidence[];
+}
+
+export interface AudienceObservationCandidate {
+  id: string;
+  audience_profile_id: string;
+  observation_type: AudienceObservationType;
+  proposed_text: string;
+  confidence: number | null;
+  fingerprint: string;
+  status: "pending" | "accepted" | "rejected" | "stale";
+  observation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  evidence: AudienceEvidence[];
+  provisional: boolean;
 }
 
 export interface Session {
@@ -507,7 +611,7 @@ export interface PresenterCopilotApi {
   source: {
     pickAndImport(
       projectId: string,
-      kind?: "presentation" | "supporting",
+      kind?: "presentation" | "supporting" | "transcript",
     ): Promise<InvokeResult<ImportSourceResult>>;
   };
 }
