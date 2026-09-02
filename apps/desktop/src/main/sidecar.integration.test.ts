@@ -62,7 +62,13 @@ describe("Python sidecar integration", () => {
       expect(client.getStatus().state).toBe("stopped");
     } finally {
       await client.shutdown();
-      rmSync(dataRoot, { recursive: true, force: true });
+      rmSync(dataRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+      expect(existsSync(dataRoot)).toBe(false);
     }
   }, 15_000);
 });
