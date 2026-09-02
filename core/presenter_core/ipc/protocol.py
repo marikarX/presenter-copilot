@@ -28,6 +28,9 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "source.delete",
     "source.reindex",
     "search.lexical",
+    "retrieval.health",
+    "retrieval.query",
+    "retrieval.rebuild",
 )
 SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
     "core.ready",

@@ -101,6 +101,29 @@ source.delete
 source.reindex
 ```
 
+### Retrieval
+
+```text
+search.lexical                 # M1 compatibility path
+retrieval.health
+retrieval.query
+retrieval.rebuild
+```
+
+`retrieval.query` requires `project_id` and a bounded `query`, and accepts
+optional `limit`, `document_ids`, `source_types`, `current_slide`, and
+`slide_window` fields. It returns the retrieval mode, latency, semantic health
+summary, bounded ranked hits, canonical document Evidence, ranking trace
+components, and deterministic conflict metadata. Semantic failure degrades to
+lexical fallback; a query never downloads or rebuilds a model/index implicitly.
+
+`retrieval.rebuild` explicitly creates and activates a project-local semantic
+generation. It returns model identity, dimension, coverage, and reuse/embed
+counts. Long-running rebuilds reuse `project.index_progress` and
+`project.index_ready`; M2 progress stages include `model_load`, `scan`,
+`reuse`, `embed`, `persist`, `activate`, and `complete`. These payloads contain
+metadata only—no source text, vectors, or filesystem paths.
+
 ### Transcript mapping
 
 ```text

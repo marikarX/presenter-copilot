@@ -50,16 +50,16 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 
 ### P0
 
-- [ ] D01 Embedding adapter interface.
-- [ ] D02 Initial local embedding implementation.
-- [ ] D03 Persist embedding matrix/vector metadata.
-- [ ] D04 In-process cosine similarity search.
+- [x] D01 Embedding adapter interface.
+- [x] D02 Initial local embedding implementation.
+- [x] D03 Persist embedding matrix/vector metadata.
+- [x] D04 In-process cosine similarity search.
 - [x] D05 Lexical/exact-number scoring.
-- [ ] D06 Current/adjacent slide boosts.
+- [x] D06 Current/adjacent slide boosts.
 - [ ] D07 User-preferred answer/explanation boost.
 - [ ] D08 `use_live` filter.
-- [ ] D09 Conflict/ambiguity detection for exact facts.
-- [ ] D10 Golden retrieval benchmark/tests up to 50k chunks.
+- [x] D09 Conflict/ambiguity detection for exact facts.
+- [x] D10 Golden retrieval benchmark/tests up to 50k chunks.
 
 ## Epic E — Provider and orchestration layer
 

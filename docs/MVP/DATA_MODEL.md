@@ -393,7 +393,38 @@ ProviderRun
 
 ## 11. Embedding store
 
-For P0, each project uses a simple local embedding file/index keyed by `Chunk.id` and optionally `KnowledgeItem.id`/preferred answer IDs.
+For M2, each project uses a generation-based local embedding file/index keyed
+by `Chunk.id`. The schema leaves `entity_type`/`source_class` generic so later
+milestones can add KnowledgeItem, practiced-answer, or transcript evidence
+vectors without replacing the store. M2 only writes `entity_type=chunk` and
+`source_class=document`.
+
+The active matrix is stored as a normalized float32 NumPy `.npy` file under the
+project's `embeddings/` directory and is opened with memory mapping for query
+time access. The shared FastEmbed model cache is outside project vaults.
+
+```text
+embedding_generations
+- id UUID PK
+- adapter_id TEXT
+- model_id TEXT
+- model_fingerprint TEXT
+- dimension INTEGER
+- matrix_relative_path TEXT
+- matrix_row_count INTEGER
+- is_active BOOLEAN
+- created_at DATETIME
+
+embedding_vectors
+- generation_id UUID
+- vector_id TEXT
+- entity_type TEXT
+- entity_id UUID
+- project_id UUID
+- source_class TEXT
+- row_index INTEGER
+- content_sha256 TEXT
+```
 
 Required metadata per vector:
 
@@ -403,11 +434,17 @@ entity_type
 entity_id
 project_id
 source_class
-embedding_model_id
-embedding_dimension
+generation_id
+row_index
+content_sha256
 ```
 
-Re-embedding must be safe and idempotent.
+`Chunk.embedding_key` is `generation_id:chunk_id` only when the chunk has a
+mapping in the active generation; otherwise it is null. Rebuilds compact the
+current parsed chunks into a new generation, reuse a compatible vector when
+chunk ID/content hash/model identity match, and activate the matrix only after
+the file has been written and flushed. Deleted chunks lose their mappings via
+the database relationship/trigger and can never be returned by retrieval.
 
 ## 12. Delete semantics
 

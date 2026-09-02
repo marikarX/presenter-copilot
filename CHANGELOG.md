@@ -8,6 +8,10 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ### Added
 
+- Milestone 2 local FastEmbed/BGE semantic retrieval with a replaceable
+  deterministic test adapter, generation-based NumPy matrices, hybrid lexical
+  ranking, current-slide boosts, exact-fact conflict detection, and a
+  development retrieval inspector.
 - Milestone 1 local project vault with transactional app/project SQLite
   migrations and UUID-keyed project lifecycle.
 - Project-local SHA-256 source snapshots, bounded PDF/PPTX/TXT/Markdown

@@ -8,6 +8,8 @@ import {
   type JsonObject,
   type ProjectSummary,
   type ReadyProjectSummary,
+  type RetrievalHealthResult,
+  type RetrievalQueryResult,
   type RendererCoreMethod,
   type SourcePreviewResult,
   type SourceSummary,
@@ -52,6 +54,12 @@ function payloadString(
   return typeof payload[key] === "string" ? payload[key] : null;
 }
 
+function optionalInteger(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
 export function App() {
   const [status, setStatus] = useState<CoreStatus>(initialStatus);
   const [health, setHealth] = useState<HealthResult | null>(null);
@@ -74,9 +82,21 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState("Waiting for core.ready");
   const [progress, setProgress] = useState<string | null>(null);
+  const [progressKind, setProgressKind] = useState<"import" | "semantic">(
+    "import",
+  );
   const [healthState, setHealthState] = useState<"idle" | "checking" | "error">(
     "idle",
   );
+  const [retrievalHealth, setRetrievalHealth] =
+    useState<RetrievalHealthResult | null>(null);
+  const [retrievalQuery, setRetrievalQuery] = useState("What is the RTO?");
+  const [retrievalLimit, setRetrievalLimit] = useState("5");
+  const [currentSlide, setCurrentSlide] = useState("");
+  const [slideWindow, setSlideWindow] = useState("1");
+  const [retrievalSourceType, setRetrievalSourceType] = useState("");
+  const [retrievalResult, setRetrievalResult] =
+    useState<RetrievalQueryResult | null>(null);
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -117,6 +137,22 @@ export function App() {
     setSources(result.sources);
   }, []);
 
+  const loadRetrievalHealth = useCallback(async (projectId: string) => {
+    if (!import.meta.env.DEV) return;
+    try {
+      const result = await requestCore<RetrievalHealthResult>(
+        "retrieval.health",
+        {
+          project_id: projectId,
+        },
+      );
+      setRetrievalHealth(result);
+    } catch (error) {
+      setRetrievalHealth(null);
+      setNotice(errorMessage(error));
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     const removeStatusListener = window.presenterCopilot.core.onStatus(
@@ -139,11 +175,27 @@ export function App() {
           const stage = payloadString(event.payload, "stage") ?? "working";
           const eventStatus =
             payloadString(event.payload, "status") ?? "working";
+          setProgressKind("import");
           setProgress(`${stage} · ${eventStatus}`);
           if (eventStatus === "complete" && stage === "complete")
             window.setTimeout(() => mounted && setProgress(null), 700);
         }
-        if (event.event === "project.index_ready") setProgress(null);
+        if (event.event === "project.index_progress") {
+          const stage = payloadString(event.payload, "stage") ?? "working";
+          const eventStatus =
+            payloadString(event.payload, "status") ?? "working";
+          setProgressKind(stage === "lexical" ? "import" : "semantic");
+          setProgress(`${stage} · ${eventStatus}`);
+          if (eventStatus === "complete" && stage === "complete")
+            window.setTimeout(() => mounted && setProgress(null), 700);
+        }
+        if (event.event === "project.index_ready") {
+          setProgress(null);
+          const projectId = payloadString(event.payload, "project_id");
+          const indexKind = payloadString(event.payload, "index_kind");
+          if (projectId && indexKind === "hybrid")
+            void loadRetrievalHealth(projectId);
+        }
       },
     );
     void window.presenterCopilot.core
@@ -164,7 +216,7 @@ export function App() {
       removeStatusListener();
       removeEventListener();
     };
-  }, []);
+  }, [loadRetrievalHealth]);
 
   useEffect(() => {
     if (status.state === "ready") {
@@ -188,14 +240,16 @@ export function App() {
         setCustomGuidance(result.project.custom_style_guidance ?? "");
         setPreview(null);
         setSelectedSourceId(null);
+        setRetrievalResult(null);
         await loadSources(project.id);
+        await loadRetrievalHealth(project.id);
       } catch (error) {
         setNotice(errorMessage(error));
       } finally {
         setBusy(null);
       }
     },
-    [loadSources],
+    [loadRetrievalHealth, loadSources],
   );
 
   const createProject = useCallback(async () => {
@@ -213,14 +267,16 @@ export function App() {
       setCustomGuidance(result.project.custom_style_guidance ?? "");
       setSources([]);
       setPreview(null);
+      setRetrievalResult(null);
       await loadProjects();
+      await loadRetrievalHealth(result.project.id);
       setNotice("Project created in the local vault.");
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
       setBusy(null);
     }
-  }, [loadProjects, newProjectName]);
+  }, [loadProjects, loadRetrievalHealth, newProjectName]);
 
   const saveSettings = useCallback(async () => {
     if (!selectedProject || !projectName.trim()) return;
@@ -259,6 +315,7 @@ export function App() {
     if (!selectedProject) return;
     setBusy("import-source");
     setNotice(null);
+    setProgressKind("import");
     setProgress("snapshot · waiting for selection");
     try {
       const result = await window.presenterCopilot.source
@@ -270,6 +327,7 @@ export function App() {
       }
       await loadSources(selectedProject.id);
       await loadProjects();
+      await loadRetrievalHealth(selectedProject.id);
       if (result.document) {
         setNotice(
           `Imported ${result.document.original_name} · ${result.source_units_count ?? 0} units`,
@@ -281,7 +339,13 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  }, [importKind, loadProjects, loadSources, selectedProject]);
+  }, [
+    importKind,
+    loadProjects,
+    loadRetrievalHealth,
+    loadSources,
+    selectedProject,
+  ]);
 
   const inspectSource = useCallback(
     async (source: SourceSummary) => {
@@ -320,6 +384,7 @@ export function App() {
           document_id: source.id,
         });
         await loadSources(selectedProject.id);
+        await loadRetrievalHealth(selectedProject.id);
         setNotice(
           `Re-indexed ${source.original_name} from its stored snapshot.`,
         );
@@ -329,7 +394,7 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadSources, selectedProject],
+    [loadRetrievalHealth, loadSources, selectedProject],
   );
 
   const deleteSource = useCallback(
@@ -350,6 +415,7 @@ export function App() {
           current.filter((item) => item.id !== source.id),
         );
         await loadProjects();
+        await loadRetrievalHealth(selectedProject.id);
         if (selectedSourceId === source.id) {
           setSelectedSourceId(null);
           setPreview(null);
@@ -361,7 +427,7 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadProjects, selectedProject, selectedSourceId],
+    [loadProjects, loadRetrievalHealth, selectedProject, selectedSourceId],
   );
 
   const deleteProject = useCallback(async () => {
@@ -382,6 +448,8 @@ export function App() {
       setSources([]);
       setPreview(null);
       setSelectedSourceId(null);
+      setRetrievalHealth(null);
+      setRetrievalResult(null);
       await loadProjects();
       setNotice("Project vault and registry entry deleted.");
     } catch (error) {
@@ -390,6 +458,72 @@ export function App() {
       setBusy(null);
     }
   }, [loadProjects, selectedProject]);
+
+  const rebuildRetrieval = useCallback(async () => {
+    if (!selectedProject) return;
+    setBusy("retrieval-rebuild");
+    setNotice(null);
+    setProgressKind("semantic");
+    setProgress("model_load · started");
+    try {
+      await requestCore("retrieval.rebuild", {
+        project_id: selectedProject.id,
+      });
+      await loadRetrievalHealth(selectedProject.id);
+      setNotice("Semantic index rebuilt locally.");
+    } catch (error) {
+      setProgress(null);
+      setNotice(errorMessage(error));
+      await loadRetrievalHealth(selectedProject.id);
+    } finally {
+      setBusy(null);
+    }
+  }, [loadRetrievalHealth, selectedProject]);
+
+  const runRetrievalQuery = useCallback(async () => {
+    if (!selectedProject || !retrievalQuery.trim()) return;
+    const limit = optionalInteger(retrievalLimit);
+    const slide = optionalInteger(currentSlide);
+    const window = optionalInteger(slideWindow);
+    if (limit === undefined || limit < 1) {
+      setNotice("Result limit must be a positive integer.");
+      return;
+    }
+    if (currentSlide.trim() && (slide === undefined || slide < 1)) {
+      setNotice("Current slide must be a positive integer.");
+      return;
+    }
+    if (slideWindow.trim() && (window === undefined || window < 0)) {
+      setNotice("Slide window must be a non-negative integer.");
+      return;
+    }
+    setBusy("retrieval-query");
+    setNotice(null);
+    try {
+      const params: JsonObject = {
+        project_id: selectedProject.id,
+        query: retrievalQuery,
+        limit,
+      };
+      if (slide !== undefined) params.current_slide = slide;
+      if (window !== undefined) params.slide_window = window;
+      if (retrievalSourceType) params.source_types = [retrievalSourceType];
+      setRetrievalResult(
+        await requestCore<RetrievalQueryResult>("retrieval.query", params),
+      );
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    currentSlide,
+    retrievalLimit,
+    retrievalQuery,
+    retrievalSourceType,
+    selectedProject,
+    slideWindow,
+  ]);
 
   const statusLabel = status.state.toUpperCase();
   const healthLabel =
@@ -631,7 +765,10 @@ export function App() {
               </div>
               {progress ? (
                 <p className="progress-message" aria-live="polite">
-                  Import progress: {progress}
+                  {progressKind === "semantic"
+                    ? "Semantic index progress"
+                    : "Import progress"}
+                  : {progress}
                 </p>
               ) : null}
               {notice ? (
@@ -726,6 +863,228 @@ export function App() {
                       </article>
                     );
                   })}
+                </section>
+              ) : null}
+
+              {import.meta.env.DEV ? (
+                <section
+                  className="retrieval-inspector"
+                  aria-labelledby="retrieval-inspector-title"
+                >
+                  <div className="section-heading compact">
+                    <div>
+                      <p className="eyebrow">
+                        Developer diagnostics · local only
+                      </p>
+                      <h2 id="retrieval-inspector-title">
+                        Retrieval inspector
+                      </h2>
+                    </div>
+                    <span className="count-badge">M2</span>
+                  </div>
+                  <p className="inspector-note">
+                    Semantic retrieval is derived project data. Queries never
+                    download a model or read source files directly.
+                  </p>
+                  <div className="retrieval-health-grid">
+                    <div>
+                      <span>Status</span>
+                      <strong>
+                        {retrievalHealth?.status ?? "not checked"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Coverage</span>
+                      <strong>
+                        {retrievalHealth
+                          ? `${Math.round(retrievalHealth.semantic_coverage * 100)}%`
+                          : "—"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Model</span>
+                      <strong>
+                        {retrievalHealth?.model_available
+                          ? "available"
+                          : "offline / missing"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Dimensions</span>
+                      <strong>{retrievalHealth?.dimension ?? "—"}</strong>
+                    </div>
+                    <div>
+                      <span>Indexed chunks</span>
+                      <strong>
+                        {retrievalHealth
+                          ? `${retrievalHealth.current_indexed_mappings} / ${retrievalHealth.current_project_chunk_count}`
+                          : "—"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Generation</span>
+                      <strong>
+                        {retrievalHealth?.active_generation_id
+                          ? retrievalHealth.active_generation_id.slice(0, 8)
+                          : "not built"}
+                      </strong>
+                    </div>
+                  </div>
+                  {retrievalHealth?.stale_reason ? (
+                    <p className="inspector-warning" role="status">
+                      {retrievalHealth.stale_reason}
+                    </p>
+                  ) : null}
+                  <div className="retrieval-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() =>
+                        void loadRetrievalHealth(selectedProject.id)
+                      }
+                      disabled={busy !== null}
+                    >
+                      Refresh health
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void rebuildRetrieval()}
+                      disabled={busy !== null}
+                    >
+                      {busy === "retrieval-rebuild"
+                        ? "Building index…"
+                        : "Build / rebuild index"}
+                    </button>
+                  </div>
+                  <div className="retrieval-query-form">
+                    <label className="retrieval-query-field">
+                      Query
+                      <textarea
+                        value={retrievalQuery}
+                        onChange={(event) =>
+                          setRetrievalQuery(event.target.value)
+                        }
+                        rows={2}
+                        maxLength={500}
+                      />
+                    </label>
+                    <label>
+                      Limit
+                      <input
+                        inputMode="numeric"
+                        value={retrievalLimit}
+                        onChange={(event) =>
+                          setRetrievalLimit(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Current slide
+                      <input
+                        inputMode="numeric"
+                        placeholder="optional"
+                        value={currentSlide}
+                        onChange={(event) =>
+                          setCurrentSlide(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label>
+                      Slide window
+                      <input
+                        inputMode="numeric"
+                        value={slideWindow}
+                        onChange={(event) => setSlideWindow(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Source type
+                      <select
+                        value={retrievalSourceType}
+                        onChange={(event) =>
+                          setRetrievalSourceType(event.target.value)
+                        }
+                      >
+                        <option value="">all types</option>
+                        <option value="pptx">PPTX</option>
+                        <option value="pdf">PDF</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="txt">Text</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary-button retrieval-query-button"
+                      onClick={() => void runRetrievalQuery()}
+                      disabled={busy !== null}
+                    >
+                      {busy === "retrieval-query" ? "Querying…" : "Run query"}
+                    </button>
+                  </div>
+                  {retrievalResult ? (
+                    <div className="retrieval-results">
+                      <div className="retrieval-result-summary">
+                        <span>
+                          Mode <strong>{retrievalResult.mode}</strong>
+                        </span>
+                        <span>
+                          Latency{" "}
+                          <strong>
+                            {retrievalResult.latency_ms.toFixed(1)} ms
+                          </strong>
+                        </span>
+                        <span>
+                          Hits <strong>{retrievalResult.hits.length}</strong>
+                        </span>
+                      </div>
+                      {retrievalResult.hits.map((hit) => (
+                        <article
+                          className="retrieval-hit"
+                          key={hit.evidence.evidence_id}
+                        >
+                          <div className="retrieval-hit-heading">
+                            <strong>{hit.evidence.label}</strong>
+                            <span>{hit.scores.final.toFixed(3)}</span>
+                          </div>
+                          <p>{hit.evidence.text}</p>
+                          <div className="retrieval-score-line">
+                            <span>
+                              semantic {hit.scores.semantic.toFixed(3)}
+                            </span>
+                            <span>lexical {hit.scores.lexical.toFixed(3)}</span>
+                            <span>
+                              slide {hit.scores.slide_boost.toFixed(3)}
+                            </span>
+                            <span>
+                              {hit.reasons.join(" · ") || "candidate"}
+                            </span>
+                          </div>
+                        </article>
+                      ))}
+                      {retrievalResult.conflicts.map((conflict, index) => (
+                        <div
+                          className="inspector-warning conflict-warning"
+                          key={`${conflict.subject}-${index}`}
+                          role="alert"
+                        >
+                          <strong>
+                            Potential source conflict: {conflict.subject}
+                          </strong>
+                          <span>
+                            {conflict.values
+                              .map((value) => value.normalized_value)
+                              .join(" · ")}
+                          </span>
+                          <small>
+                            {conflict.evidence
+                              .map((item) => item.label)
+                              .join(" · ")}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </section>
               ) : null}
             </>

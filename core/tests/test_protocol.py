@@ -49,10 +49,13 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "pdf.pypdf",
         "pptx.python-pptx",
         "text.stdlib",
+        "embedding.fastembed",
+        "retrieval.numpy",
+        "retrieval.hybrid",
         "retrieval.lexical",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 1, "project_schema_version": 1}
+    assert result["storage"] == {"app_schema_version": 1, "project_schema_version": 2}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:
@@ -126,6 +129,9 @@ def test_unknown_method_returns_structured_error(tmp_path: Path) -> None:
                 "source.delete",
                 "source.reindex",
                 "search.lexical",
+                "retrieval.health",
+                "retrieval.query",
+                "retrieval.rebuild",
             ],
         },
     }

@@ -9,7 +9,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 1
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -185,6 +185,87 @@ def _migrate_project_v1(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_project_v2(connection: sqlite3.Connection) -> None:
+    """Add generation-based, project-local semantic index metadata."""
+    connection.execute(
+        """
+        CREATE TABLE embedding_generations (
+            id TEXT PRIMARY KEY,
+            adapter_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            model_fingerprint TEXT NOT NULL CHECK (length(model_fingerprint) >= 16),
+            dimension INTEGER NOT NULL CHECK (dimension > 0),
+            matrix_relative_path TEXT NOT NULL UNIQUE,
+            matrix_row_count INTEGER NOT NULL CHECK (matrix_row_count >= 0),
+            is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX embedding_generations_one_active_idx
+        ON embedding_generations(is_active)
+        WHERE is_active = 1
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE embedding_vectors (
+            generation_id TEXT NOT NULL REFERENCES embedding_generations(id) ON DELETE CASCADE,
+            vector_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+            source_class TEXT NOT NULL,
+            row_index INTEGER NOT NULL CHECK (row_index >= 0),
+            content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+            PRIMARY KEY (generation_id, vector_id),
+            UNIQUE (generation_id, entity_type, entity_id),
+            UNIQUE (generation_id, row_index)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX embedding_vectors_entity_idx
+        ON embedding_vectors(entity_type, entity_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX embedding_vectors_generation_row_idx
+        ON embedding_vectors(generation_id, row_index)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX documents_project_status_idx
+        ON documents(project_id, parse_status, id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX embedding_vectors_generation_entity_project_idx
+        ON embedding_vectors(generation_id, entity_type, project_id, row_index)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER chunks_delete_embedding_vectors
+        AFTER DELETE ON chunks
+        BEGIN
+            DELETE FROM embedding_vectors
+            WHERE entity_type = 'chunk' AND entity_id = OLD.id;
+        END
+        """
+    )
+    connection.execute(
+        "UPDATE project SET schema_version = ?",
+        (PROJECT_SCHEMA_VERSION,),
+    )
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -206,7 +287,10 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
     _migrate_database(
         database_path,
         scope="project",
-        migrations=((PROJECT_SCHEMA_VERSION, _migrate_project_v1),),
+        migrations=(
+            (1, _migrate_project_v1),
+            (PROJECT_SCHEMA_VERSION, _migrate_project_v2),
+        ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )
     connection = sqlite3.connect(database_path)

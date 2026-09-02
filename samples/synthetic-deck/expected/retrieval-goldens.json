@@ -21,5 +21,57 @@
       "query": "cobalt lighthouse 731",
       "label": "presentation.pptx slide 12"
     }
+  ],
+  "semantic_targets": [
+    {
+      "name": "recovery paraphrase",
+      "query": "How quickly can we recover after losing a region?",
+      "expected_label": "presentation.pptx slide 10",
+      "top_k": 3
+    },
+    {
+      "name": "rejected option paraphrase",
+      "query": "Which alternative was rejected because it increased migration risk?",
+      "expected_label": "presentation.pptx slide 18",
+      "top_k": 3
+    },
+    {
+      "name": "speaker notes concept",
+      "query": "cobalt lighthouse 731",
+      "expected_label": "presentation.pptx slide 12",
+      "top_k": 3
+    }
+  ],
+  "hybrid_targets": [
+    {
+      "name": "exact proposed cost",
+      "query": "$980,000",
+      "expected_label": "presentation.pptx slide 8",
+      "top_k": 1
+    },
+    {
+      "name": "current solution cost",
+      "query": "current solution 3-year cost",
+      "expected_label": "cost-model.pdf p.2",
+      "top_k": 3
+    },
+    {
+      "name": "RTO conflict",
+      "query": "What is the RTO?",
+      "expected_labels": [
+        "presentation.pptx slide 10",
+        "cost-model.pdf p.4"
+      ],
+      "top_k": 5,
+      "conflict": true
+    },
+    {
+      "name": "current slide boost",
+      "query": "recovery target",
+      "current_slide": 10,
+      "slide_window": 1,
+      "expected_label": "presentation.pptx slide 10",
+      "top_k": 1
+    }
   ]
 }

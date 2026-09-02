@@ -10,7 +10,7 @@ import sqlite3
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
@@ -324,8 +324,10 @@ class IngestionService:
         )
         try:
             with self._storage.project_database(project_id) as connection:
+                reusable_vectors = self._capture_active_vectors(connection, document_id)
                 connection.execute("DELETE FROM source_units WHERE document_id = ?", (document_id,))
                 self._insert_rows(connection, unit_rows, chunk_rows)
+                self._restore_reusable_vectors(connection, reusable_vectors, chunk_rows)
                 connection.execute(
                     """
                     UPDATE documents
@@ -509,6 +511,29 @@ class IngestionService:
             with self._storage.project_database(project_id) as connection:
                 connection.execute(
                     """
+                    DELETE FROM embedding_vectors
+                    WHERE entity_type = 'chunk'
+                      AND entity_id IN (
+                          SELECT c.id
+                          FROM chunks AS c
+                          JOIN source_units AS su ON su.id = c.source_unit_id
+                          WHERE su.document_id = ?
+                      )
+                    """,
+                    (document_id,),
+                )
+                connection.execute(
+                    """
+                    UPDATE chunks
+                    SET embedding_key = NULL
+                    WHERE source_unit_id IN (
+                        SELECT id FROM source_units WHERE document_id = ?
+                    )
+                    """,
+                    (document_id,),
+                )
+                connection.execute(
+                    """
                     UPDATE documents
                     SET parse_status = 'error', parse_error_code = ?, parse_error_message = ?
                     WHERE id = ?
@@ -520,6 +545,61 @@ class IngestionService:
             # The original structured error is more useful to the caller than
             # a secondary failure while recording an already-failed parse.
             pass
+
+    @staticmethod
+    def _capture_active_vectors(connection: Any, document_id: str) -> list[tuple[Any, ...]]:
+        """Capture active vector metadata before re-index cascades delete old chunks."""
+        rows = cast(
+            list[sqlite3.Row],
+            connection.execute(
+                """
+            SELECT ev.generation_id, ev.vector_id, ev.entity_type, ev.entity_id,
+                   ev.project_id, ev.source_class, ev.row_index, ev.content_sha256
+            FROM embedding_vectors AS ev
+            JOIN embedding_generations AS eg ON eg.id = ev.generation_id
+            JOIN chunks AS c ON c.id = ev.entity_id
+            JOIN source_units AS su ON su.id = c.source_unit_id
+            WHERE eg.is_active = 1 AND ev.entity_type = 'chunk' AND su.document_id = ?
+            ORDER BY ev.row_index
+            """,
+                (document_id,),
+            ).fetchall(),
+        )
+        return [tuple(row) for row in rows]
+
+    @staticmethod
+    def _restore_reusable_vectors(
+        connection: Any,
+        reusable_vectors: list[tuple[Any, ...]],
+        chunk_rows: list[tuple[Any, ...]],
+    ) -> None:
+        """Restore only unchanged active mappings after a successful re-index."""
+        if not reusable_vectors or not chunk_rows:
+            return
+        current_hashes = {
+            str(row[0]): hashlib.sha256(str(row[3]).encode("utf-8")).hexdigest()
+            for row in chunk_rows
+        }
+        reusable = [
+            tuple(row)
+            for row in reusable_vectors
+            if str(row[3]) in current_hashes and str(row[7]) == current_hashes[str(row[3])]
+        ]
+        if not reusable:
+            return
+        connection.executemany(
+            """
+            INSERT INTO embedding_vectors (
+                generation_id, vector_id, entity_type, entity_id,
+                project_id, source_class, row_index, content_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            reusable,
+        )
+        connection.executemany(
+            "UPDATE chunks SET embedding_key = ? WHERE id = ?",
+            [(f"{row[0]}:{row[3]}", row[3]) for row in reusable],
+        )
 
     def _emit_progress(
         self,

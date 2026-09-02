@@ -48,11 +48,17 @@ The fixture should include at least these facts:
 ### Retrieval
 
 - exact number query returns correct source;
+- deterministic semantic paraphrase ranking and hybrid lexical/semantic fusion;
+- exact-number precedence, stable tie-breaking, and source/document filters;
 - current-slide boost works;
+- adjacent-slide boost is smaller and never applies to supporting PDF pages;
+- persisted generation reloads after restart and unchanged chunks reuse vectors;
 - user preferred explanation outranks generic semantic match when appropriate;
 - `use_live=false` knowledge excluded from Live Assist;
 - conflicting facts are detectable;
-- deletion removes vectors/index entries.
+- deletion removes vectors/index entries;
+- malformed/mismatched matrix state degrades to lexical retrieval without an
+  implicit model download.
 
 ### Speaker Profile
 
@@ -206,6 +212,19 @@ Assert context manifest precisely identifies sent source IDs/classes.
 - malformed provider output cannot inject executable HTML into HUD.
 
 ## 11. Performance benchmarks
+
+M2 also provides a separate local retrieval benchmark:
+
+```text
+pnpm model:prepare:embeddings
+pnpm benchmark:retrieval
+```
+
+It uses the actual pinned model dimension with 50,000 seeded float32 vectors,
+measures cold model load separately from warm query embedding, matrix cosine
+search, and total metadata/rerank retrieval, and records p50/p95/max metadata
+without source text or queries. The reference target is warm retrieval p95 <=
+250 ms; hosted CI must not treat that manual hardware target as a brittle SLA.
 
 Run on at least:
 

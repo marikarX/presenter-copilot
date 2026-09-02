@@ -13,7 +13,13 @@ from presenter_core import CORE_VERSION
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.project.service import ProjectService
+from presenter_core.retrieval.embeddings import (
+    EmbeddingAdapter,
+    FastEmbedAdapter,
+    embedding_model_cache_dir,
+)
 from presenter_core.retrieval.lexical import LexicalRetrievalService
+from presenter_core.retrieval.service import HybridRetrievalService
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
 from presenter_core.storage.service import StorageManager
 
@@ -37,6 +43,7 @@ class CoreService:
         clock: Callable[[], float] = monotonic,
         data_root: str | Path | None = None,
         event_sink: EventSink | None = None,
+        embedding_adapter: EmbeddingAdapter | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
@@ -46,6 +53,11 @@ class CoreService:
         self._projects = ProjectService(self._storage)
         self._ingestion = IngestionService(self._storage, self._emit_event)
         self._retrieval = LexicalRetrievalService(self._storage)
+        self._hybrid_retrieval = HybridRetrievalService(
+            self._storage,
+            embedding_adapter or FastEmbedAdapter(cache_dir=embedding_model_cache_dir(data_root)),
+            self._emit_service_event,
+        )
 
     @property
     def shutdown_requested(self) -> bool:
@@ -66,6 +78,9 @@ class CoreService:
                 "pdf.pypdf",
                 "pptx.python-pptx",
                 "text.stdlib",
+                "embedding.fastembed",
+                "retrieval.numpy",
+                "retrieval.hybrid",
                 "retrieval.lexical",
             ],
             "migration_status": "ready",
@@ -81,6 +96,7 @@ class CoreService:
 
     def close(self) -> None:
         """Close SQLite handles before the sidecar exits."""
+        self._hybrid_retrieval.close()
         self._storage.close()
 
     def ready_event(self) -> dict[str, Any]:
@@ -229,9 +245,18 @@ class CoreService:
             return make_response(request_id, result=self._ingestion.reindex_source(params))
         if method == "search.lexical":
             return make_response(request_id, result=self._retrieval.query(params))
+        if method == "retrieval.health":
+            return make_response(request_id, result=self._hybrid_retrieval.health(params))
+        if method == "retrieval.query":
+            return make_response(request_id, result=self._hybrid_retrieval.query(params))
+        if method == "retrieval.rebuild":
+            return make_response(request_id, result=self._hybrid_retrieval.rebuild(params))
 
         raise AssertionError(f"supported method has no handler: {method}")
 
     def _emit_event(self, event: str, payload: dict[str, Any]) -> None:
         if self._event_sink is not None:
             self._event_sink(make_event(event, payload))
+
+    def _emit_service_event(self, event: str, payload: dict[str, Any]) -> None:
+        self._emit_event(event, payload)
