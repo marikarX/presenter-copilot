@@ -115,6 +115,47 @@ def test_sounddevice_input_pair_marks_real_default_device() -> None:
     assert [device.is_default for device in devices] == [False, True]
 
 
+def test_sounddevice_stream_lifecycle_matches_pinned_backend_api() -> None:
+    class FakeStream:
+        def __init__(self, **kwargs: Any) -> None:
+            assert "start" not in kwargs
+            self.started = False
+            self.stopped = False
+            self.closed = False
+
+        def start(self) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_sounddevice = SimpleNamespace(
+        query_devices=lambda: [
+            {
+                "name": "fixture input",
+                "hostapi": 0,
+                "max_input_channels": 1,
+                "default_samplerate": 16_000,
+            }
+        ],
+        query_hostapis=lambda: [{"name": "fixture host"}],
+        default=SimpleNamespace(device=(0, 0)),
+        InputStream=FakeStream,
+    )
+    audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
+
+    audio.open("0", lambda _frame: None)
+    stream = audio._stream
+    assert isinstance(stream, FakeStream)
+    audio.start()
+    audio.stop()
+    audio.close()
+    assert stream.started and stream.stopped and stream.closed
+
+
 def test_asr_requires_active_run_and_invalid_device_never_owns_capture(tmp_path: Path) -> None:
     core = make_core(tmp_path / "data")
     try:

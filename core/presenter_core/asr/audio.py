@@ -115,7 +115,6 @@ class SoundDeviceAudioInput:
                     channels=ASR_CHANNELS,
                     dtype="float32",
                     callback=self._on_stream_callback,
-                    start=False,
                 )
                 self._callback = callback
             except CoreDomainError:
