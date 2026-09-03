@@ -165,9 +165,11 @@ class ProviderContextBuilder:
                 bounded_audience = [
                     dict(profile) for profile in profiles if isinstance(profile, dict)
                 ]
-        bounded_prior = [dict(item) for item in prior_question_context if isinstance(item, dict)][
-            :3
-        ]
+        # The live path already uses the locally assembled question as its
+        # bounded query.  Never duplicate the recent transcript window in a
+        # live provider packet, even if a caller supplies one accidentally.
+        prior_context = () if task_type == "live_cue" else prior_question_context
+        bounded_prior = [dict(item) for item in prior_context if isinstance(item, dict)][:3]
 
         conflicts = [
             item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)

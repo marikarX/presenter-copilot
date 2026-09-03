@@ -48,15 +48,13 @@ const api: PresenterCopilotHudApi = {
       InvokeResult<{ requested: true }>
     >;
   },
-  expandSources(
-    request: JsonObject,
-  ): Promise<InvokeResult<CueExpandSourcesResult>> {
-    return ipcRenderer.invoke("hud:cue-expand-sources", request) as Promise<
-      InvokeResult<CueExpandSourcesResult>
-    >;
+  expandSources(cueId: string): Promise<InvokeResult<CueExpandSourcesResult>> {
+    return ipcRenderer.invoke("hud:cue-expand-sources", {
+      cue_id: cueId,
+    }) as Promise<InvokeResult<CueExpandSourcesResult>>;
   },
-  dismiss(request: JsonObject): Promise<InvokeResult<JsonObject>> {
-    return ipcRenderer.invoke("hud:cue-dismiss", request) as Promise<
+  dismiss(cueId: string): Promise<InvokeResult<JsonObject>> {
+    return ipcRenderer.invoke("hud:cue-dismiss", { cue_id: cueId }) as Promise<
       InvokeResult<JsonObject>
     >;
   },

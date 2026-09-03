@@ -45,6 +45,8 @@ import {
   GlobalShortcutRegistry,
   type ShortcutBinding,
 } from "./shortcut-manager";
+import { nextCueIndex } from "./cue-navigation";
+import { bindHudCueRequest, type HudLiveTarget } from "./hud-cue-request";
 
 let mainWindow: BrowserWindow | null = null;
 let hudWindow: BrowserWindow | null = null;
@@ -55,7 +57,7 @@ export const MANUAL_PREVIOUS_SHORTCUT = "Ctrl+Alt+PageUp";
 export const MANUAL_NEXT_SHORTCUT = "Ctrl+Alt+PageDown";
 
 type ManualRunTarget = { projectId: string; sessionId: string };
-type LiveTarget = ManualRunTarget;
+type LiveTarget = HudLiveTarget;
 
 let manualRunTarget: ManualRunTarget | null = null;
 let liveTarget: LiveTarget | null = null;
@@ -496,16 +498,17 @@ function navigateHudCue(direction: "previous" | "next"): void {
     })
     .then((result: unknown) => {
       if (!isJsonObject(result) || !Array.isArray(result.cues)) return;
-      const cues = result.cues.filter(isJsonObject);
+      const cues = result.cues.filter(
+        (cue): cue is JsonObject & { id: string } =>
+          isJsonObject(cue) && typeof cue.id === "string",
+      );
       if (cues.length === 0) return;
-      const currentIndex = cues.findIndex((cue) => cue.id === currentHudCueId);
-      const offset = direction === "next" ? 1 : -1;
-      const nextIndex =
-        currentIndex < 0
-          ? direction === "next"
-            ? 0
-            : cues.length - 1
-          : (currentIndex + offset + cues.length) % cues.length;
+      const nextIndex = nextCueIndex(
+        cues.map((cue) => cue.id),
+        currentHudCueId,
+        direction,
+      );
+      if (nextIndex === null) return;
       const cue = cues[nextIndex];
       if (!cue) return;
       currentHudCueId = typeof cue.id === "string" ? cue.id : currentHudCueId;
@@ -752,24 +755,6 @@ function validateHudSettingsUpdate(value: unknown): JsonObject {
     result.shortcuts = shortcuts;
   }
   return result;
-}
-
-function validateHudCueRequest(value: unknown): JsonObject {
-  if (!isJsonObject(value)) throw new Error("A HUD cue request is required.");
-  for (const key of ["project_id", "session_id", "cue_id"] as const) {
-    if (
-      typeof value[key] !== "string" ||
-      value[key].length === 0 ||
-      value[key].length > 80
-    ) {
-      throw new Error("The HUD cue request is invalid.");
-    }
-  }
-  return {
-    project_id: value.project_id,
-    session_id: value.session_id,
-    cue_id: value.cue_id,
-  };
 }
 
 function mergedHudSettings(
@@ -1027,7 +1012,7 @@ function registerIpc(
     return invokeResult(() =>
       requireClient().request(
         "cue.expand_sources",
-        validateHudCueRequest(value),
+        bindHudCueRequest(value, liveTarget),
         30_000,
       ),
     );
@@ -1035,14 +1020,15 @@ function registerIpc(
   ipcMain.handle("hud:cue-dismiss", (event, value: unknown) => {
     assertTrustedHudFrame(event, hudPolicy);
     return invokeResult(async () => {
-      const request = validateHudCueRequest(value);
+      const target = liveTarget;
+      const request = bindHudCueRequest(value, target);
       const assistId =
         currentHudCueId === request.cue_id ? suppressCurrentHudAssist() : null;
-      if (assistId && liveTarget) {
+      if (assistId && target) {
         await requireClient()
           .request("assist.cancel", {
-            project_id: liveTarget.projectId,
-            session_id: liveTarget.sessionId,
+            project_id: target.projectId,
+            session_id: target.sessionId,
             assist_id: assistId,
           })
           .catch(() => undefined);

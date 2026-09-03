@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from pathlib import Path
@@ -202,6 +203,7 @@ def test_m7_e2e06_live_assist_persists_one_cue_and_bounded_provenance(
         assert cues["cues"]
         assert cues["cues"][0]["id"] == ready["cue_id"]
         assert cues["cues"][0]["assist_id"] == assist_id
+        assert cues["cues"][0]["displayed_at"] is None
         empty_page = call(
             core,
             "cue.list",
@@ -575,8 +577,137 @@ def test_m7_assist_supersession_suppresses_stale_cue_ready(
         assert ready
         assert all(item["assist_id"] == second["assist_id"] for item in ready)
         assert all(item["assist_id"] != first["assist_id"] for item in ready)
+        cues = call(
+            core,
+            "cue.list",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "limit": 10,
+                "include_dismissed": True,
+            },
+        )
+        assert all(
+            not (cue["assist_id"] == first["assist_id"] and cue["state"] == "partial")
+            for cue in cues["cues"]
+        )
     finally:
         provider.release.set()
+        core.close()
+
+
+def test_m7_assist_cancel_discards_partial_cue(tmp_path: Path) -> None:
+    provider = BlockingProvider(locality="local")
+    events: list[tuple[str, dict[str, Any]]] = []
+    core, _, _, _ = make_core(tmp_path / "data", events, provider=provider)
+    try:
+        project_id, session_id = start_live(core)
+        call(
+            core,
+            "source.import",
+            {
+                "project_id": project_id,
+                "kind": "supporting",
+                "path": str(FIXTURE_ROOT / "supporting" / "architecture-notes.md"),
+            },
+        )
+        call(core, "retrieval.rebuild", {"project_id": project_id})
+        started = call(
+            core,
+            "assist.request",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "question": "Explain the warm standby ownership boundary.",
+            },
+        )
+        assert provider.first_call.wait(5.0)
+        assist_id = str(started["assist_id"])
+        partials = call(
+            core,
+            "cue.list",
+            {"project_id": project_id, "session_id": session_id, "limit": 10},
+        )["cues"]
+        assert any(cue["assist_id"] == assist_id and cue["state"] == "partial" for cue in partials)
+
+        call(
+            core,
+            "assist.cancel",
+            {"project_id": project_id, "session_id": session_id, "assist_id": assist_id},
+        )
+        remaining = call(
+            core,
+            "cue.list",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "limit": 10,
+                "include_dismissed": True,
+            },
+        )["cues"]
+        assert all(cue["assist_id"] != assist_id for cue in remaining)
+        provider.release.set()
+        assert core._assist.wait_for_idle(5.0)
+    finally:
+        provider.release.set()
+        core.close()
+
+
+def test_m7_cue_ownership_rejects_cross_session_and_cross_project_requests(
+    tmp_path: Path,
+) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+    core, _, _, _ = make_core(tmp_path / "data", events)
+    try:
+        project_id, session_id = start_live(core, seed_fixture=True)
+        started = call(
+            core,
+            "assist.request",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "question": "$980,000",
+            },
+        )
+        assert core._assist.wait_for_idle(5.0)
+        cue_id = payloads(events, "cue.ready", str(started["assist_id"]))[-1]["cue_id"]
+        same_project_other_session = str(
+            call(
+                core,
+                "session.start",
+                {"project_id": project_id, "mode": "live_assist"},
+            )["session"]["id"]
+        )
+        other_project = str(
+            call(core, "project.create", {"name": "Other M7 project"})["project"]["id"]
+        )
+
+        for method in ("cue.expand_sources", "cue.dismiss"):
+            assert (
+                error_code(
+                    core,
+                    method,
+                    {
+                        "project_id": project_id,
+                        "session_id": same_project_other_session,
+                        "cue_id": cue_id,
+                    },
+                )
+                == "CUE_NOT_FOUND"
+            )
+            assert (
+                error_code(
+                    core,
+                    method,
+                    {
+                        "project_id": other_project,
+                        "session_id": session_id,
+                        "cue_id": cue_id,
+                    },
+                )
+                == "CUE_SESSION_INVALID"
+            )
+    finally:
         core.close()
 
 
@@ -613,6 +744,26 @@ def test_m7_local_only_skips_remote_provider_and_remote_context_excludes_private
         seed_private_knowledge(remote_core, project_id)
         call(remote_core, "retrieval.rebuild", {"project_id": project_id})
         call(remote_core, "project.acknowledge_remote_reasoning", {"project_id": project_id})
+        recent_text = "TRANSCRIPT_ONLY_SECRET marker that must stay local"
+        recent_utterance_id = str(uuid.uuid4())
+        recent_start_ms = 91_000
+        recent_end_ms = 91_111
+        with remote_core._storage.project_database(project_id) as connection:
+            connection.execute(
+                "INSERT INTO utterances "
+                "(id, session_id, actor, text, created_at, start_ms, end_ms, "
+                "asr_confidence, slide_ordinal, is_final) "
+                "VALUES (?, ?, 'unknown_audience', ?, ?, ?, ?, NULL, 8, 1)",
+                (
+                    recent_utterance_id,
+                    session_id,
+                    recent_text,
+                    utc_now(),
+                    recent_start_ms,
+                    recent_end_ms,
+                ),
+            )
+            connection.commit()
         started = call(
             remote_core,
             "assist.request",
@@ -626,6 +777,12 @@ def test_m7_local_only_skips_remote_provider_and_remote_context_excludes_private
         assert remote_provider.call_count == 1
         assert remote_provider.requests
         request_payload = remote_provider.requests[0]
+        serialized_request = json.dumps(request_payload, ensure_ascii=False)
+        assert request_payload["prior_question_context"] == []
+        assert recent_text not in serialized_request
+        assert recent_utterance_id not in serialized_request
+        assert str(recent_start_ms) not in serialized_request
+        assert str(recent_end_ms) not in serialized_request
         assert request_payload["approved_user_knowledge"] == []
         assert all(
             item.get("private") is not True

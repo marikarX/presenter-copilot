@@ -220,6 +220,18 @@ class CueService:
             connection.commit()
             return self._cue_dict(connection, cue_id_to_write, project_id)
 
+    def discard_partial(self, project_id: str, session_id: str, assist_id: str) -> None:
+        """Remove only an incomplete cue left by cancelled background work."""
+        project_id = self._project_id(project_id)
+        session_id = self._session_id(session_id)
+        assist_id = self._uuid(assist_id, "assist_id")
+        with self._storage.project_database(project_id) as connection:
+            connection.execute(
+                "DELETE FROM cues WHERE session_id = ? AND assist_id = ? AND state = 'partial'",
+                (session_id, assist_id),
+            )
+            connection.commit()
+
     def mark_displayed(self, project_id: str, session_id: str, cue_id: str) -> None:
         project_id = self._project_id(project_id)
         session_id = self._session_id(session_id)
@@ -719,6 +731,7 @@ class AssistService:
             for state in self._states.values():
                 if (state.project_id, state.session_id) == key:
                     state.cancelled.set()
+                    self._cue.discard_partial(state.project_id, state.session_id, state.assist_id)
             state = _AssistState(
                 assist_id=assist_id,
                 project_id=project_id,
@@ -768,6 +781,7 @@ class AssistService:
             if state is None or (state.project_id, state.session_id) != (project_id, session_id):
                 raise CoreDomainError("CUE_NOT_FOUND", "The assist request was not found.")
             state.cancelled.set()
+            self._cue.discard_partial(state.project_id, state.session_id, state.assist_id)
         self._emit(
             "cue.error",
             {
@@ -792,6 +806,7 @@ class AssistService:
             for state in self._states.values():
                 if (state.project_id, state.session_id) == (project_id, session_id):
                     state.cancelled.set()
+                    self._cue.discard_partial(state.project_id, state.session_id, state.assist_id)
         try:
             self._asr.stop({"project_id": project_id, "session_id": session_id})
         except CoreDomainError as error:
@@ -873,6 +888,7 @@ class AssistService:
             self._closed = True
             for state in self._states.values():
                 state.cancelled.set()
+                self._cue.discard_partial(state.project_id, state.session_id, state.assist_id)
 
     def _run(self, state: _AssistState) -> None:
         started = self._clock()
@@ -880,7 +896,6 @@ class AssistService:
         provider_run_id: str | None = None
         try:
             self._ensure_current(state)
-            recent = self._recent_utterances(state.project_id, state.session_id)
             current_slide = self._presentation.current_slide(state.project_id, state.session_id)
             retrieval_started = self._clock()
             retrieval_result = self._retrieval.query(
@@ -953,7 +968,6 @@ class AssistService:
                 state.question, evidence, conflicts, decision.route, started, cue_id, state
             )
             if fast is not None:
-                self._cue.mark_displayed(state.project_id, state.session_id, cue_id)
                 self._emit(
                     "cue.ready",
                     self._cue_event(fast, state, started, retrieval_ms, degraded=False),
@@ -963,7 +977,6 @@ class AssistService:
                 fallback = self._retrieval_pointer_cue(
                     state, cue_id, evidence, conflicts, started, reason=decision.reason
                 )
-                self._cue.mark_displayed(state.project_id, state.session_id, cue_id)
                 self._emit(
                     "cue.ready",
                     self._cue_event(fallback, state, started, retrieval_ms, degraded=True),
@@ -985,7 +998,6 @@ class AssistService:
                 include_private_in_provider=provider.locality == "local",
                 retrieval_usage="live",
                 additional_grounding_evidence=safe_for_provider,
-                prior_question_context=recent,
             )
             self._ensure_current(state)
             self._emit(
@@ -1054,8 +1066,6 @@ class AssistService:
                 evidence=selected,
                 provider_run_id=provider_run_id,
             )
-            self._cue.mark_displayed(state.project_id, state.session_id, cue_id)
-            final["displayed_at"] = final.get("displayed_at") or utc_now()
             self._emit(
                 "cue.ready",
                 {
@@ -1113,7 +1123,6 @@ class AssistService:
                         started,
                         reason="provider_failed",
                     )
-                    self._cue.mark_displayed(state.project_id, state.session_id, cue_id)
                     self._emit(
                         "cue.ready",
                         self._cue_event(fallback, state, started, 0, degraded=True),
@@ -1145,6 +1154,7 @@ class AssistService:
                 ),
             )
         finally:
+            self._cue.discard_partial(state.project_id, state.session_id, state.assist_id)
             with self._lock:
                 self._states.pop(state.assist_id, None)
 
@@ -1152,18 +1162,19 @@ class AssistService:
         self, state: _AssistState, cue_id: str, evidence: list[dict[str, Any]], started: float
     ) -> dict[str, Any]:
         label = self._evidence_label(evidence[0])
-        partial = self._cue.save(
-            project_id=state.project_id,
-            session_id=state.session_id,
-            cue_id=cue_id,
-            assist_id=state.assist_id,
-            cue_type="source_pointer",
-            lines=[f"Checking {label}."[:MAX_CUE_LINE_CHARS]],
-            state="partial",
-            route="retrieval_only",
-            evidence=evidence,
-        )
-        return partial
+        with self._lock:
+            self._ensure_current(state)
+            return self._cue.save(
+                project_id=state.project_id,
+                session_id=state.session_id,
+                cue_id=cue_id,
+                assist_id=state.assist_id,
+                cue_type="source_pointer",
+                lines=[f"Checking {label}."[:MAX_CUE_LINE_CHARS]],
+                state="partial",
+                route="retrieval_only",
+                evidence=evidence,
+            )
 
     @staticmethod
     def _has_unsupported_fact(lines: list[str], evidence: list[dict[str, Any]]) -> bool:

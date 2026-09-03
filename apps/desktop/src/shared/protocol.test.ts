@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isCoreMethod,
   isProjectSummary,
   isReadyProjectSummary,
+  isRendererCoreMethod,
   isUnavailableProjectSummary,
   type ProjectSummary,
 } from "./protocol";
+
+describe("renderer core authority", () => {
+  it("keeps HUD settings behind Electron's transactional IPC", () => {
+    expect(isCoreMethod("hud.settings.get")).toBe(true);
+    expect(isCoreMethod("hud.settings.update")).toBe(true);
+    expect(isRendererCoreMethod("hud.settings.get")).toBe(false);
+    expect(isRendererCoreMethod("hud.settings.update")).toBe(false);
+  });
+});
 
 describe("ProjectSummary recovery contract", () => {
   it("models a healthy vault with its ready-only fields", () => {

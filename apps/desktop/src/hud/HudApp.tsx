@@ -47,8 +47,6 @@ export function HudApp() {
   const [status, setStatus] = useState(initialStatus);
   const [viewState, setViewState] = useState<HudViewState>("HIDDEN");
   const [cue, setCue] = useState<HudCue | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [sources, setSources] = useState<CueSourceProjection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -93,10 +91,8 @@ export function HudApp() {
         return;
       }
       handleEvent(event, {
-        setProjectId,
         setSessionId: (value) => {
           sessionIdRef.current = value;
-          setSessionId(value);
         },
         setCue,
         setSources,
@@ -138,15 +134,11 @@ export function HudApp() {
         : "Capture protection: error";
 
   const expandSources = async () => {
-    if (!cue || !projectId || !sessionId) return;
+    if (!cue) return;
     setSourceBusy(true);
     setError(null);
     try {
-      const response = await window.presenterCopilotHud.expandSources({
-        project_id: projectId,
-        session_id: sessionId,
-        cue_id: cue.id,
-      });
+      const response = await window.presenterCopilotHud.expandSources(cue.id);
       if (!response.ok) throw response.error;
       setSources(response.result.sources);
       setViewState("EXPANDED_SOURCE");
@@ -159,13 +151,7 @@ export function HudApp() {
   };
 
   const dismiss = async () => {
-    if (cue && projectId && sessionId) {
-      await window.presenterCopilotHud.dismiss({
-        project_id: projectId,
-        session_id: sessionId,
-        cue_id: cue.id,
-      });
-    }
+    if (cue) await window.presenterCopilotHud.dismiss(cue.id);
     setCue(null);
     setSources([]);
     setViewState(status.visible ? "IDLE" : "HIDDEN");
@@ -308,7 +294,6 @@ export function HudApp() {
 function handleEvent(
   event: EventEnvelope,
   setters: {
-    setProjectId: (value: string | null) => void;
     setSessionId: (value: string | null) => void;
     setCue: (value: HudCue | null) => void;
     setSources: (value: CueSourceProjection[]) => void;
@@ -318,7 +303,6 @@ function handleEvent(
 ) {
   const payload = event.payload;
   if (event.event === "session.started" && payload.mode === "live_assist") {
-    setters.setProjectId(stringValue(payload.project_id));
     setters.setSessionId(stringValue(payload.id));
     setters.setCue(null);
     setters.setSources([]);

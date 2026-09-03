@@ -168,8 +168,6 @@ export const RENDERER_CORE_METHODS = [
   "cue.list",
   "cue.dismiss",
   "cue.expand_sources",
-  "hud.settings.get",
-  "hud.settings.update",
   "asr.list_devices",
   "asr.configure",
   "asr.prepare_model",
@@ -855,10 +853,8 @@ export interface PresenterCopilotHudApi {
   onClear(listener: () => void): () => void;
   setExpanded(expanded: boolean): Promise<InvokeResult<{ expanded: boolean }>>;
   pushToAssist(): Promise<InvokeResult<{ requested: true }>>;
-  expandSources(
-    request: JsonObject,
-  ): Promise<InvokeResult<CueExpandSourcesResult>>;
-  dismiss(request: JsonObject): Promise<InvokeResult<JsonObject>>;
+  expandSources(cueId: string): Promise<InvokeResult<CueExpandSourcesResult>>;
+  dismiss(cueId: string): Promise<InvokeResult<JsonObject>>;
   navigate(direction: "previous" | "next"): Promise<InvokeResult<JsonObject>>;
 }
 
