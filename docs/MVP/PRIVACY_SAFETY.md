@@ -110,6 +110,12 @@ microphone data, and the deterministic post-run debrief does not call a
 provider. The explicit `asr.prepare_model` operation is separate setup and is
 the only M6 operation permitted to download approved model assets.
 
+Run debrief is rehearsal retrieval: the core sends `usage=rehearsal` and may
+set `allow_private=true`, while retrieval still enforces each KnowledgeItem's
+independent `use_rehearsal` flag. Raw PCM and partial text remain transient;
+only the final local `Utterance`, slide/timeline state, markers, and bounded
+debrief are durable.
+
 ### Selected Context Cloud
 
 Required invariant:
@@ -256,6 +262,15 @@ objects, complete prompts, and filesystem paths are excluded. Partial text is
 ephemeral; only final utterances, slide state, markers, and the bounded local
 debrief are stored.
 
+The ASR capture callback never blocks on transcription. A dropped-input status
+or full bounded frame queue is surfaced as `ASR_BACKPRESSURE`; the Run does not
+continue with an implicitly incomplete final. During shutdown, an outstanding
+worker or final retains capture ownership in retryable stopping state. The core
+does not close a live model, mark the session terminal, generate a debrief, or
+delete the session/project until that owner has been safely released. If the
+application budget expires, the sidecar may exit under the no-orphan policy,
+but the active session remains recoverable on restart.
+
 User-requested diagnostic export must be previewable/redactable before sharing.
 
 ## 13. Deletion
@@ -284,6 +299,12 @@ performs project detachment and session deletion transactionally. App cleanup
 failure leaves all project rows unchanged. A project-side failure after app
 cleanup leaves the session and project rows intact and returns a retryable
 error; retrying is safe.
+
+Run-owned ASR cleanup is an earlier deletion gate. `session.delete` and
+`project.delete` first require successful bounded capture/final/worker cleanup,
+including a stale or prematurely terminal Run row whose live ASR owner still
+matches. A blocked final therefore cannot be hidden by a terminal status or
+cause model/audio handles to be released underneath a live worker.
 
 ## 14. UX disclosures
 

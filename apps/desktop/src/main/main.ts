@@ -269,6 +269,12 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(async () => {
       const request = validateRendererRequest(value);
+      const runCleanupMethods = new Set([
+        "asr.stop",
+        "session.stop",
+        "session.delete",
+        "project.delete",
+      ]);
       const timeoutMs =
         request.method === "source.reindex"
           ? 60_000
@@ -279,13 +285,15 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
               : request.method === "asr.start" ||
                   request.method === "run.generate_debrief"
                 ? 60_000
-                : request.method === "teach.next_prompt" ||
-                    request.method === "teach.submit_text" ||
-                    request.method === "challenge.next_question" ||
-                    request.method === "challenge.submit_answer" ||
-                    request.method === "provider.test"
-                  ? 30_000
-                  : undefined;
+                : runCleanupMethods.has(request.method)
+                  ? 60_000
+                  : request.method === "teach.next_prompt" ||
+                      request.method === "teach.submit_text" ||
+                      request.method === "challenge.next_question" ||
+                      request.method === "challenge.submit_answer" ||
+                      request.method === "provider.test"
+                    ? 30_000
+                    : undefined;
       return timeoutMs === undefined
         ? requireClient().request(request.method, request.params)
         : requireClient().request(request.method, request.params, timeoutMs);

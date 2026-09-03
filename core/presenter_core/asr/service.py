@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 import uuid
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from time import monotonic
@@ -16,6 +17,7 @@ from presenter_core.errors import CoreDomainError, invalid_request, reject_unkno
 from presenter_core.limits import (
     ASR_WORKER_JOIN_TIMEOUT_SECONDS,
     MAX_ASR_AUDIO_QUEUE_FRAMES,
+    MAX_ASR_FINAL_QUEUE_SEGMENTS,
     MAX_FINAL_UTTERANCE_CHARS,
     MAX_PARTIAL_EVENT_CHARS,
 )
@@ -56,6 +58,16 @@ class _UtteranceState:
     finalizing: bool = False
 
 
+@dataclass(frozen=True)
+class _DecodeRequest:
+    kind: str
+    utterance: _UtteranceState
+    audio: AudioFrame
+    start_ms: int
+    end_ms: int
+    generation: int
+
+
 @dataclass
 class _ActiveCapture:
     project_id: str
@@ -73,6 +85,20 @@ class _ActiveCapture:
     utterance: _UtteranceState | None = None
     frame_clock_ms: int = 0
     worker: threading.Thread | None = None
+    decoder_worker: threading.Thread | None = None
+    decode_condition: threading.Condition | None = None
+    final_requests: deque[_DecodeRequest] = field(default_factory=deque)
+    partial_request: _DecodeRequest | None = None
+    pending_final_retry: _DecodeRequest | None = None
+    ingestion_done: threading.Event = field(default_factory=threading.Event)
+    decoder_done: threading.Event = field(default_factory=threading.Event)
+    decoder_error_code: str | None = None
+    partial_error_code: str | None = None
+    async_error_reported: bool = False
+    stop_attempts: int = 0
+    frames_processed: int = 0
+    ingestion_progress: threading.Event = field(default_factory=threading.Event)
+    final_enqueued: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = field(default_factory=monotonic)
 
 
@@ -89,6 +115,7 @@ class ASRService:
         slide_snapshot: SlideSnapshot,
         event_sink: EventSink | None = None,
         vad_config: VADConfig | None = None,
+        worker_join_timeout_seconds: float = ASR_WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
         if not adapters:
             raise ValueError("At least one ASR adapter is required.")
@@ -111,6 +138,10 @@ class ASRService:
         self._preparing = False
         self._last_error_code: str | None = None
         self._closed = False
+        self._closing = False
+        if worker_join_timeout_seconds <= 0:
+            raise ValueError("worker_join_timeout_seconds must be positive.")
+        self._worker_join_timeout_seconds = float(worker_join_timeout_seconds)
 
     @property
     def audio_input(self) -> AudioInputAdapter:
@@ -137,7 +168,7 @@ class ASRService:
     def configure(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"device_id", "adapter_id", "model_id", "language"})
         with self._lock:
-            if self._active is not None or self._preparing:
+            if self._active is not None or self._preparing or self._closing:
                 raise CoreDomainError(
                     "ASR_BUSY",
                     "Audio, model, and device configuration cannot change while Run is listening.",
@@ -175,7 +206,7 @@ class ASRService:
     def prepare_model(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"adapter_id", "model_id"})
         with self._lock:
-            if self._active is not None or self._preparing:
+            if self._active is not None or self._preparing or self._closing:
                 raise CoreDomainError(
                     "ASR_BUSY",
                     "The ASR model cannot change while Run is listening.",
@@ -244,7 +275,7 @@ class ASRService:
         project_id = self._required_id(params, "project_id")
         session_id = self._required_id(params, "session_id")
         with self._lock:
-            if self._closed:
+            if self._closed or self._closing:
                 raise CoreDomainError("ASR_CAPTURE_FAILED", "The local ASR service is shut down.")
             if self._active is not None:
                 raise CoreDomainError(
@@ -271,6 +302,7 @@ class ASRService:
                 device=device,
                 config=self._configuration,
             )
+            active.decode_condition = threading.Condition(self._lock)
             self._active = active
 
         try:
@@ -286,14 +318,16 @@ class ASRService:
             )
             adapter.load_local_model()
             self._audio.open(device.device_id, self._audio_callback)
-            worker = threading.Thread(
-                target=self._worker_loop,
-                args=(active,),
-                name="presenter-copilot-asr",
-                daemon=True,
-            )
-            active.worker = worker
-            worker.start()
+            with self._lock:
+                self._start_decoder_locked(active)
+                worker = threading.Thread(
+                    target=self._ingestion_loop,
+                    args=(active,),
+                    name="presenter-copilot-asr-ingestion",
+                    daemon=True,
+                )
+                active.worker = worker
+                worker.start()
             self._audio.start()
         except CoreDomainError as error:
             self._abort_start(active)
@@ -347,40 +381,112 @@ class ASRService:
                 )
             active.accepting = False
             active.stop_requested.set()
+            active.stop_attempts += 1
+            active.partial_request = None
+            condition = active.decode_condition
+            if condition is not None:
+                condition.notify_all()
+            # A failed final is retained for an explicit retry.  Do not retry
+            # it from the same stop call: the first failure must leave the
+            # ownership boundary observably unresolved.
+            if (
+                active.stop_attempts > 1
+                and active.pending_final_retry is not None
+                and not self._thread_alive(active.decoder_worker)
+                and active.fatal_error_code != "ASR_BACKPRESSURE"
+            ):
+                self._restart_decoder_locked(active)
             worker = active.worker
+            decoder_worker = active.decoder_worker
 
         cleanup_error: CoreDomainError | None = None
+        deadline = monotonic() + self._worker_join_timeout_seconds
         try:
             self._audio.stop()
         except CoreDomainError as error:
             cleanup_error = error
-        if worker is not None:
-            worker.join(timeout=ASR_WORKER_JOIN_TIMEOUT_SECONDS)
-            if worker.is_alive() and cleanup_error is None:
-                cleanup_error = CoreDomainError(
+        except Exception:
+            cleanup_error = CoreDomainError(
+                "ASR_CAPTURE_FAILED",
+                "The input device could not stop cleanly; retry cleanup is safe.",
+                retryable=True,
+            )
+        for thread in (worker, decoder_worker):
+            if thread is None or thread is threading.current_thread():
+                continue
+            remaining = max(0.0, deadline - monotonic())
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
+
+        with self._lock:
+            alive = [
+                thread
+                for thread in (active.worker, active.decoder_worker)
+                if self._thread_alive(thread)
+            ]
+            unresolved_final = (
+                active.pending_final_retry is not None
+                or bool(active.final_requests)
+                or active.utterance is not None
+            )
+            fatal_code = active.fatal_error_code
+            if alive:
+                cleanup_error = cleanup_error or CoreDomainError(
                     "ASR_CAPTURE_FAILED",
-                    "The ASR worker did not stop within the bounded shutdown window.",
+                    "The ASR capture or decode worker did not stop within the bounded "
+                    "shutdown window.",
+                    retryable=True,
+                    details={"capture_state": "stopping"},
+                )
+            elif unresolved_final:
+                cleanup_error = cleanup_error or CoreDomainError(
+                    "ASR_CAPTURE_FAILED",
+                    "The active ASR final has not been durably resolved; retry cleanup "
+                    "after the worker is available.",
                     retryable=True,
                 )
+
+        # A live worker or unresolved final owns the model and audio handles.
+        # In particular, never close an adapter underneath a blocked decode.
+        if cleanup_error is not None and (alive or unresolved_final):
+            with self._lock:
+                self._last_error_code = cleanup_error.code
+            raise cleanup_error
+
+        release_error: CoreDomainError | None = cleanup_error
         try:
             self._audio.close()
         except CoreDomainError as error:
-            cleanup_error = cleanup_error or error
+            release_error = release_error or error
+        except Exception:
+            release_error = release_error or CoreDomainError(
+                "ASR_CAPTURE_FAILED",
+                "The input device could not be released cleanly.",
+                retryable=True,
+            )
         try:
             active.adapter.close()
         except Exception:
-            cleanup_error = cleanup_error or CoreDomainError(
+            release_error = release_error or CoreDomainError(
                 "ASR_CAPTURE_FAILED",
                 "The local ASR model could not be released cleanly.",
                 retryable=True,
             )
         with self._lock:
-            if self._active is active:
+            if release_error is None and self._active is active:
                 self._active = None
-            if cleanup_error is not None:
-                self._last_error_code = cleanup_error.code
-        if cleanup_error is not None:
-            raise cleanup_error
+            if release_error is not None:
+                self._last_error_code = release_error.code
+        if release_error is not None:
+            raise release_error
+        if fatal_code is not None:
+            raise CoreDomainError(
+                fatal_code,
+                "Microphone capture ended with an error; the capture resources were "
+                "released, so retry the Run stop.",
+                retryable=True,
+            )
         return {
             "project_id": project_id,
             "session_id": session_id,
@@ -393,35 +499,73 @@ class ASRService:
         with self._lock:
             return self._status_locked()
 
-    def close(self) -> None:
+    def active_owner(self) -> tuple[str, str] | None:
+        """Return the Run that still owns capture or model cleanup, if any."""
+        with self._lock:
+            if self._active is None:
+                return None
+            return self._active.project_id, self._active.session_id
+
+    def close(self) -> bool:
         """Stop capture and release model/device resources before core shutdown."""
         with self._lock:
-            self._closed = True
+            if self._closed:
+                return True
+            self._closing = True
             active = self._active
         if active is not None:
             try:
                 self.stop({"project_id": active.project_id, "session_id": active.session_id})
-            except CoreDomainError:
-                # Shutdown must continue after attempting every release path.
-                pass
+            except CoreDomainError as error:
+                with self._lock:
+                    self._last_error_code = error.code
+                    self._closing = False
+                return False
         with self._lock:
             adapters = list(self._adapters.values())
+        release_error: CoreDomainError | None = None
         for adapter in adapters:
             try:
                 adapter.close()
             except Exception:
-                continue
+                release_error = release_error or CoreDomainError(
+                    "ASR_CAPTURE_FAILED",
+                    "A local ASR model could not be released cleanly.",
+                    retryable=True,
+                )
         try:
             self._audio.close()
+        except CoreDomainError as error:
+            release_error = release_error or error
         except Exception:
-            pass
+            release_error = release_error or CoreDomainError(
+                "ASR_CAPTURE_FAILED",
+                "The input device could not be released cleanly.",
+                retryable=True,
+            )
+        with self._lock:
+            if release_error is None:
+                self._closed = True
+            self._closing = False
+            if release_error is not None:
+                self._last_error_code = release_error.code
+        return release_error is None
 
-    def _audio_callback(self, frame: AudioFrame) -> None:
-        # This is the only work allowed in the sounddevice callback: make a
-        # bounded copy and enqueue it. Recognition, storage, and IPC stay out.
+    def _audio_callback(self, frame: AudioFrame, status: Any = None) -> None:
+        # The real-time callback only copies bounded PCM and performs a
+        # non-blocking queue operation.  VAD, recognition, storage, and IPC
+        # remain outside the capture thread.
         with self._lock:
             active = self._active
             if active is None or not active.accepting:
+                return
+            if self._capture_status_has_input_loss(status):
+                active.backpressure = True
+                active.fatal_error_code = "ASR_BACKPRESSURE"
+                active.accepting = False
+                active.stop_requested.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
                 return
             bounded = np.asarray(frame, dtype=np.float32).reshape(-1)
             if bounded.size == 0:
@@ -431,20 +575,25 @@ class ASRService:
                 active.frames.put_nowait(bounded)
             except queue.Full:
                 active.backpressure = True
+                active.fatal_error_code = "ASR_BACKPRESSURE"
                 active.accepting = False
                 active.stop_requested.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
 
-    def _worker_loop(self, active: _ActiveCapture) -> None:
+    def _ingestion_loop(self, active: _ActiveCapture) -> None:
+        """Drain bounded PCM and schedule work without running ASR in VAD."""
         segmenter = UtteranceSegmenter(self._vad_config)
         fatal_code: str | None = None
         try:
             while True:
-                if active.backpressure:
-                    raise CoreDomainError(
-                        "ASR_BACKPRESSURE",
-                        "Audio recognition could not keep up with the microphone.",
-                        retryable=True,
-                    )
+                with self._lock:
+                    if active.fatal_error_code is not None:
+                        raise CoreDomainError(
+                            active.fatal_error_code,
+                            "Audio capture ended with an input or recognition error.",
+                            retryable=True,
+                        )
                 try:
                     frame = active.frames.get(timeout=0.1)
                 except queue.Empty:
@@ -453,36 +602,99 @@ class ASRService:
                     continue
                 frame_start_ms = active.frame_clock_ms
                 active.frame_clock_ms += self._vad_config.frame_duration_ms
+                with self._lock:
+                    active.frames_processed += 1
+                    active.ingestion_progress.set()
                 was_active = segmenter.speech_active
                 completed = segmenter.process(frame, frame_start_ms)
                 if not was_active and segmenter.speech_active:
                     start_ms = segmenter.current_start_ms or frame_start_ms
-                    active.utterance = _UtteranceState(
-                        utterance_id=str(uuid.uuid4()),
-                        start_ms=max(0, start_ms),
-                        slide_ordinal=self._slide_snapshot(active.project_id, active.session_id),
-                    )
+                    with self._lock:
+                        if self._active is not active:
+                            return
+                        active.utterance = _UtteranceState(
+                            utterance_id=str(uuid.uuid4()),
+                            start_ms=max(0, start_ms),
+                            slide_ordinal=self._slide_snapshot(
+                                active.project_id, active.session_id
+                            ),
+                        )
                 if completed is not None:
-                    self._finalize_segment(active, completed)
-                elif segmenter.speech_active and active.utterance is not None:
+                    self._enqueue_final(active, completed)
+                elif (
+                    segmenter.speech_active
+                    and active.utterance is not None
+                    and not active.stop_requested.is_set()
+                ):
                     self._maybe_emit_partial(active, segmenter, active.frame_clock_ms)
 
-            completed = segmenter.flush(active.frame_clock_ms)
-            if completed is not None and active.utterance is not None:
-                self._finalize_segment(active, completed)
+            with self._lock:
+                capture_error_code = active.fatal_error_code
+                should_report_capture_error = (
+                    capture_error_code is not None and not active.async_error_reported
+                )
+                if should_report_capture_error:
+                    active.async_error_reported = True
+            if should_report_capture_error:
+                self._record_async_error(active, str(capture_error_code), True)
+            elif capture_error_code is None:
+                completed = segmenter.flush(active.frame_clock_ms)
+                if completed is not None and active.utterance is not None:
+                    self._enqueue_final(active, completed)
         except CoreDomainError as error:
             fatal_code = error.code
-            active.fatal_error_code = error.code
-            active.accepting = False
+            with self._lock:
+                if active.fatal_error_code is None:
+                    active.fatal_error_code = error.code
+                active.accepting = False
+                active.stop_requested.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
             self._record_async_error(active, error.code, error.retryable)
         except Exception:
-            fatal_code = "ASR_TRANSCRIBE_FAILED"
-            active.fatal_error_code = fatal_code
-            active.accepting = False
+            fatal_code = "ASR_CAPTURE_FAILED"
+            with self._lock:
+                if active.fatal_error_code is None:
+                    active.fatal_error_code = fatal_code
+                active.accepting = False
+                active.stop_requested.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
             self._record_async_error(active, fatal_code, True)
         finally:
-            if fatal_code is not None:
-                self._cleanup_after_worker_failure(active)
+            with self._lock:
+                active.ingestion_done.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
+
+    def _decoder_loop(self, active: _ActiveCapture) -> None:
+        """Serialize optional partials and durable finals, with finals first."""
+        try:
+            while True:
+                request = self._next_decode_request(active)
+                if request is None:
+                    return
+                if request.kind == "partial":
+                    try:
+                        self._decode_partial(active, request)
+                    except CoreDomainError as error:
+                        self._record_optional_partial_error(active, error.code, error.retryable)
+                    except Exception:
+                        self._record_optional_partial_error(active, "ASR_TRANSCRIBE_FAILED", True)
+                    continue
+                try:
+                    self._decode_final(active, request)
+                except CoreDomainError as error:
+                    self._retain_final_for_retry(active, request, error.code, error.retryable)
+                    return
+                except Exception:
+                    self._retain_final_for_retry(active, request, "ASR_TRANSCRIBE_FAILED", True)
+                    return
+        finally:
+            with self._lock:
+                active.decoder_done.set()
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
 
     def _maybe_emit_partial(
         self,
@@ -491,17 +703,106 @@ class ASRService:
         end_ms: int,
     ) -> None:
         utterance = active.utterance
-        if utterance is None or not active.accepting or utterance.finalizing:
+        if utterance is None or not active.accepting or active.stop_requested.is_set():
             return
-        if end_ms - utterance.last_partial_end_ms < 500:
+        if utterance.finalizing or end_ms - utterance.last_partial_end_ms < 500:
             return
+        # Copying the current bounded utterance is the only work here.  The
+        # adapter call is owned by the serialized decoder worker.
+        audio = segmenter.current_audio()
         with self._lock:
-            if self._active is not active or not active.accepting:
+            if (
+                self._active is not active
+                or not active.accepting
+                or active.stop_requested.is_set()
+                or active.utterance is not utterance
+                or utterance.finalizing
+            ):
                 return
             utterance.generation += 1
             generation = utterance.generation
-            audio = segmenter.current_audio()
-        result = active.adapter.transcribe_partial(audio, language=active.config.language)
+            utterance.last_partial_end_ms = max(end_ms, utterance.last_partial_end_ms)
+            active.partial_request = _DecodeRequest(
+                kind="partial",
+                utterance=utterance,
+                audio=audio,
+                start_ms=max(0, utterance.start_ms),
+                end_ms=max(end_ms, utterance.start_ms),
+                generation=generation,
+            )
+            if active.decode_condition is not None:
+                active.decode_condition.notify_all()
+
+    def _enqueue_final(self, active: _ActiveCapture, segment: UtteranceSegment) -> None:
+        utterance = active.utterance
+        if utterance is None:
+            return
+        with self._lock:
+            if self._active is not active or active.utterance is not utterance:
+                return
+            utterance.finalizing = True
+            utterance.generation += 1
+            request = _DecodeRequest(
+                kind="final",
+                utterance=utterance,
+                audio=segment.audio,
+                start_ms=max(0, utterance.start_ms),
+                end_ms=max(segment.end_ms, utterance.start_ms),
+                generation=utterance.generation,
+            )
+            # A pending partial is optional and stale as soon as final audio
+            # exists.  It can never occupy the bounded final queue.
+            active.partial_request = None
+            condition = active.decode_condition
+            if condition is None:
+                raise CoreDomainError(
+                    "ASR_CAPTURE_FAILED", "The ASR decode synchronization primitive is missing."
+                )
+            while len(active.final_requests) >= MAX_ASR_FINAL_QUEUE_SEGMENTS:
+                if not self._thread_alive(active.decoder_worker):
+                    active.pending_final_retry = request
+                    active.fatal_error_code = "ASR_CAPTURE_FAILED"
+                    active.accepting = False
+                    active.stop_requested.set()
+                    condition.notify_all()
+                    raise CoreDomainError(
+                        "ASR_CAPTURE_FAILED",
+                        "The ASR final queue cannot be drained because its decoder stopped.",
+                        retryable=True,
+                    )
+                condition.wait(timeout=0.1)
+            active.final_requests.append(request)
+            active.final_enqueued.set()
+            # The queued request, rather than this mutable pointer, now owns
+            # the utterance until it is persisted or retained for retry.
+            active.utterance = None
+            condition.notify_all()
+
+    def _next_decode_request(self, active: _ActiveCapture) -> _DecodeRequest | None:
+        condition = active.decode_condition
+        if condition is None:
+            return None
+        with condition:
+            while True:
+                if active.final_requests:
+                    request = active.final_requests.popleft()
+                    condition.notify_all()
+                    return request
+                if active.stop_requested.is_set():
+                    # Partial recognition is disposable once shutdown starts.
+                    active.partial_request = None
+                    if active.ingestion_done.is_set():
+                        return None
+                    condition.wait(timeout=0.1)
+                    continue
+                if active.partial_request is not None:
+                    request = active.partial_request
+                    active.partial_request = None
+                    return request
+                condition.wait(timeout=0.1)
+
+    def _decode_partial(self, active: _ActiveCapture, request: _DecodeRequest) -> None:
+        result = active.adapter.transcribe_partial(request.audio, language=active.config.language)
         text = result.text.strip()
         if not text:
             return
@@ -513,79 +814,152 @@ class ASRService:
         with self._lock:
             if (
                 self._active is not active
-                or active.utterance is not utterance
-                or generation != utterance.generation
+                or active.utterance is not request.utterance
+                or request.generation != request.utterance.generation
                 or not active.accepting
+                or active.stop_requested.is_set()
+                or request.utterance.finalizing
             ):
                 return
-            utterance.last_partial_end_ms = max(end_ms, utterance.last_partial_end_ms)
         self._emit(
             "asr.partial",
             {
                 "session_id": active.session_id,
-                "utterance_id": utterance.utterance_id,
+                "utterance_id": request.utterance.utterance_id,
                 "text": text,
-                "start_ms": utterance.start_ms,
-                "end_ms": max(end_ms, utterance.start_ms),
+                "start_ms": request.start_ms,
+                "end_ms": request.end_ms,
                 "is_final": False,
             },
         )
 
-    def _finalize_segment(self, active: _ActiveCapture, segment: UtteranceSegment) -> None:
-        utterance = active.utterance
-        if utterance is None:
-            return
-        with self._lock:
-            if self._active is not active:
-                return
-            utterance.finalizing = True
-            utterance.generation += 1
-            generation = utterance.generation
-        result = active.adapter.transcribe_final(segment.audio, language=active.config.language)
+    def _decode_final(self, active: _ActiveCapture, request: _DecodeRequest) -> None:
+        result = active.adapter.transcribe_final(request.audio, language=active.config.language)
         text = result.text.strip()
         if not text:
             with self._lock:
-                if active.utterance is utterance:
-                    active.utterance = None
+                if active.pending_final_retry is request:
+                    active.pending_final_retry = None
+                if active.decoder_error_code is not None:
+                    active.decoder_error_code = None
+                if (
+                    active.fatal_error_code is not None
+                    and active.fatal_error_code != "ASR_BACKPRESSURE"
+                ):
+                    active.fatal_error_code = None
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
             return
         if len(text) > MAX_FINAL_UTTERANCE_CHARS:
             raise CoreDomainError(
                 "ASR_TRANSCRIBE_FAILED",
                 "The local ASR final exceeded the safe transcript bound.",
             )
-        with self._lock:
-            if self._active is not active or active.utterance is not utterance:
-                return
-            if generation != utterance.generation:
-                return
         slide_ordinal = self._persist_final(
             active.project_id,
             active.session_id,
-            utterance.utterance_id,
+            request.utterance.utterance_id,
             text,
-            max(0, utterance.start_ms),
-            max(segment.end_ms, utterance.start_ms),
+            request.start_ms,
+            request.end_ms,
             result.confidence,
-            utterance.slide_ordinal,
+            request.utterance.slide_ordinal,
         )
         payload: dict[str, Any] = {
             "session_id": active.session_id,
-            "utterance_id": utterance.utterance_id,
+            "utterance_id": request.utterance.utterance_id,
             "text": text,
-            "start_ms": max(0, utterance.start_ms),
-            "end_ms": max(segment.end_ms, utterance.start_ms),
+            "start_ms": request.start_ms,
+            "end_ms": request.end_ms,
             "is_final": True,
         }
         if result.confidence is not None:
             payload["confidence"] = result.confidence
         if slide_ordinal is not None:
             payload["slide_ordinal"] = slide_ordinal
-        # _persist_final commits before this event is emitted. The generation
-        # check above prevents a stale partial from following a final.
+        # _persist_final commits before this event is emitted.
         self._emit("asr.final", payload)
         with self._lock:
-            if self._active is active and active.utterance is utterance:
-                active.utterance = None
+            if active.pending_final_retry is request:
+                active.pending_final_retry = None
+            active.decoder_error_code = None
+            if (
+                active.fatal_error_code is not None
+                and active.fatal_error_code != "ASR_BACKPRESSURE"
+            ):
+                active.fatal_error_code = None
+            if active.decode_condition is not None:
+                active.decode_condition.notify_all()
+
+    def _retain_final_for_retry(
+        self, active: _ActiveCapture, request: _DecodeRequest, code: str, retryable: bool
+    ) -> None:
+        with self._lock:
+            active.pending_final_retry = request
+            active.decoder_error_code = code
+            active.fatal_error_code = code
+            active.accepting = False
+            active.stop_requested.set()
+            active.partial_request = None
+            if active.decode_condition is not None:
+                active.decode_condition.notify_all()
+        self._record_async_error(active, code, retryable)
+
+    def _record_optional_partial_error(
+        self, active: _ActiveCapture, code: str, retryable: bool
+    ) -> None:
+        with self._lock:
+            active.partial_error_code = code
+            self._last_error_code = code
+        self._emit_device_error(active, code, retryable)
+
+    def _start_decoder_locked(self, active: _ActiveCapture) -> None:
+        decoder = threading.Thread(
+            target=self._decoder_loop,
+            args=(active,),
+            name="presenter-copilot-asr-decoder",
+            daemon=True,
+        )
+        active.decoder_worker = decoder
+        active.decoder_done.clear()
+        decoder.start()
+
+    def _restart_decoder_locked(self, active: _ActiveCapture) -> None:
+        if self._thread_alive(active.decoder_worker):
+            return
+        if active.pending_final_retry is not None:
+            active.final_requests.appendleft(active.pending_final_retry)
+            active.pending_final_retry = None
+        if not active.final_requests:
+            return
+        active.decoder_error_code = None
+        if active.fatal_error_code != "ASR_BACKPRESSURE":
+            active.fatal_error_code = None
+        self._start_decoder_locked(active)
+
+    @staticmethod
+    def _thread_alive(thread: threading.Thread | None) -> bool:
+        return thread is not None and thread.is_alive()
+
+    @staticmethod
+    def _capture_status_has_input_loss(status: Any) -> bool:
+        if status is None:
+            return False
+        for name in (
+            "input_overflow",
+            "input_overflowed",
+            "input_underflow",
+            "input_underflowed",
+        ):
+            try:
+                if bool(getattr(status, name, False)):
+                    return True
+            except Exception:
+                continue
+        rendered = str(status).casefold()
+        return "input" in rendered and any(
+            marker in rendered for marker in ("overflow", "underflow", "dropped", "loss")
+        )
 
     def _select_device(self, requested_id: str | None) -> AudioDevice:
         try:
@@ -628,7 +1002,13 @@ class ASRService:
         active = self._active
         device = active.device.to_dict() if active is not None else None
         capture_state = "running" if active is not None and active.accepting else "stopped"
-        if active is not None and active.worker is not None and active.worker.is_alive():
+        if active is not None and (
+            self._thread_alive(active.worker)
+            or self._thread_alive(active.decoder_worker)
+            or active.pending_final_retry is not None
+            or bool(active.final_requests)
+            or active.utterance is not None
+        ):
             capture_state = "running" if active.accepting else "stopping"
         return {
             "adapter_id": adapter.id,
@@ -644,48 +1024,47 @@ class ASRService:
         }
 
     def _abort_start(self, active: _ActiveCapture) -> None:
-        active.accepting = False
-        active.stop_requested.set()
+        with self._lock:
+            active.accepting = False
+            active.stop_requested.set()
+            if active.decode_condition is not None:
+                active.decode_condition.notify_all()
         try:
             self._audio.stop()
         except Exception:
             pass
-        worker = active.worker
-        if worker is not None and worker is not threading.current_thread():
-            worker.join(timeout=ASR_WORKER_JOIN_TIMEOUT_SECONDS)
+        deadline = monotonic() + self._worker_join_timeout_seconds
+        for worker in (active.worker, active.decoder_worker):
+            if worker is None or worker is threading.current_thread():
+                continue
+            remaining = max(0.0, deadline - monotonic())
+            if remaining <= 0:
+                break
+            worker.join(timeout=remaining)
+        if self._thread_alive(active.worker) or self._thread_alive(active.decoder_worker):
+            with self._lock:
+                self._last_error_code = "ASR_CAPTURE_FAILED"
+            return
         try:
             self._audio.close()
         except Exception:
-            pass
+            with self._lock:
+                self._last_error_code = "ASR_CAPTURE_FAILED"
+            return
         try:
             active.adapter.close()
         except Exception:
-            pass
+            with self._lock:
+                self._last_error_code = "ASR_CAPTURE_FAILED"
+            return
         with self._lock:
             if self._active is active:
                 self._active = None
-
-    def _cleanup_after_worker_failure(self, active: _ActiveCapture) -> None:
-        try:
-            self._audio.stop()
-        except Exception:
-            pass
-        try:
-            self._audio.close()
-        except Exception:
-            pass
-        try:
-            active.adapter.close()
-        except Exception:
-            pass
-        with self._lock:
-            if self._active is active:
-                self._active = None
-            self._last_error_code = active.fatal_error_code
 
     def _record_async_error(self, active: _ActiveCapture, code: str, retryable: bool) -> None:
         with self._lock:
             self._last_error_code = code
+            active.async_error_reported = True
         self._emit_device_error(active, code, retryable)
 
     def _emit_device_error(self, active: _ActiveCapture, code: str, retryable: bool) -> None:

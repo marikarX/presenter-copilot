@@ -172,7 +172,7 @@ class SoundDeviceAudioInput:
                     retryable=True,
                 ) from exc
 
-    def _on_stream_callback(self, indata: Any, _frames: int, _time_info: Any, _status: Any) -> None:
+    def _on_stream_callback(self, indata: Any, _frames: int, _time_info: Any, status: Any) -> None:
         # Keep this callback deliberately boring: bounded copy, enqueue, return.
         callback = self._callback
         if callback is None:
@@ -181,11 +181,35 @@ class SoundDeviceAudioInput:
             frame = np.asarray(indata, dtype=np.float32).reshape(-1)
             if frame.size == 0:
                 return
-            callback(frame[:MAX_AUDIO_FRAME_SAMPLES].copy())
+            bounded = frame[:MAX_AUDIO_FRAME_SAMPLES].copy()
+            if self._status_reports_input_loss(status):
+                callback(bounded, status)
+            else:
+                callback(bounded)
         except Exception:
             # The worker owns error reporting.  Never let a callback exception
             # destabilize PortAudio's real-time thread.
             return
+
+    @staticmethod
+    def _status_reports_input_loss(status: Any) -> bool:
+        if status is None:
+            return False
+        for name in (
+            "input_overflow",
+            "input_overflowed",
+            "input_underflow",
+            "input_underflowed",
+        ):
+            try:
+                if bool(getattr(status, name, False)):
+                    return True
+            except Exception:
+                continue
+        rendered = str(status).casefold()
+        return "input" in rendered and any(
+            marker in rendered for marker in ("overflow", "underflow", "dropped", "loss")
+        )
 
     def _module(self) -> Any:
         if self._sounddevice is not None:
@@ -289,14 +313,17 @@ class DeterministicFakeAudioInput:
             self._callback = None
             self.close_count += 1
 
-    def feed(self, frame: AudioFrame) -> None:
+    def feed(self, frame: AudioFrame, status: Any = None) -> None:
         with self._lock:
             callback = self._callback if self._started else None
         if callback is None:
             return
         bounded = np.asarray(frame, dtype=np.float32).reshape(-1)[:MAX_AUDIO_FRAME_SAMPLES].copy()
         if bounded.size:
-            callback(cast(AudioFrame, bounded))
+            if SoundDeviceAudioInput._status_reports_input_loss(status):
+                callback(cast(AudioFrame, bounded), status)
+            else:
+                callback(cast(AudioFrame, bounded))
 
     def feed_frames(self, frames: Iterable[AudioFrame]) -> None:
         for frame in frames:

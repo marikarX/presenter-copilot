@@ -70,11 +70,13 @@ class CoreService:
         asr_adapters: Mapping[str, ASRAdapter] | None = None,
         presentation_adapter: PresentationAdapter | None = None,
         vad_config: VADConfig | None = None,
+        asr_worker_join_timeout_seconds: float | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
         self._shutdown_requested = False
         self._closed = False
+        self._last_close_error: CoreDomainError | None = None
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
         self._audience = AudienceModelService(self._storage)
@@ -101,6 +103,7 @@ class CoreService:
             style_context=self._speaker_profile.build_style_context,
             app_cleanup=session_app_cleanup,
             active_run_cleanup=self._cleanup_active_run_for_delete,
+            active_run_owner=self._active_asr_owner,
         )
         self._presentation = SlideStateService(
             self._storage,
@@ -114,6 +117,7 @@ class CoreService:
             self._presentation,
             self._hybrid_retrieval,
             asr_stop=self._stop_asr,
+            asr_owner=self._active_asr_owner,
             event_sink=self._emit_service_event,
             clock=self._clock,
         )
@@ -131,6 +135,11 @@ class CoreService:
             slide_snapshot=self._presentation.current_slide,
             event_sink=self._emit_service_event,
             vad_config=vad_config,
+            **(
+                {"worker_join_timeout_seconds": asr_worker_join_timeout_seconds}
+                if asr_worker_join_timeout_seconds is not None
+                else {}
+            ),
         )
         self._knowledge = KnowledgeService(
             self._storage,
@@ -215,16 +224,31 @@ class CoreService:
         """Attach transport output after construction without coupling core to stdio."""
         self._event_sink = event_sink
 
-    def close(self) -> None:
-        """Close SQLite handles before the sidecar exits."""
+    def close(self) -> bool:
+        """Close only after all active Runs have crossed their safe boundary."""
         if self._closed:
-            return
-        self._closed = True
-        self._asr.close()
+            return True
+        try:
+            self._run.stop_active_runs(status="aborted")
+        except CoreDomainError as error:
+            # Leave every service and database open.  The sidecar may exit
+            # after the bounded request, but recoverable active-session state
+            # must not be replaced by a fabricated terminal row.
+            self._last_close_error = error
+            return False
+        if self._asr.close() is False:
+            self._last_close_error = CoreDomainError(
+                "ASR_CAPTURE_FAILED",
+                "The ASR service could not release all local resources.",
+                retryable=True,
+            )
+            return False
         self._presentation.close()
         self._providers.close()
         self._hybrid_retrieval.close()
         self._storage.close()
+        self._closed = True
+        return True
 
     def ready_event(self) -> dict[str, Any]:
         """Return the startup event sent before the first request is read."""
@@ -347,8 +371,13 @@ class CoreService:
         if method == "core.shutdown":
             reject_unknown_fields(params, set())
             self._shutdown_requested = True
-            self.close()
-            return make_response(request_id, result={"status": "shutting_down"})
+            cleanup_safe = self.close()
+            result: dict[str, Any] = {"status": "shutting_down"}
+            if not cleanup_safe:
+                result["cleanup_pending"] = True
+                if self._last_close_error is not None:
+                    result["error_code"] = self._last_close_error.code
+            return make_response(request_id, result=result)
 
         if method == "project.create":
             return make_response(request_id, result=self._projects.create(params))
@@ -557,6 +586,11 @@ class CoreService:
 
     def _stop_asr(self, params: dict[str, Any]) -> dict[str, Any]:
         return self._asr.stop(params)
+
+    def _active_asr_owner(self) -> tuple[str, str] | None:
+        # Session/Run services are constructed before ASR, but invoke this
+        # callback only after composition is complete.
+        return self._asr.active_owner()
 
     def _cleanup_active_run_for_delete(self, project_id: str, session_id: str) -> None:
         result = self._run.stop(

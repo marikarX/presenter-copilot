@@ -46,7 +46,9 @@ type ChildLifecycle = {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 3_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000;
+// The core's bounded ASR join is 30 seconds.  Leave a small transport margin
+// so an expected final decode is not killed by Electron first.
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 35_000;
 
 export class CoreClientError extends Error {
   readonly code: string;

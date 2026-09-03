@@ -38,9 +38,10 @@ Windows microphone
 Python AudioInputAdapter -> bounded in-memory PCM queue
        |
        v
-energy VAD / UtteranceSegmenter -> local ASRAdapter
-       |                                  |
-       |                                  +--> ephemeral asr.partial
+fast ingestion/VAD worker -> serialized local ASR decode worker
+       |                         |                    |
+       |                         |                    +--> ephemeral asr.partial
+       |                         +--> bounded final queue (finals first)
        v
 RunService: persist final Utterance + slide snapshot -> asr.final
        |
@@ -52,6 +53,14 @@ NDJSON stdio transport, is not written to SQLite/files, and is discarded after
 the active utterance is decoded. The Electron main process owns only the
 minimum `{ project_id, session_id }` target required to route manual Run slide
 shortcuts back through canonical presentation IPC.
+
+The capture callback performs only a bounded PCM copy and non-blocking enqueue.
+The ingestion/VAD worker never waits for a full-prefix partial decode. The
+serialized decoder has one replaceable partial request and a bounded queue for
+durable finals; a final request always runs before an optional partial, and
+final audio is never dropped to preserve a partial update. Input overflow or
+another status indicating dropped microphone data stops acceptance and reports
+`ASR_BACKPRESSURE`.
 
 ## 2. Technology baseline
 
@@ -168,8 +177,20 @@ Owns:
 M6 uses `Systran/faster-whisper-base.en` through a local-files-only runtime.
 The approved model is prepared explicitly into the app-level `models/asr`
 cache; `asr.start` never downloads. The service owns one bounded frame queue,
-one worker, one active microphone capture, and deterministic stop/shutdown
-cleanup. Teach and Challenge do not consume this microphone path in M6.
+one fast ingestion/VAD worker, one serialized decode worker, one active
+microphone capture, and deterministic stop/shutdown cleanup. Optional partial
+recognition is coalesced to one pending snapshot; final requests have a
+bounded lossless queue and priority over partials. Teach and Challenge do not
+consume this microphone path in M6.
+
+Run shutdown is fail-closed. It stops accepting frames and physical capture,
+drains/finalizes the active segment, persists the final `Utterance`, emits
+`asr.final`, terminates both workers, and only then releases audio/model
+resources. The presentation watcher and session transition follow that
+boundary; a failed join, unresolved final, or release failure leaves the Run
+owner in retryable `stopping` state and prevents a new capture or deletion.
+Normal core shutdown uses the same Run cleanup path with `aborted` status and
+preserves an active session when the bounded cleanup budget cannot complete.
 
 ### SlideStateService
 
@@ -439,6 +460,9 @@ Under Selected Context Cloud, only this packet may be sent remotely.
 ## 10. Failure/degradation behavior
 
 - ASR unavailable -> typed input remains usable; live voice assist disabled with clear status.
+- ASR input loss, backpressure, blocked final decode, or failed worker join ->
+  retain the Run owner in retryable stopping state; do not close a live model,
+  mark the session terminal, or delete its project/session rows.
 - PowerPoint adapter fails -> manual slide control.
 - embedding model unavailable -> lexical retrieval fallback where possible.
 - remote provider unavailable/quota -> retrieval-only/local path.

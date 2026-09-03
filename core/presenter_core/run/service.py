@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, cast
@@ -25,6 +25,7 @@ from presenter_core.limits import (
 )
 from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import utc_now
+from presenter_core.retrieval.conflicts import detect_conflicts, extract_fact_values
 from presenter_core.retrieval.service import HybridRetrievalService
 from presenter_core.session.service import SessionService
 from presenter_core.storage.paths import normalize_project_id
@@ -32,6 +33,7 @@ from presenter_core.storage.service import StorageManager
 
 EventSink = Callable[[str, dict[str, Any]], None]
 ASRStop = Callable[[dict[str, Any]], dict[str, Any]]
+ASROwner = Callable[[], tuple[str, str] | None]
 
 DEBRIEF_ALGORITHM_VERSION = "m6-deterministic-v1"
 MARKER_TYPES = frozenset({"question", "weak_point", "note"})
@@ -52,6 +54,7 @@ class RunService:
         retrieval: HybridRetrievalService,
         *,
         asr_stop: ASRStop,
+        asr_owner: ASROwner | None = None,
         event_sink: EventSink | None = None,
         clock: Callable[[], float] = monotonic,
     ) -> None:
@@ -60,6 +63,7 @@ class RunService:
         self._presentation = presentation
         self._retrieval = retrieval
         self._asr_stop = asr_stop
+        self._asr_owner = asr_owner
         self._event_sink = event_sink
         self._clock = clock
 
@@ -86,6 +90,7 @@ class RunService:
                 "ORDER BY started_at, id LIMIT ?",
                 (MAX_RUN_UTTERANCES_PER_SESSION,),
             ).fetchall()
+        stopped_sessions = {str(row["id"]) for row in rows}
         for row in rows:
             self.stop(
                 {
@@ -94,6 +99,54 @@ class RunService:
                     "status": "aborted",
                 }
             )
+        owner = self._current_asr_owner()
+        if owner is not None and owner[0] == project_id and owner[1] not in stopped_sessions:
+            # A stale/terminal session row must not hide a still-owned ASR
+            # resource from project deletion.  Run.stop performs the retryable
+            # resource cleanup before any project filesystem operation.
+            self.stop({"project_id": owner[0], "session_id": owner[1], "status": "aborted"})
+
+    def stop_active_runs(self, *, status: str = "aborted") -> None:
+        """Flush every active Run before a normal core shutdown."""
+        if status not in {"completed", "aborted", "error"}:
+            raise ValueError("status must be a stoppable session status")
+        active_sessions: set[tuple[str, str]] = set()
+        first_error: CoreDomainError | None = None
+        for app_row in self._storage.list_app_rows():
+            project_id = str(app_row["id"])
+            with self._storage.project_database(project_id) as connection:
+                rows = connection.execute(
+                    "SELECT id FROM sessions WHERE mode = 'run' AND status = 'active' "
+                    "ORDER BY started_at, id LIMIT ?",
+                    (MAX_RUN_UTTERANCES_PER_SESSION,),
+                ).fetchall()
+            for row in rows:
+                owner = (project_id, str(row["id"]))
+                active_sessions.add(owner)
+                try:
+                    self.stop(
+                        {
+                            "project_id": owner[0],
+                            "session_id": owner[1],
+                            "status": status,
+                        }
+                    )
+                except CoreDomainError as error:
+                    first_error = first_error or error
+        asr_owner = self._current_asr_owner()
+        if asr_owner is not None and asr_owner not in active_sessions:
+            try:
+                self.stop(
+                    {
+                        "project_id": asr_owner[0],
+                        "session_id": asr_owner[1],
+                        "status": status,
+                    }
+                )
+            except CoreDomainError as error:
+                first_error = first_error or error
+        if first_error is not None:
+            raise first_error
 
     def stop(self, params: dict[str, Any]) -> dict[str, Any]:
         """Flush local ASR and slide state before completing the Run session."""
@@ -107,20 +160,33 @@ class RunService:
         if session["mode"] != "run":
             return self._sessions.stop(params)
         if session["status"] != "active":
+            if self._current_asr_owner() == (project_id, session_id):
+                # A resource owner is authoritative for cleanup even if a
+                # previous process wrote a terminal session status too early.
+                self._asr_stop({"project_id": project_id, "session_id": session_id})
+                self._presentation.stop_run(project_id, session_id)
             result: dict[str, Any] = {"session": self._session_dict(project_id, session_id)}
             debrief = self.get_debrief({"project_id": project_id, "session_id": session_id})
             result["debrief"] = debrief.get("debrief")
             return result
 
-        cleanup_error: CoreDomainError | None = None
+        # ASR owns the first irreversible shutdown boundary.  If it cannot
+        # flush/finalize and terminate, do not stop the watcher or mutate the
+        # canonical session status; the caller can safely retry this method.
         try:
             self._asr_stop({"project_id": project_id, "session_id": session_id})
-        except CoreDomainError as error:
-            cleanup_error = error
-        finally:
-            # The watcher is independent of microphone capture and is always
-            # released before the canonical session row changes status.
-            self._presentation.stop_run(project_id, session_id)
+        except CoreDomainError:
+            raise
+        except Exception as error:
+            raise CoreDomainError(
+                "ASR_CAPTURE_FAILED",
+                "The active Run could not release its local ASR resources; retry is safe.",
+                retryable=True,
+            ) from error
+
+        # The watcher is independent of microphone capture and is released
+        # only after the final ASR boundary has completed successfully.
+        self._presentation.stop_run(project_id, session_id)
 
         stopped = self._sessions.stop(
             {"project_id": project_id, "session_id": session_id, "status": requested_status}
@@ -135,8 +201,6 @@ class RunService:
                 result["debrief_error_code"] = error.code
         else:
             result["debrief"] = None
-        if cleanup_error is not None:
-            result["cleanup_error_code"] = cleanup_error.code
         return result
 
     def persist_final_utterance(
@@ -522,28 +586,61 @@ class RunService:
             query_result = self._retrieve_for_debrief(project_id, row)
             hits = query_result.get("hits", [])
             conflicts = query_result.get("conflicts", [])
-            evidence = [self._safe_evidence_ref(hit) for hit in hits[:3]]
-            if _NUMERIC_OR_FACTUAL_PATTERN.search(str(row["text"])) and (not evidence or conflicts):
-                evidence_reviews.append(
-                    {
-                        "utterance_id": row["id"],
-                        "slide_ordinal": row["slide_ordinal"],
-                        "excerpt": str(row["text"])[:320],
-                        "status": "conflict_review" if conflicts else "needs_evidence_review",
-                        "evidence": evidence,
-                        "conflicts": self._safe_conflicts(conflicts),
-                    }
-                )
+            if not isinstance(hits, list):
+                hits = []
+            if not isinstance(conflicts, list):
+                conflicts = []
+            claim_text = str(row["text"])
+            fact_support = self._fact_support(claim_text, hits, conflicts)
+            if fact_support is not None:
+                conflicts = fact_support["conflicts"]
+                evidence = [self._safe_evidence_ref(hit) for hit in hits[:3]]
+                if fact_support["status"] == "supported":
+                    explanation_evidence = fact_support["supporting_evidence"]
+                else:
+                    # Retrieval context is not evidence for an exact value
+                    # unless the canonical fact-safe check below accepted it.
+                    explanation_evidence = []
+                if fact_support["status"] != "supported":
+                    evidence_reviews.append(
+                        {
+                            "utterance_id": row["id"],
+                            "slide_ordinal": row["slide_ordinal"],
+                            "excerpt": claim_text[:320],
+                            "status": fact_support["status"],
+                            "evidence": evidence,
+                            "supporting_evidence": fact_support["supporting_evidence"],
+                            "not_supporting_evidence": fact_support["not_supporting_evidence"],
+                            "conflicts": self._safe_conflicts(conflicts),
+                        }
+                    )
+            else:
+                evidence = [self._safe_evidence_ref(hit) for hit in hits[:3]]
+                explanation_evidence = evidence
+                if _NUMERIC_OR_FACTUAL_PATTERN.search(claim_text) and not evidence:
+                    evidence_reviews.append(
+                        {
+                            "utterance_id": row["id"],
+                            "slide_ordinal": row["slide_ordinal"],
+                            "excerpt": claim_text[:320],
+                            "status": "needs_evidence_review",
+                            "evidence": evidence,
+                            "conflicts": self._safe_conflicts(conflicts),
+                        }
+                    )
             word_count = len(str(row["text"]).split())
             if 8 <= word_count <= 100 and len(best_explanations) < 8:
-                best_explanations.append(
-                    {
-                        "utterance_id": row["id"],
-                        "slide_ordinal": row["slide_ordinal"],
-                        "excerpt": str(row["text"])[:320],
-                        "evidence": evidence,
+                explanation: dict[str, Any] = {
+                    "utterance_id": row["id"],
+                    "slide_ordinal": row["slide_ordinal"],
+                    "excerpt": claim_text[:320],
+                    "evidence": explanation_evidence,
+                }
+                if fact_support is not None:
+                    explanation["fact_support"] = {
+                        key: value for key, value in fact_support.items() if key != "conflicts"
                     }
-                )
+                best_explanations.append(explanation)
         self._emit_progress(session_id, "analyze", len(utterances), len(utterances))
         recommendations = self._recommended_questions(marked, evidence_reviews, long_segments)
         total_words = sum(len(str(row["text"]).split()) for row in utterances)
@@ -609,6 +706,7 @@ class RunService:
                 "query": str(row["text"])[:MAX_FINAL_UTTERANCE_CHARS],
                 "limit": 3,
                 "allow_private": True,
+                "usage": "rehearsal",
             }
             if row["slide_ordinal"] is not None:
                 params["current_slide"] = int(row["slide_ordinal"])
@@ -625,6 +723,60 @@ class RunService:
             "source_type": evidence.get("source_type"),
             "source_id": evidence.get("source_id"),
             "source_unit_id": evidence.get("source_unit_id"),
+            "knowledge_item_id": evidence.get("knowledge_item_id"),
+            "fact_safe": evidence.get("fact_safe") is True,
+            "use_rehearsal": evidence.get("use_rehearsal"),
+        }
+
+    @classmethod
+    def _fact_support(
+        cls,
+        query: str,
+        hits: list[Any],
+        conflicts: list[Any],
+    ) -> dict[str, Any] | None:
+        """Classify exact-value support without promoting semantic similarity."""
+        query_values = extract_fact_values(query)
+        if not query_values:
+            return None
+        if not conflicts:
+            conflicts = detect_conflicts(
+                query,
+                [hit for hit in hits if isinstance(hit, dict)],
+                require_query_number_match=False,
+            )
+        query_value_set = {value.normalized_value for value in query_values}
+        supporting_hits: list[Any] = []
+        rejected_hits: list[Any] = []
+        supported_values: set[str] = set()
+        for hit in hits:
+            evidence = hit.get("evidence") if isinstance(hit, dict) else None
+            if not isinstance(evidence, Mapping):
+                continue
+            values = {
+                value.normalized_value
+                for value in extract_fact_values(str(evidence.get("text", "")))
+            }
+            if evidence.get("fact_safe") is True and query_value_set.intersection(values):
+                supporting_hits.append(hit)
+                supported_values.update(query_value_set.intersection(values))
+            else:
+                rejected_hits.append(hit)
+        supporting_evidence = [cls._safe_evidence_ref(hit) for hit in supporting_hits[:3]]
+        not_supporting_evidence = [cls._safe_evidence_ref(hit) for hit in rejected_hits[:3]]
+        if conflicts:
+            status = "conflict_review"
+            supporting_evidence = []
+        elif supported_values >= query_value_set:
+            status = "supported"
+        else:
+            status = "needs_evidence_review"
+        return {
+            "status": status,
+            "claim_values": sorted(query_value_set),
+            "supporting_evidence": supporting_evidence,
+            "not_supporting_evidence": not_supporting_evidence,
+            "conflicts": conflicts,
         }
 
     @staticmethod
@@ -872,6 +1024,11 @@ class RunService:
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self._event_sink is not None:
             self._event_sink(event, payload)
+
+    def _current_asr_owner(self) -> tuple[str, str] | None:
+        if self._asr_owner is None:
+            return None
+        return self._asr_owner()
 
     @staticmethod
     def _project_id(value: Any) -> str:

@@ -658,6 +658,39 @@ This keeps the transcript durable and restartable without creating duplicate
 rows or retaining a raw-audio/partial-text history that the user did not ask
 to save.
 
+## D-044a — ASR ingestion is decoupled from optional partial decoding
+
+**Status:** Accepted for Milestone 6
+
+The capture callback only performs bounded non-blocking enqueue. A fast
+ingestion/VAD worker schedules recognition on a serialized decoder with one
+replaceable optional partial request and a bounded queue of lossless final
+requests. Final requests have priority and stale partials may be discarded.
+Input-overflow status or queue exhaustion is a typed `ASR_BACKPRESSURE` error;
+the service never silently produces an incomplete final transcript.
+
+Reason:
+
+Optional latency hints must not back up the real-time audio path or consume the
+bounded queue needed for durable final utterances.
+
+## D-044b — Run cleanup is an ownership and terminal-state gate
+
+**Status:** Accepted for Milestone 6
+
+Run cleanup stops capture, resolves final audio, persists before emitting the
+final event, terminates both ASR workers, and releases audio/model resources
+before stopping presentation or transitioning the session. A failed join,
+unresolved final, or release failure retains the Run owner in retryable
+stopping state. Session/project deletion and normal core shutdown use the same
+gate; shutdown preserves an active session when its bounded budget expires.
+
+Reason:
+
+Terminal rows and released model handles are not safe substitutes for a live
+worker that may still write transcript state. Keeping ownership authoritative
+makes retry and restart recovery deterministic.
+
 ## D-045 — PowerPoint integration is read-only and feature detected
 
 **Status:** Accepted for Milestone 6
@@ -683,8 +716,12 @@ when the active deck cannot be matched.
 slide state, markers, and current canonical retrieval evidence. It reports
 evidence-review candidates rather than unsupported certainty, preserves
 canonical evidence references, creates no KnowledgeItem automatically, and
-uses a versioned fingerprint for idempotent persistence. It does not invoke a
-remote reasoning provider.
+uses a versioned fingerprint for idempotent persistence. Run retrieval uses
+`usage=rehearsal` with private access independent from each KnowledgeItem's
+`use_rehearsal` flag. Exact numeric/factual claims require matching normalized
+values in eligible `fact_safe` evidence; mismatches and non-fact-safe hits are
+not support, while conflicts produce review rather than a false user claim.
+It does not invoke a remote reasoning provider.
 
 Reason:
 

@@ -56,7 +56,11 @@ pnpm dev
 Electron main starts `presenter_core` as a child process over UTF-8 NDJSON
 stdio. The renderer should show `CORE READY`, protocol `1`, core version
 `0.1.0`, and health `OK`. Stop the development process with Ctrl+C; main sends
-`core.shutdown` and waits for the child to exit before quitting.
+`core.shutdown` and waits for the child to exit before quitting. During an
+active Run, the request/close budget is aligned to the core's bounded ASR
+worker cleanup window (30 seconds by default, plus transport margin); a failed
+cleanup returns a pending/recoverable state rather than fabricating a terminal
+session.
 
 Other verified commands:
 

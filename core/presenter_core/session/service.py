@@ -18,6 +18,7 @@ TEACH_STATES = frozenset(
     {"ready_for_prompt", "prompted", "awaiting_user", "candidate_ready", "completed"}
 )
 ActiveRunCleanup = Callable[[str, str], None]
+ActiveRunOwner = Callable[[], tuple[str, str] | None]
 
 
 class SessionService:
@@ -29,11 +30,13 @@ class SessionService:
         style_context: Callable[[str], dict[str, Any]] | None = None,
         app_cleanup: Callable[[str, str], None] | None = None,
         active_run_cleanup: ActiveRunCleanup | None = None,
+        active_run_owner: ActiveRunOwner | None = None,
     ) -> None:
         self._storage = storage
         self._style_context = style_context
         self._app_cleanup = app_cleanup or self._clear_app_session_provenance
         self._active_run_cleanup = active_run_cleanup
+        self._active_run_owner = active_run_owner
 
     def start(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -213,13 +216,18 @@ class SessionService:
         # a project-side failure then leaves a retryable, still-present session.
         with self._storage.project_database(project_id) as connection:
             row = self._session_row(connection, project_id, session_id)
-        if (
-            self._active_run_cleanup is not None
-            and row["mode"] == "run"
-            and row["status"] == "active"
-        ):
+        owner = self._active_run_owner() if self._active_run_owner is not None else None
+        active_run_cleanup = self._active_run_cleanup
+        if active_run_cleanup is not None:
+            cleanup_run = row["mode"] == "run" and (
+                row["status"] == "active" or owner == (project_id, session_id)
+            )
+        else:
+            cleanup_run = False
+        if cleanup_run:
+            assert active_run_cleanup is not None
             try:
-                self._active_run_cleanup(project_id, session_id)
+                active_run_cleanup(project_id, session_id)
             except CoreDomainError:
                 raise
             except Exception as error:

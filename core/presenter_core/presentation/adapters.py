@@ -161,13 +161,14 @@ class PowerPointComFacade:
             initialized = True
             application = win32com_client.GetActiveObject("PowerPoint.Application")
             windows = application.SlideShowWindows
-            if len(windows) < 1:
+            if int(windows.Count) < 1:
                 return None
-            view = windows.Item(1).View
-            presentation = view.Presentation
+            window = windows.Item(1)
+            view = window.View
+            presentation = window.Presentation
             file_name = Path(str(presentation.FullName)).name[:260]
             slide_count = int(presentation.Slides.Count)
-            current_slide = int(view.CurrentShowPosition)
+            current_slide = int(view.Slide.SlideIndex)
             if slide_count < 1 or current_slide < 1:
                 return None
             return PresentationSnapshot(file_name, slide_count, current_slide)

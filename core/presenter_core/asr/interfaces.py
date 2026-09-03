@@ -9,7 +9,10 @@ from typing import Any, Protocol
 import numpy as np
 
 AudioFrame = np.ndarray[Any, Any]
-AudioCallback = Callable[[AudioFrame], None]
+# The optional status argument is supplied only when the capture backend
+# reports a condition that may have dropped input.  Keeping this variadic
+# preserves compatibility with injected one-argument fixture callbacks.
+AudioCallback = Callable[..., None]
 
 
 @dataclass(frozen=True)

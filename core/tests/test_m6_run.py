@@ -308,21 +308,245 @@ def test_missing_model_is_not_prepared_implicitly_and_shutdown_releases_capture(
 
 def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_path: Path) -> None:
     path = tmp_path / "project.db"
+    project_id = str(uuid.uuid4())
+    document_id = str(uuid.uuid4())
+    source_unit_id = str(uuid.uuid4())
+    chunk_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    statement_id = str(uuid.uuid4())
+    knowledge_item_id = str(uuid.uuid4())
+    provider_run_id = str(uuid.uuid4())
+    audience_id = str(uuid.uuid4())
+    observation_id = str(uuid.uuid4())
+    challenge_audience_id = str(uuid.uuid4())
+    question_id = str(uuid.uuid4())
+    answer_id = str(uuid.uuid4())
+    generation_id = str(uuid.uuid4())
+    now = "2026-09-03T00:00:00.000Z"
     with sqlite3.connect(path) as connection:
-        from presenter_core.storage.database import _migrate_project_v1, _migrate_project_v2
+        from presenter_core.storage.database import (
+            _migrate_project_v1,
+            _migrate_project_v2,
+            _migrate_project_v3,
+            _migrate_project_v4,
+            _migrate_project_v5,
+        )
 
+        connection.execute("PRAGMA foreign_keys = ON")
         _migrate_project_v1(connection)
-        _migrate_project_v2(connection)
         connection.execute(
             "INSERT INTO project (id, name, created_at, updated_at, privacy_mode, "
             "default_style_policy, custom_style_guidance, current_presentation_id, schema_version) "
-            "VALUES (?, 'old', 'now', 'now', 'local_only', 'preserve_voice', NULL, NULL, 2)",
-            (str(uuid.uuid4()),),
+            "VALUES (?, 'populated v5', ?, ?, 'local_only', 'preserve_voice', ?, ?, 1)",
+            (project_id, now, now, "Keep the direct voice.", document_id),
         )
-        connection.execute("PRAGMA user_version = 2")
+        connection.execute(
+            "INSERT INTO documents "
+            "(id, project_id, kind, original_name, local_snapshot_path, source_uri, sha256, "
+            "mime_type, parser_id, imported_at, parse_status, parse_error_code, "
+            "parse_error_message, byte_size, metadata_json) "
+            "VALUES (?, ?, 'presentation', 'legacy.pptx', 'sources/legacy.pptx', NULL, ?, "
+            "'application/vnd.openxmlformats-officedocument.presentationml.presentation', "
+            "'pptx.python-pptx', ?, 'ready', NULL, NULL, 1234, ?)",
+            (document_id, project_id, "a" * 64, now, '{"fixture":true}'),
+        )
+        connection.execute(
+            "INSERT INTO source_units "
+            "(id, document_id, unit_type, ordinal, title, start_ms, end_ms, speaker_label, "
+            "text, metadata_json) VALUES (?, ?, 'slide', 7, 'Recovery', NULL, NULL, NULL, ?, ?)",
+            (source_unit_id, document_id, "The recovery time objective is 30 minutes.", "{}"),
+        )
+        connection.execute(
+            "INSERT INTO chunks "
+            "(id, source_unit_id, chunk_index, text, token_count, embedding_key, "
+            "lexical_text, created_at) "
+            "VALUES (?, ?, 0, ?, 8, ?, ?, ?)",
+            (
+                chunk_id,
+                source_unit_id,
+                "The recovery time objective is 30 minutes.",
+                f"{generation_id}:{chunk_id}",
+                "the recovery time objective is 30 minutes",
+                now,
+            ),
+        )
+        _migrate_project_v2(connection)
+        connection.execute(
+            "INSERT INTO embedding_generations "
+            "(id, adapter_id, model_id, model_fingerprint, dimension, matrix_relative_path, "
+            "matrix_row_count, is_active, created_at) VALUES (?, 'fixture', 'fixture-v2', ?, 4, "
+            "'embeddings/vectors.npy', 1, 1, ?)",
+            (generation_id, "b" * 32, now),
+        )
+        connection.execute(
+            "INSERT INTO embedding_vectors "
+            "(generation_id, vector_id, entity_type, entity_id, project_id, source_class, "
+            "row_index, content_sha256) VALUES (?, ?, 'chunk', ?, ?, 'document', 0, ?)",
+            (generation_id, chunk_id, chunk_id, project_id, "c" * 64),
+        )
+        _migrate_project_v3(connection)
+        connection.execute(
+            "INSERT INTO sessions "
+            "(id, project_id, mode, started_at, ended_at, style_policy, privacy_mode, provider_id, "
+            "current_slide_start, status, teach_state) VALUES (?, ?, 'challenge', ?, ?, "
+            "'preserve_voice', 'local_only', 'fixture-provider', 7, 'completed', 'completed')",
+            (session_id, project_id, now, now),
+        )
+        connection.execute(
+            "INSERT INTO utterances "
+            "(id, session_id, actor, text, created_at, start_ms, end_ms, asr_confidence, "
+            "slide_ordinal, is_final) VALUES (?, ?, 'user', ?, ?, 0, 500, NULL, 7, 1)",
+            (str(uuid.uuid4()), session_id, "The recovery time objective is 30 minutes.", now),
+        )
+        connection.execute(
+            "INSERT INTO user_statements "
+            "(id, project_id, origin_session_id, source_utterance_id, text, created_at) "
+            "VALUES (?, ?, ?, NULL, ?, ?)",
+            (
+                statement_id,
+                project_id,
+                session_id,
+                "The recovery time objective is 30 minutes.",
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO knowledge_items "
+            "(id, project_id, kind, text, use_live, use_rehearsal, preferred, private, "
+            "created_by, origin_session_id, created_at, updated_at) VALUES (?, ?, 'answer', ?, "
+            "1, 1, 1, 0, 'user', ?, ?, ?)",
+            (
+                knowledge_item_id,
+                project_id,
+                "The recovery time objective is 30 minutes.",
+                session_id,
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO knowledge_evidence "
+            "(knowledge_item_id, provenance_type, provenance_id) VALUES (?, 'document', ?)",
+            (knowledge_item_id, document_id),
+        )
+        connection.execute(
+            "INSERT INTO provider_runs "
+            "(id, session_id, task_type, provider_id, privacy_mode, started_at, ended_at, status, "
+            "input_token_count, output_token_count, latency_ms, context_manifest_json, error_code) "
+            "VALUES (?, ?, 'challenge_question', 'fixture-provider', 'local_only', ?, ?, "
+            "'success', "
+            "11, 17, 42, ?, NULL)",
+            (provider_run_id, session_id, now, now, '{"evidence":["' + chunk_id + '"]}'),
+        )
+        _migrate_project_v4(connection)
+        connection.execute(
+            "INSERT INTO audience_profiles "
+            "(id, project_id, display_name, role, organization, user_notes, active, created_at, "
+            "updated_at) "
+            "VALUES (?, ?, 'CFO', 'Finance', 'Example Co', 'Wants exact costs', 1, ?, ?)",
+            (audience_id, project_id, now, now),
+        )
+        connection.execute(
+            "INSERT INTO audience_observations "
+            "(id, audience_profile_id, observation_type, text, derivation, confidence, "
+            "sensitive_trait, review_status, created_at, updated_at) VALUES (?, ?, "
+            "'decision_criterion', "
+            "'Needs a quantified recovery plan', 'user_entered', 1.0, 0, 'active', ?, ?)",
+            (observation_id, audience_id, now, now),
+        )
+        connection.execute(
+            "INSERT INTO audience_observation_evidence "
+            "(observation_id, provenance_type, provenance_id) VALUES (?, 'transcript', ?)",
+            (observation_id, statement_id),
+        )
+        _migrate_project_v5(connection)
+        connection.execute(
+            "INSERT INTO challenge_configurations "
+            "(session_id, intensity, allow_follow_ups, scope, slide_start, slide_end, state, "
+            "created_at, updated_at) VALUES (?, 'skeptical', 1, 'slide_range', 7, 9, "
+            "'evaluated', ?, ?)",
+            (session_id, now, now),
+        )
+        connection.execute(
+            "INSERT INTO challenge_audiences "
+            "(id, session_id, audience_profile_id, selection_order, display_name_snapshot, "
+            "role_snapshot, organization_snapshot, selected_at) VALUES (?, ?, ?, 0, 'CFO', "
+            "'Finance', "
+            "'Example Co', ?)",
+            (challenge_audience_id, session_id, audience_id, now),
+        )
+        connection.execute(
+            "INSERT INTO questions "
+            "(id, session_id, asked_by_audience_profile_id, parent_question_id, provider_run_id, "
+            "audience_display_name_snapshot, audience_role_snapshot, text, origin, rationale, "
+            "created_at) "
+            "VALUES (?, ?, ?, NULL, ?, 'CFO', 'Finance', 'Why 30 minutes?', 'simulated', "
+            "'Exact RTO support', ?)",
+            (question_id, session_id, audience_id, provider_run_id, now),
+        )
+        connection.execute(
+            "INSERT INTO question_evidence "
+            "(question_id, evidence_id, source_type, source_id, source_unit_id, label, available) "
+            "VALUES (?, ?, 'document', ?, ?, 'legacy.pptx slide 7', 1)",
+            (question_id, chunk_id, document_id, source_unit_id),
+        )
+        connection.execute(
+            "INSERT INTO question_audience_observations "
+            "(question_id, observation_id, available) VALUES (?, ?, 1)",
+            (question_id, observation_id),
+        )
+        connection.execute(
+            "INSERT INTO answer_versions "
+            "(id, question_id, session_id, provider_run_id, text, origin, preferred, "
+            "correctness_score, "
+            "directness_score, completeness_score, concision_score, style_match_score, "
+            "source_support_status, "
+            "source_support_feedback, evaluation_json, created_at) VALUES (?, ?, ?, ?, ?, "
+            "'user_typed', 1, "
+            "0.9, 0.8, 0.95, 0.8, 0.9, 'supported', 'Matches source', ?, ?)",
+            (
+                answer_id,
+                question_id,
+                session_id,
+                provider_run_id,
+                "The recovery time objective is 30 minutes.",
+                '{"score":0.87}',
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO answer_evidence "
+            "(answer_version_id, evidence_id, source_type, source_id, source_unit_id, "
+            "label, available) "
+            "VALUES (?, ?, 'document', ?, ?, 'legacy.pptx slide 7', 1)",
+            (answer_id, chunk_id, document_id, source_unit_id),
+        )
+        connection.execute(
+            "INSERT INTO challenge_answer_promotions "
+            "(question_id, answer_version_id, knowledge_item_id, promoted_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (question_id, answer_id, knowledge_item_id, now, now),
+        )
+        connection.execute("PRAGMA user_version = 5")
         connection.commit()
+
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        before_tables = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+            )
+        }
+        before_rows: dict[str, list[tuple[Any, ...]]] = {}
+        for table in sorted(before_tables):
+            before_rows[table] = [
+                tuple(row) for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+            ]
+    assert connection is not None
     migrated = connect_project_database(path)
     assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 6
+    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 6
     tables = {
         row[0]
         for row in migrated.execute(
@@ -330,8 +554,26 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
         ).fetchall()
     }
     assert {"slide_state_events", "run_markers", "run_debriefs"} <= tables
+    assert tables.difference(before_tables) == {"slide_state_events", "run_markers", "run_debriefs"}
+    for table, rows in before_rows.items():
+        after_rows = [
+            tuple(row) for row in migrated.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+        ]
+        if table == "project":
+            columns = [row[1] for row in migrated.execute(f'PRAGMA table_info("{table}")')]
+            schema_index = columns.index("schema_version")
+            normalized = [row[:schema_index] + (5,) + row[schema_index + 1 :] for row in after_rows]
+            assert normalized == rows
+        else:
+            assert after_rows == rows
     migrated.close()
     with sqlite3.connect(path) as connection:
+        before_future = {
+            table: [
+                tuple(row) for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+            ]
+            for table in sorted(tables)
+        }
         connection.execute("PRAGMA user_version = 7")
         connection.commit()
     try:
@@ -342,6 +584,10 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
         raise AssertionError("future schema was accepted")
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        for table, rows in before_future.items():
+            assert [
+                tuple(row) for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+            ] == rows
 
 
 def test_sidecar_write_serializes_complete_ndjson_lines() -> None:

@@ -309,14 +309,23 @@ The deterministic suite covers:
 - energy VAD start confirmation, silence finalization, forced max-duration
   finalization, monotonic timestamps, same-utterance partial/final IDs,
   ephemeral partials, and final persistence before `asr.final`;
-- v5 -> v6, new v6, no-op, and future-version-without-mutation migrations;
+- fail-closed final/worker shutdown using synchronization primitives: live
+  ownership, non-terminal session, rejected capture/deletion, and a successful
+  retry only after release;
+- slow optional partial decoding while ingestion continues, one-slot partial
+  coalescing, final priority/losslessness, bounded audio queue behavior, and
+  `ASR_BACKPRESSURE` on dropped-input status;
+- v5 -> v6 populated M0-M5 preservation, new v6, no-op, and
+  future-version-without-mutation migrations;
 - manual slide state/bounds, duplicate suppression, PowerPoint filename and
   slide-count matching, absent/mismatched/invalid/failing fallback, and
-  persistence before `presentation.slide_changed`;
+  persistence before `presentation.slide_changed`, including the real COM
+  `SlideShowWindow.View.Slide.SlideIndex` contract;
 - bounded transcript/timeline reads, marker limits, debrief retrieval/conflict
-  review, deterministic question recommendations, debrief idempotency,
-  restart recovery, session/project cascade deletion, and no automatic
-  KnowledgeItem creation;
+  review, exact fact-safe numeric support/review/conflict classification,
+  `use_rehearsal` filtering, deterministic question recommendations, debrief
+  idempotency, restart recovery, session/project cascade deletion, and no
+  automatic KnowledgeItem creation;
 - serialized asynchronous NDJSON writes so one event/response remains one
   complete line;
 - renderer/main/preload allowlists, typed Run projections, and global shortcut
@@ -333,8 +342,12 @@ pnpm benchmark:asr
 
 The real acceptance reports model identity, local execution, bounded phrase
 matching, and unavailable status without fabricating success when the model or
-hardware is unavailable. The benchmark stores metadata/timings only and does
-not store transcript text.
+hardware is unavailable. A separate Windows physical-microphone acceptance
+must observe live spoken text through `sounddevice`, VAD, faster-whisper,
+`asr.partial`, `asr.final`, durable Utterance persistence, slide association,
+Run stop/debrief, restart recovery, and handle/process cleanup; opening a
+device without observed spoken text is only a partial smoke result. The
+benchmark stores metadata/timings only and does not store transcript text.
 
 ### E2E-06 Live Assist
 
@@ -485,15 +498,17 @@ part of this gate.
 
 Before opening the M6 review PR, verify the v5 -> v6 migration preserves all
 M0-M5 rows; the E2E-05 deterministic Run flow and M6 regression matrix pass;
-Python core owns microphone capture; partial/final ordering and final-before-
-event durability hold; model preparation is explicit and `asr.start` is local-
-files-only; manual slide state, global shortcuts, PowerPoint fallback,
-restart/deletion, bounded debrief, renderer boundaries, and Local Only audio
-isolation remain intact. Run `pnpm setup`, `pnpm check`, `pnpm build`, the real
-embedding acceptance, retrieval benchmark, explicit ASR prepare/acceptance/
-benchmark, and exact-head hosted Windows plus Trusted Local CI; record any
-unavailable hardware/model/PowerPoint result precisely. Do not merge and do
-not start M7.
+Python core owns microphone capture; ingestion never blocks on optional
+partials; final requests are lossless and have priority; shutdown is
+fail-closed and final-before-event durability holds; model preparation is
+explicit and `asr.start` is local-files-only; manual slide state, global
+shortcuts, PowerPoint fallback, restart/deletion, bounded rehearsal debrief,
+numeric fact safety, renderer boundaries, and Local Only audio isolation remain
+intact. Run `pnpm setup`, `pnpm check`, `pnpm build`, the real embedding
+acceptance, retrieval benchmark, explicit ASR prepare/acceptance/benchmark,
+and exact-head hosted Windows plus Trusted Local CI; record any unavailable
+hardware/model/PowerPoint or unobserved physical-speech result precisely. Do
+not merge and do not start M7.
 
 A pre-1.0 MVP release requires:
 

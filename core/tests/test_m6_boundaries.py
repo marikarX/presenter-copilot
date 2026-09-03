@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import presenter_core.presentation.adapters as presentation_adapters
 from presenter_core.asr.adapters import DeterministicFakeASRAdapter
 from presenter_core.asr.audio import (
     ASR_FRAME_SAMPLES,
@@ -18,6 +19,7 @@ from presenter_core.asr.audio import (
 from presenter_core.ipc.core import CoreService
 from presenter_core.presentation.adapters import (
     FakePowerPointFacade,
+    PowerPointComFacade,
     PowerPointPresentationAdapter,
     PresentationInfo,
     PresentationSnapshot,
@@ -205,6 +207,7 @@ def test_asr_final_is_committed_before_event_and_partial_stays_ephemeral(
 ) -> None:
     events: list[tuple[str, dict[str, Any]]] = []
     final_seen = threading.Event()
+    partial_seen = threading.Event()
     committed_at_final: list[bool] = []
     core: CoreService | None = None
     project_id: str | None = None
@@ -223,6 +226,8 @@ def test_asr_final_is_committed_before_event_and_partial_stays_ephemeral(
                     is not None
                 )
             final_seen.set()
+        if event == "asr.partial":
+            partial_seen.set()
         events.append((event, payload))
 
     audio = DeterministicFakeAudioInput()
@@ -260,7 +265,9 @@ def test_asr_final_is_committed_before_event_and_partial_stays_ephemeral(
 
         loud = np.full(ASR_FRAME_SAMPLES, 0.1, dtype=np.float32)
         quiet = np.zeros(ASR_FRAME_SAMPLES, dtype=np.float32)
-        audio.feed_frames([loud] * 30 + [quiet] * 35)
+        audio.feed_frames([loud] * 30)
+        assert partial_seen.wait(2.0)
+        audio.feed_frames([quiet] * 35)
         assert final_seen.wait(5.0)
         assert committed_at_final == [True]
         partials = [payload for event, payload in events if event == "asr.partial"]
@@ -424,6 +431,52 @@ def test_run_schema_has_no_audio_table_or_audio_event_payload(tmp_path: Path) ->
         assert not any("audio" in table.casefold() for table in tables)
     finally:
         core.close()
+
+
+def test_powerpoint_com_facade_reads_current_slide_from_view_slide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePythonCom:
+        initialized = False
+        uninitialized = False
+
+        def CoInitialize(self) -> None:
+            self.initialized = True
+
+        def CoUninitialize(self) -> None:
+            self.uninitialized = True
+
+    pythoncom = FakePythonCom()
+    window = SimpleNamespace(
+        View=SimpleNamespace(
+            # This must not be confused with the current slide index.
+            CurrentShowPosition=2,
+            Slide=SimpleNamespace(SlideIndex=7),
+        ),
+        Presentation=SimpleNamespace(
+            FullName=r"C:\Decks\reordered.pptx",
+            Slides=SimpleNamespace(Count=22),
+        ),
+    )
+    application = SimpleNamespace(
+        SlideShowWindows=SimpleNamespace(Count=1, Item=lambda index: window),
+    )
+    win32com_client = SimpleNamespace(
+        GetActiveObject=lambda name: application,
+    )
+    modules = {
+        "pythoncom": pythoncom,
+        "win32com.client": win32com_client,
+    }
+
+    monkeypatch.setattr(presentation_adapters.os, "name", "nt")
+    monkeypatch.setattr(presentation_adapters, "import_module", modules.__getitem__)
+
+    snapshot = PowerPointComFacade().snapshot()
+
+    assert snapshot == PresentationSnapshot("reordered.pptx", 22, 7)
+    assert pythoncom.initialized is True
+    assert pythoncom.uninitialized is True
 
 
 @pytest.mark.parametrize(

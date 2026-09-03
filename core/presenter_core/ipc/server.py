@@ -42,7 +42,11 @@ class SidecarServer:
         except BrokenPipeError:
             return 0
         finally:
-            self._core.close()
+            # core.shutdown already attempted the bounded Run cleanup.  A
+            # second close here could race a still-owned daemon worker after
+            # a timeout; the process-exit policy will reclaim it instead.
+            if not self._core.shutdown_requested:
+                self._core.close()
         return 0
 
     def _write(self, message: dict[str, object]) -> None:
