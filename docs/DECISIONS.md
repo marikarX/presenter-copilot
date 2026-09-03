@@ -548,3 +548,66 @@ Reason:
 Offline deterministic Electron acceptance must be possible without a provider
 credential, while missing production credentials must not create a hidden cloud
 or fake fallback.
+
+## D-038 — Challenge evaluation preserves the complete accepted answer
+
+**Status:** Accepted for Milestone 5 hardening
+
+Challenge uses a distinct bounded current-user-input limit of 4,000 characters.
+The complete validated answer is passed to `challenge_evaluation` and persisted
+as the AnswerVersion text. Context fitting may remove lower-priority history,
+audience, style, or extra evidence, but it never shortens the current answer;
+an irreducible overflow fails with `CHALLENGE_CONTEXT_TOO_LARGE`.
+
+Reason:
+
+Evaluating a prefix while recording the full answer would make the coaching
+result non-reproducible and could misrepresent the user's response.
+
+## D-039 — Challenge revalidates current AudienceContext at the commit boundary
+
+**Status:** Accepted for Milestone 5 hardening
+
+After provider generation, Challenge reuses the M4 AudienceContextBuilder from
+the caller-owned project connection before inserting a Question. A cited
+observation must still belong to the active selected profile, be active and
+non-sensitive, and retain valid source attribution. Historical references are
+kept but are reported unavailable when those rules no longer hold.
+
+Reason:
+
+Provider calls can outlive a speaker remap, profile change, or source mutation;
+storing an observation that was valid only at request start would make the
+question's audience rationale untrustworthy.
+
+## D-040 — KnowledgeItem payload and flags are authoritative
+
+**Status:** Accepted for Milestone 5 hardening
+
+Challenge canonical evidence reads the current `KnowledgeItem.text` and
+`KnowledgeItem.preferred` values. The linked `UserStatement` supplies durable
+user-authored provenance and its ID, but never replaces the curated knowledge
+payload or determines preferred status. Explicit re-promotion sets both the
+KnowledgeItem and AnswerVersion preferred flags true.
+
+Reason:
+
+Curated project knowledge may be edited after its provenance snapshot is
+created. Retrieval and Challenge context must not resurrect stale wording or
+claim that an answer remains preferred after the user clears the flag.
+
+## D-041 — Challenge task contracts are trusted provider instructions
+
+**Status:** Accepted for Milestone 5 hardening
+
+Core supplies separate trusted instructions for Challenge question,
+follow-up, and evaluation tasks. The OpenAI adapter places them with the
+application policy in system/application content, while project and audience
+text remains an untrusted data payload. Source-support status must agree with
+supporting evidence IDs, and stopped sessions expose no mutation actions.
+
+Reason:
+
+Strict output schemas alone do not define the task's behavioral contract.
+Separating task instructions from imported text preserves the prompt-injection
+boundary and makes invalid evaluation claims fail before persistence.

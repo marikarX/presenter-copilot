@@ -47,6 +47,37 @@ CHALLENGE_INTENSITIES = frozenset({"normal", "skeptical", "adversarial"})
 SOURCE_SUPPORT_STATUSES = frozenset(
     {"supported", "partially_supported", "unsupported", "conflicted"}
 )
+CHALLENGE_TASK_INSTRUCTIONS = {
+    "challenge_question": (
+        "Use only the bounded context packet; do not request more context. Generate exactly one "
+        "professional presentation challenge question. Ground it only "
+        "in the supplied project evidence and selected AudienceContext. Cite only supplied "
+        "evidence and audience observation IDs. Do not invent project facts or infer hidden "
+        "audience traits. Normal means ordinary clarification or challenge; Skeptical probes "
+        "weak assumptions or evidence; Adversarial presents the strongest professional "
+        "counterargument without abuse or hostility."
+    ),
+    "challenge_follow_up": (
+        "Use only the bounded context packet; do not request more context. Generate exactly one "
+        "professional follow-up question on the parent question, answer, "
+        "and evaluation. Keep the same selected audience perspective and ground the follow-up "
+        "only in supplied project evidence. Do not manufacture new factual premises, infer "
+        "hidden audience traits, or cite evidence or audience observation IDs not supplied."
+    ),
+    "challenge_evaluation": (
+        "Use only the bounded context packet; do not request more context. Evaluate the answer "
+        "as advisory coaching, not scientific truth. Judge correctness and "
+        "source support only against supplied project evidence. Treat directness, completeness, "
+        "concision, and style match as coaching dimensions. Cite only supplied evidence IDs. "
+        "Do not invent evidence, request or reveal chain-of-thought, infer emotion or hidden "
+        "traits, or use tools."
+    ),
+}
+
+
+def task_instruction_for(task_type: str) -> str | None:
+    """Return the core-owned trusted contract for a supported Challenge task."""
+    return CHALLENGE_TASK_INSTRUCTIONS.get(task_type)
 
 
 @dataclass(frozen=True)
@@ -110,6 +141,7 @@ class ReasoningRequest:
     latency_budget_ms: int
     application_policy: str
     context_manifest: dict[str, Any] = field(default_factory=dict)
+    task_instruction: str | None = None
     audience_context: tuple[dict[str, Any], ...] = ()
     challenge_intensity: str | None = None
     prior_question_context: tuple[dict[str, Any], ...] = ()
@@ -368,7 +400,12 @@ def output_schema_for(task_type: str) -> dict[str, Any]:
     )
 
 
-def validate_provider_output(task_type: str, value: Any) -> dict[str, Any]:
+def validate_provider_output(
+    task_type: str,
+    value: Any,
+    *,
+    conflict_metadata: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Validate provider output again inside the domain boundary."""
     if not isinstance(value, dict):
         raise ProviderError(
@@ -427,7 +464,7 @@ def validate_provider_output(task_type: str, value: Any) -> dict[str, Any]:
     if task_type in {"challenge_question", "challenge_follow_up"}:
         return _validate_challenge_question_output(value)
     if task_type == "challenge_evaluation":
-        return _validate_challenge_evaluation_output(value)
+        return _validate_challenge_evaluation_output(value, conflict_metadata=conflict_metadata)
     raise ProviderError(
         "PROVIDER_REQUEST_FAILED",
         "The reasoning task is not supported.",
@@ -483,7 +520,11 @@ def _validate_challenge_question_output(value: Any) -> dict[str, Any]:
     }
 
 
-def _validate_challenge_evaluation_output(value: Any) -> dict[str, Any]:
+def _validate_challenge_evaluation_output(
+    value: Any,
+    *,
+    conflict_metadata: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None,
+) -> dict[str, Any]:
     required = {
         "correctness",
         "directness",
@@ -538,6 +579,22 @@ def _validate_challenge_evaluation_output(value: Any) -> dict[str, Any]:
             "CHALLENGE_OUTPUT_INVALID",
             "The reasoning provider returned duplicate evaluation IDs or points.",
         )
+    status = str(source_support["status"])
+    if status in {"supported", "partially_supported"} and not supported_ids:
+        raise ProviderError(
+            "CHALLENGE_OUTPUT_INVALID",
+            "Supported Challenge evaluation status requires supporting evidence IDs.",
+        )
+    if status == "unsupported" and supported_ids:
+        raise ProviderError(
+            "CHALLENGE_OUTPUT_INVALID",
+            "Unsupported Challenge evaluation status cannot include supporting evidence IDs.",
+        )
+    if status == "conflicted" and not has_conflict_basis(conflict_metadata):
+        raise ProviderError(
+            "CHALLENGE_OUTPUT_INVALID",
+            "Conflicted Challenge evaluation status requires supplied conflict metadata.",
+        )
     return {
         **dimensions,
         "source_support": {
@@ -547,6 +604,38 @@ def _validate_challenge_evaluation_output(value: Any) -> dict[str, Any]:
         "missing_points": [item.strip() for item in missing_points],
         "supported_evidence_ids": list(supported_ids),
     }
+
+
+def has_conflict_basis(
+    conflict_metadata: tuple[dict[str, Any], ...] | list[dict[str, Any]] | None,
+) -> bool:
+    """Return whether retrieval established incompatible supported values."""
+    if not conflict_metadata:
+        return False
+    for item in conflict_metadata:
+        if not isinstance(item, dict):
+            continue
+        values = item.get("values")
+        evidence = item.get("evidence")
+        if not isinstance(values, list) or len(values) < 2:
+            continue
+        normalized_values = {
+            str(value.get("normalized_value"))
+            for value in values
+            if isinstance(value, dict) and isinstance(value.get("normalized_value"), str)
+        }
+        evidence_ids = (
+            {
+                str(reference.get("evidence_id"))
+                for reference in evidence
+                if isinstance(reference, dict) and isinstance(reference.get("evidence_id"), str)
+            }
+            if isinstance(evidence, list)
+            else set()
+        )
+        if len(normalized_values) >= 2 and evidence_ids:
+            return True
+    return False
 
 
 def _validate_score_dimension(

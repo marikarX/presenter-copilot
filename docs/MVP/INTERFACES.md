@@ -338,6 +338,14 @@ and style-match objects, source support, missing points, and validated
 canonical evidence IDs. Scores are normalized to 0.0–1.0; style match may be
 null when approved style evidence is unavailable.
 
+For `challenge_evaluation`, the complete validated answer is sent to the
+provider up to the 4,000-character answer bound. Provider packet fitting may
+drop lower-priority prior questions, extra audience observations, style
+examples, or extra retrieved evidence, but never shortens the current answer.
+If the complete answer, trusted instructions, and minimum grounding cannot
+fit the bounded request, core returns `CHALLENGE_CONTEXT_TOO_LARGE` without
+creating an AnswerVersion.
+
 `challenge.retry_question` transitions the current evaluated Question back to
 `awaiting_answer` without creating another Question. The next submission
 creates another AnswerVersion. `challenge.save_preferred_answer` is explicit
@@ -352,11 +360,16 @@ accepts bounded `limit` and `offset` values and returns paginated Question,
 AnswerVersion, evaluation, preference, and evidence summaries. It never
 returns a raw database or unbounded session payload.
 
+`challenge.get_state` also returns `session_status`. A stopped session remains
+readable for history/recovery, but its `valid_next_actions` is empty and all
+Challenge mutations are rejected as inactive.
+
 Challenge mutations reject cross-project IDs and invalid transitions with
 stable errors including `CHALLENGE_CONFIG_INVALID`,
 `CHALLENGE_AUDIENCE_INVALID`, `CHALLENGE_STATE_INVALID`,
 `CHALLENGE_QUESTION_NOT_FOUND`, `CHALLENGE_ANSWER_NOT_FOUND`,
-`CHALLENGE_CONTEXT_INSUFFICIENT`, and `CHALLENGE_OUTPUT_INVALID`.
+`CHALLENGE_CONTEXT_INSUFFICIENT`, `CHALLENGE_CONTEXT_TOO_LARGE`,
+`CHALLENGE_CONTEXT_STALE`, and `CHALLENGE_OUTPUT_INVALID`.
 
 The `challenge.question` and `challenge.evaluation` events contain only
 bounded IDs, statuses, and summaries. They contain no filesystem paths,
@@ -536,6 +549,7 @@ ReasoningProvider
 
 ```text
 task_type
+task_instruction (core-owned trusted Challenge contract)
 question
 user_input
 current_slide_summary
@@ -550,6 +564,15 @@ latency_budget_ms
 ```
 
 Provider adapters must not query project storage directly. Context assembly happens before provider invocation so privacy behavior is testable.
+
+For `challenge_question`, `challenge_follow_up`, and `challenge_evaluation`,
+core supplies a bounded trusted task instruction. The OpenAI adapter places
+the application policy and task instruction in trusted system/application
+content, structurally separate from user content containing untrusted project
+evidence, audience text, transcript excerpts, and prior answers. The task
+instruction is included in request-size budgeting but its body is never
+persisted in a ProviderRun manifest. Providers receive no tools and do not
+receive a request to reveal chain-of-thought.
 
 M3 implements the `NONE`, `RETRIEVAL_ONLY`, `LOCAL_REASONING`, and
 `REMOTE_REASONING` route vocabulary for Teach. The deterministic fake provider
@@ -593,7 +616,7 @@ Before every remote call, core emits/stores a manifest:
   "provider_id": "...",
   "task_type": "teach_candidate",
   "privacy_mode": "selected_context_cloud",
-  "classes_sent": ["application_policy", "question", "document_excerpt", "user_knowledge"],
+  "classes_sent": ["application_policy", "task_instruction", "question", "document_excerpt", "user_knowledge"],
   "source_ids": ["..."],
   "knowledge_item_ids": ["..."],
   "speaker_evidence_ids": [],

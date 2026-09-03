@@ -262,6 +262,19 @@ The deterministic core suite covers at minimum:
   de-duplication, intensity framing, and insufficient-context failure;
 - strict question/evaluation output bounds, provider-invented evidence
   rejection, conflict status, unavailable style score, and bounded feedback;
+- complete answers longer than the document-excerpt bound reach evaluation
+  intact, local word-count/speaking-time metrics use the persisted answer,
+  and irreducible provider-context overflow returns
+  `CHALLENGE_CONTEXT_TOO_LARGE` without an AnswerVersion;
+- in-flight AudienceObservation remap/unmap stales the context before
+  question persistence, and historical observation references report
+  `available=false` without rewriting the old Question;
+- KnowledgeItem text and preferred flags remain authoritative over
+  UserStatement provenance text, including divergence and explicit
+  re-promotion after a preferred flag is cleared;
+- trusted task instructions are present for question, follow-up, and
+  evaluation requests in structurally separate provider system content, and
+  contradictory source-support statuses/evidence IDs are rejected;
 - typed answer persistence, one-Question retry history, bounded follow-up
   parentage, and restart recovery without regeneration;
 - explicit/idempotent preferred-answer promotion, replacement without duplicate
@@ -270,7 +283,8 @@ The deterministic core suite covers at minimum:
   deletion cleanup;
 - Local Only no-remote-call behavior, current privacy reread, selected-context
   manifests, absence of full corpus/raw transcript/private content, inert
-  prompt injection, and renderer-safe serializable errors.
+  prompt injection, stopped-session read-only recovery actions, and
+  renderer-safe serializable errors.
 
 ### E2E-05 Run
 

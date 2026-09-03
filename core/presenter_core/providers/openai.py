@@ -101,15 +101,18 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 "The reasoning task is not supported.",
             )
         started = monotonic()
+        system_content = [
+            {"type": "input_text", "text": request.application_policy},
+        ]
+        if request.task_instruction:
+            system_content.append({"type": "input_text", "text": request.task_instruction})
         try:
             response = client.responses.create(
                 model=self.model_id,
                 input=[
                     {
                         "role": "system",
-                        "content": [
-                            {"type": "input_text", "text": request.application_policy},
-                        ],
+                        "content": system_content,
                     },
                     {
                         "role": "user",
@@ -137,7 +140,11 @@ class OpenAIReasoningProvider(ReasoningProvider):
             output_text = getattr(response, "output_text", None)
             if not isinstance(output_text, str) or not output_text.strip():
                 output_text = self._extract_output_text(response)
-            output = validate_provider_output(request.task_type, json.loads(output_text))
+            output = validate_provider_output(
+                request.task_type,
+                json.loads(output_text),
+                conflict_metadata=request.conflict_metadata,
+            )
         except ProviderError:
             raise
         except (TypeError, ValueError, json.JSONDecodeError) as error:

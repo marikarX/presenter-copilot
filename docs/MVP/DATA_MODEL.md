@@ -719,6 +719,27 @@ row and creates another immutable AnswerVersion. Normal and follow-up questions
 are separate Question rows; a follow-up records `parent_question_id` and uses
 the same audience profile.
 
+The complete validated typed answer up to 4,000 characters is the text sent to
+the Challenge evaluation provider and the text persisted in AnswerVersion;
+provider context fitting never substitutes a document-excerpt prefix. Word
+count and estimated speaking time are calculated from that same complete
+validated answer. If the complete answer plus trusted instructions and minimum
+grounding cannot fit the bounded request, evaluation fails with
+`CHALLENGE_CONTEXT_TOO_LARGE` and no AnswerVersion is created.
+
+Audience observation references are checked against the current M4
+AudienceContext rules before a generated Question is inserted. Historical
+references remain in Challenge history, but `available` is false when the
+profile is inactive/deleted, the observation is stale/sensitive/deleted, or a
+source-derived observation no longer has current transcript attribution.
+
+For KnowledgeItem-backed Challenge evidence, `KnowledgeItem.text` is the
+authoritative current evidence payload and `UserStatement.text` is provenance
+only. The canonical reference returns the KnowledgeItem ID and UserStatement
+ID separately, and `preferred` is read from the KnowledgeItem flag rather than
+inferred from `kind=answer`. An explicit re-save of an already promoted answer
+sets both linked preferred flags true again.
+
 An ordinary Challenge answer is not Project Brain knowledge. Only explicit
 `challenge.save_preferred_answer` creates a `kind=answer`, `preferred=true`,
 `use_rehearsal=true`, `use_live=true`, `created_by=user` KnowledgeItem through

@@ -22,6 +22,7 @@ from presenter_core.providers.models import (
     ProviderError,
     ReasoningProvider,
     ReasoningRequest,
+    has_conflict_basis,
     validate_provider_output,
 )
 from presenter_core.providers.router import ReasoningRoute, ReasoningRouter
@@ -380,7 +381,11 @@ class ChallengeService:
             request=request,
             manifest=manifest,
         )
-        output = validate_provider_output(task_type, result.output)
+        output = validate_provider_output(
+            task_type,
+            result.output,
+            conflict_metadata=request.conflict_metadata,
+        )
         supplied_evidence = self._supplied_evidence_map(request)
         supplied_observations = self._supplied_observation_ids(request, profile_id)
         evidence_ids = [str(item) for item in output["evidence_ids"]]
@@ -398,6 +403,7 @@ class ChallengeService:
                 "outside its context.",
             )
         with self._storage.project_database(project_id) as connection:
+            connection.execute("BEGIN IMMEDIATE")
             current_config = self._config_row(connection, session_id)
             latest = self._latest_question(connection, session_id)
             if str(current_config["state"]) != expected_state:
@@ -410,6 +416,12 @@ class ChallengeService:
                     "CHALLENGE_STATE_INVALID",
                     "The follow-up parent question is no longer current.",
                 )
+            self._revalidate_generated_audience_context(
+                connection,
+                project_id=project_id,
+                profile_id=profile_id,
+                observation_ids=observation_ids,
+            )
             if (
                 connection.execute(
                     "SELECT 1 FROM questions WHERE session_id = ? "
@@ -519,7 +531,7 @@ class ChallengeService:
                     "Challenge state changed while the question was being saved.",
                 )
             connection.commit()
-            question = self._question_dict(connection, question_id)
+            question = self._question_dict(connection, question_id, project_id)
         event_payload = {
             "project_id": project_id,
             "session_id": session_id,
@@ -642,7 +654,11 @@ class ChallengeService:
             request=request,
             manifest=manifest,
         )
-        output = validate_provider_output("challenge_evaluation", result.output)
+        output = validate_provider_output(
+            "challenge_evaluation",
+            result.output,
+            conflict_metadata=request.conflict_metadata,
+        )
         supplied_evidence = self._supplied_evidence_map(request)
         supported_ids = [str(item) for item in output["supported_evidence_ids"]]
         if len(supported_ids) > MAX_PROVIDER_EVIDENCE_IDS or not set(supported_ids).issubset(
@@ -657,7 +673,7 @@ class ChallengeService:
                 "CHALLENGE_OUTPUT_INVALID",
                 "The Challenge evaluation returned too many missing points.",
             )
-        evaluation = self._normalize_evaluation(output, request)
+        evaluation = self._normalize_evaluation(output, request, answer_text=answer_text)
         with self._storage.project_database(project_id) as connection:
             current_config = self._config_row(connection, session_id)
             latest = self._latest_question(connection, session_id)
@@ -881,6 +897,11 @@ class ChallengeService:
                 ).fetchone()
                 if knowledge is not None:
                     connection.execute(
+                        "UPDATE knowledge_items SET use_live = 1, use_rehearsal = 1, "
+                        "preferred = 1, updated_at = ? WHERE id = ? AND project_id = ?",
+                        (utc_now(), existing_knowledge_id, project_id),
+                    )
+                    connection.execute(
                         "UPDATE answer_versions SET preferred = 0 WHERE question_id = ?",
                         (question_id,),
                     )
@@ -1012,7 +1033,7 @@ class ChallengeService:
             current = self._latest_question(connection, session_id)
             state = "unconfigured" if config_row is None else str(config_row["state"])
             current_question = (
-                self._question_dict(connection, str(current["id"])) if current else None
+                self._question_dict(connection, str(current["id"]), project_id) if current else None
             )
             latest_answer = (
                 connection.execute(
@@ -1032,13 +1053,16 @@ class ChallengeService:
                 else None
             )
             config = self._config_dict(config_row) if config_row is not None else None
-            actions = self._valid_actions(
-                state, bool(config_row and config_row["allow_follow_ups"])
+            actions = (
+                self._valid_actions(state, bool(config_row and config_row["allow_follow_ups"]))
+                if str(session["status"]) == "active"
+                else []
             )
         availability = self._availability(project_id, task_type="challenge_question")
         return {
             "project_id": project_id,
             "session_id": session_id,
+            "session_status": str(session["status"]),
             "state": state,
             "config": config,
             "audiences": audiences,
@@ -1072,7 +1096,9 @@ class ChallengeService:
             ).fetchall()
             has_more = len(rows) > limit
             rows = rows[:limit]
-            history = [self._history_question_dict(connection, str(row["id"])) for row in rows]
+            history = [
+                self._history_question_dict(connection, str(row["id"]), project_id) for row in rows
+            ]
             total_row = connection.execute(
                 "SELECT COUNT(*) FROM questions WHERE session_id = ?", (session_id,)
             ).fetchone()
@@ -1182,7 +1208,11 @@ class ChallengeService:
         started = monotonic()
         try:
             result = provider.generate(request)
-            validate_provider_output(request.task_type, result.output)
+            validate_provider_output(
+                request.task_type,
+                result.output,
+                conflict_metadata=request.conflict_metadata,
+            )
         except ProviderError as error:
             self._finish_provider_run(
                 project_id, run_id, status="error", error=error, started_monotonic=started
@@ -1388,7 +1418,12 @@ class ChallengeService:
             for row in rows
         ]
 
-    def _question_dict(self, connection: sqlite3.Connection, question_id: str) -> dict[str, Any]:
+    def _question_dict(
+        self,
+        connection: sqlite3.Connection,
+        question_id: str,
+        project_id: str,
+    ) -> dict[str, Any]:
         row = connection.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
         if row is None:
             raise CoreDomainError(
@@ -1425,14 +1460,14 @@ class ChallengeService:
             "evidence": self._evidence_refs(
                 connection, "question_evidence", "question_id", question_id
             ),
-            "audience_observations": self._observation_refs(connection, question_id),
+            "audience_observations": self._observation_refs(connection, question_id, project_id),
             "created_at": row["created_at"],
         }
 
     def _history_question_dict(
-        self, connection: sqlite3.Connection, question_id: str
+        self, connection: sqlite3.Connection, question_id: str, project_id: str
     ) -> dict[str, Any]:
-        result = self._question_dict(connection, question_id)
+        result = self._question_dict(connection, question_id, project_id)
         answer_rows = connection.execute(
             """
             SELECT id FROM answer_versions
@@ -1537,8 +1572,35 @@ class ChallengeService:
         return found is not None
 
     def _observation_refs(
-        self, connection: sqlite3.Connection, question_id: str
+        self,
+        connection: sqlite3.Connection,
+        question_id: str,
+        project_id: str,
     ) -> list[dict[str, Any]]:
+        question = connection.execute(
+            "SELECT asked_by_audience_profile_id FROM questions WHERE id = ?",
+            (question_id,),
+        ).fetchone()
+        current_observation_ids: set[str] = set()
+        profile_id = question["asked_by_audience_profile_id"] if question is not None else None
+        if isinstance(profile_id, str):
+            try:
+                current_context = self._audience.build_context_for_connection(
+                    connection,
+                    project_id=project_id,
+                    audience_profile_ids=[profile_id],
+                )
+            except CoreDomainError:
+                current_context = {"profiles": []}
+            for profile in current_context.get("profiles", []):
+                if not isinstance(profile, dict) or str(profile.get("id")) != profile_id:
+                    continue
+                current_observation_ids = {
+                    str(observation["id"])
+                    for observation in profile.get("observations", [])
+                    if isinstance(observation, dict) and isinstance(observation.get("id"), str)
+                }
+                break
         rows = connection.execute(
             """
             SELECT observation_id, available FROM question_audience_observations
@@ -1550,10 +1612,7 @@ class ChallengeService:
             {
                 "observation_id": row["observation_id"],
                 "available": bool(row["available"])
-                and connection.execute(
-                    "SELECT 1 FROM audience_observations WHERE id = ?", (row["observation_id"],)
-                ).fetchone()
-                is not None,
+                and str(row["observation_id"]) in current_observation_ids,
             }
             for row in rows
         ]
@@ -1693,7 +1752,7 @@ class ChallengeService:
         knowledge = connection.execute(
             """
             SELECT k.id AS evidence_id, k.text AS knowledge_text, k.kind,
-                   k.private, us.id AS source_id, us.text AS statement_text
+                   k.private, k.preferred, us.id AS source_id
             FROM knowledge_items AS k
             JOIN knowledge_evidence AS ke
               ON ke.knowledge_item_id = k.id AND ke.provenance_type = 'user_statement'
@@ -1716,10 +1775,10 @@ class ChallengeService:
                 if knowledge["kind"] == "answer"
                 else "Your Teach explanation"
             ),
-            "text": str(knowledge["statement_text"]),
+            "text": str(knowledge["knowledge_text"]),
             "private": bool(knowledge["private"]),
             "knowledge_item_id": str(knowledge["evidence_id"]),
-            "preferred": bool(knowledge["kind"] == "answer"),
+            "preferred": bool(knowledge["preferred"]),
         }
 
     @staticmethod
@@ -1747,11 +1806,15 @@ class ChallengeService:
         return result
 
     @staticmethod
-    def _normalize_evaluation(output: dict[str, Any], request: ReasoningRequest) -> dict[str, Any]:
+    def _normalize_evaluation(
+        output: dict[str, Any],
+        request: ReasoningRequest,
+        *,
+        answer_text: str,
+    ) -> dict[str, Any]:
         evaluation = {
             key: dict(value) if isinstance(value, dict) else value for key, value in output.items()
         }
-        answer_text = request.user_input or ""
         word_count = len(answer_text.split())
         evaluation["word_count"] = word_count
         evaluation["estimated_speaking_seconds"] = round(
@@ -1768,7 +1831,7 @@ class ChallengeService:
                 "score": None,
                 "feedback": "Not enough style evidence to assess style match.",
             }
-        if request.conflict_metadata:
+        if has_conflict_basis(request.conflict_metadata):
             evaluation["source_support"] = {
                 "status": "conflicted",
                 "feedback": "Relevant project evidence contains a conflict; state the "
@@ -1816,6 +1879,50 @@ class ChallengeService:
                     (profile_id, project_id),
                 ).fetchone()
                 is not None
+            )
+
+    def _revalidate_generated_audience_context(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        profile_id: str,
+        observation_ids: list[str],
+    ) -> None:
+        """Reapply M4's current profile/observation rules before question insertion."""
+        try:
+            current_context = self._audience.build_context_for_connection(
+                connection,
+                project_id=project_id,
+                audience_profile_ids=[profile_id],
+            )
+        except CoreDomainError as error:
+            raise CoreDomainError(
+                "CHALLENGE_CONTEXT_STALE",
+                "The selected AudienceContext changed while the question was being generated; "
+                "retry with current audience state.",
+            ) from error
+        profiles = [
+            profile
+            for profile in current_context.get("profiles", [])
+            if isinstance(profile, dict) and str(profile.get("id")) == profile_id
+        ]
+        if len(profiles) != 1:
+            raise CoreDomainError(
+                "CHALLENGE_CONTEXT_STALE",
+                "The selected audience profile is no longer active; retry with current audience "
+                "state.",
+            )
+        current_observation_ids = {
+            str(observation["id"])
+            for observation in profiles[0].get("observations", [])
+            if isinstance(observation, dict) and isinstance(observation.get("id"), str)
+        }
+        if not set(observation_ids).issubset(current_observation_ids):
+            raise CoreDomainError(
+                "CHALLENGE_CONTEXT_STALE",
+                "An audience observation became stale while the question was being generated; "
+                "retry with current audience state.",
             )
 
     def _invalidate_source_refs(

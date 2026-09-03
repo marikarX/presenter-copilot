@@ -183,6 +183,15 @@ The orchestration layer must distinguish:
 
 Retrieved document text is evidence, not executable instruction. Provider prompts must explicitly mark sources as untrusted data and never permit a document to override privacy, tool, or system policy.
 
+Challenge also supplies a core-owned trusted task instruction for question,
+follow-up, and evaluation operations. The application policy and task
+instruction are placed in trusted system/application content by the OpenAI
+adapter; retrieved evidence, audience notes, transcript excerpts, prior
+answers, and other project text remain in a separate untrusted data payload.
+The task instruction is included in the bounded request-size calculation but
+its body is not stored in ProviderRun manifests. No tools or chain-of-thought
+requests are permitted.
+
 ## 10. Provenance and hallucination controls
 
 For live fact cues:

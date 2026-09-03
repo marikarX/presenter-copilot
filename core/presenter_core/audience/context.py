@@ -40,54 +40,76 @@ class AudienceContextBuilder:
         audience_profile_ids: list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         normalized_project_id = normalize_project_id(project_id)
-        requested_ids = None
-        if audience_profile_ids is not None:
-            requested_ids_list: list[str] = []
-            if len(audience_profile_ids) > MAX_CONTEXT_PROFILES:
-                raise CoreDomainError(
-                    "INVALID_REQUEST",
-                    "audience_profile_ids contains too many profiles.",
-                    details={"field": "audience_profile_ids"},
-                )
-            for profile_id in audience_profile_ids:
-                try:
-                    normalized_profile_id = str(uuid.UUID(profile_id))
-                except (ValueError, TypeError, AttributeError) as exc:
-                    raise CoreDomainError(
-                        "INVALID_REQUEST",
-                        "audience_profile_ids must contain UUIDs.",
-                        details={"field": "audience_profile_ids"},
-                    ) from exc
-                if normalized_profile_id not in requested_ids_list:
-                    requested_ids_list.append(normalized_profile_id)
-            requested_ids = tuple(requested_ids_list)
+        requested_ids = self._normalize_profile_ids(audience_profile_ids)
 
         with self._storage.project_database(normalized_project_id) as connection:
-            clauses = ["ap.project_id = ?", "ap.active = 1"]
-            parameters: list[Any] = [normalized_project_id]
-            if requested_ids is not None and requested_ids:
-                placeholders = ", ".join("?" for _ in requested_ids)
-                clauses.append(f"ap.id IN ({placeholders})")
-                parameters.extend(requested_ids)
-            elif requested_ids is not None:
-                clauses.append("1 = 0")
-            profiles = connection.execute(
-                "SELECT * FROM audience_profiles AS ap WHERE "
-                + " AND ".join(clauses)
-                + " ORDER BY ap.display_name COLLATE NOCASE, ap.id LIMIT ?",
-                [*parameters, MAX_CONTEXT_PROFILES],
-            ).fetchall()
-            if requested_ids is not None:
-                found = {str(row["id"]) for row in profiles}
-                missing = [profile_id for profile_id in requested_ids if profile_id not in found]
-                if missing:
-                    raise CoreDomainError(
-                        "AUDIENCE_PROFILE_NOT_FOUND",
-                        "One or more audience profiles were not found or are inactive.",
-                    )
-            result_profiles = [self._profile_context(connection, profile) for profile in profiles]
+            return self.build_with_connection(
+                connection,
+                project_id=normalized_project_id,
+                audience_profile_ids=requested_ids,
+            )
+
+    def build_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        audience_profile_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        """Build context from an existing project connection without committing it."""
+        normalized_project_id = normalize_project_id(project_id)
+        requested_ids = self._normalize_profile_ids(audience_profile_ids)
+        clauses = ["ap.project_id = ?", "ap.active = 1"]
+        parameters: list[Any] = [normalized_project_id]
+        if requested_ids is not None and requested_ids:
+            placeholders = ", ".join("?" for _ in requested_ids)
+            clauses.append(f"ap.id IN ({placeholders})")
+            parameters.extend(requested_ids)
+        elif requested_ids is not None:
+            clauses.append("1 = 0")
+        profiles = connection.execute(
+            "SELECT * FROM audience_profiles AS ap WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY ap.display_name COLLATE NOCASE, ap.id LIMIT ?",
+            [*parameters, MAX_CONTEXT_PROFILES],
+        ).fetchall()
+        if requested_ids is not None:
+            found = {str(row["id"]) for row in profiles}
+            missing = [profile_id for profile_id in requested_ids if profile_id not in found]
+            if missing:
+                raise CoreDomainError(
+                    "AUDIENCE_PROFILE_NOT_FOUND",
+                    "One or more audience profiles were not found or are inactive.",
+                )
+        result_profiles = [self._profile_context(connection, profile) for profile in profiles]
         context = {"project_id": normalized_project_id, "profiles": result_profiles}
         return _fit_context_budget(context)
+
+    @staticmethod
+    def _normalize_profile_ids(
+        audience_profile_ids: list[str] | tuple[str, ...] | None,
+    ) -> tuple[str, ...] | None:
+        if audience_profile_ids is None:
+            return None
+        requested_ids_list: list[str] = []
+        if len(audience_profile_ids) > MAX_CONTEXT_PROFILES:
+            raise CoreDomainError(
+                "INVALID_REQUEST",
+                "audience_profile_ids contains too many profiles.",
+                details={"field": "audience_profile_ids"},
+            )
+        for profile_id in audience_profile_ids:
+            try:
+                normalized_profile_id = str(uuid.UUID(profile_id))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise CoreDomainError(
+                    "INVALID_REQUEST",
+                    "audience_profile_ids must contain UUIDs.",
+                    details={"field": "audience_profile_ids"},
+                ) from exc
+            if normalized_profile_id not in requested_ids_list:
+                requested_ids_list.append(normalized_profile_id)
+        return tuple(requested_ids_list)
 
     @staticmethod
     def _profile_context(connection: sqlite3.Connection, profile: sqlite3.Row) -> dict[str, Any]:

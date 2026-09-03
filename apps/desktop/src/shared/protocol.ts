@@ -607,6 +607,7 @@ export interface ChallengeReasoningStatus {
 export interface ChallengeStateResult {
   project_id: string;
   session_id: string;
+  session_status: Session["status"];
   state: "unconfigured" | ChallengeConfig["state"];
   config: ChallengeConfig | null;
   audiences: ChallengeAudienceSummary[];

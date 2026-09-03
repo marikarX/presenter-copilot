@@ -211,7 +211,11 @@ follow-up relationships, and explicit preferred-answer promotion. It composes
 `ReasoningRouter`; it does not introduce a second retrieval store, persona
 builder, provider abstraction, or database. Question and evaluation provider
 calls are made outside SQLite write transactions and are committed only after
-core revalidates the session and validates every returned provenance ID.
+core revalidates the session, reapplies the current M4 AudienceContext rules
+inside the persistence connection, and validates every returned provenance ID.
+Challenge evaluation preserves the complete validated typed answer; lower
+priority context is dropped before the current answer can be shortened, and
+an irreducible packet overflow fails closed.
 
 The renderer receives only bounded Challenge state/history projections through
 explicit IPC methods. It never reconstructs Challenge authority from button

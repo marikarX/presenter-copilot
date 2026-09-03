@@ -33,6 +33,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
         self.model_id = model_id
         self.failure_code = failure_code
         self.requests: list[dict[str, Any]] = []
+        self.request_objects: list[ReasoningRequest] = []
         self.call_count = 0
 
     def capabilities(self) -> ProviderCapabilities:
@@ -70,6 +71,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
         self.call_count += 1
         self.requests.append(request.to_payload())
+        self.request_objects.append(request)
         if self.failure_code is not None:
             raise ProviderError(
                 self.failure_code,
@@ -211,6 +213,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                 "evidence_ids": evidence_ids,
                 "audience_observation_ids": observation_ids,
             },
+            conflict_metadata=request.conflict_metadata,
         )
 
     @staticmethod
@@ -244,7 +247,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
         elif overlap >= 2:
             support_status = "supported"
             support_feedback = "The answer uses terms supported by the supplied project evidence."
-        elif answer:
+        elif overlap >= 1:
             support_status = "partially_supported"
             support_feedback = "Only part of the answer is connected to the supplied evidence."
         else:
@@ -253,7 +256,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
         supported_ids = [
             str(item["evidence_id"])
             for item in grounding[:2]
-            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str) and overlap >= 2
+            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str) and overlap >= 1
         ]
         result = {
             "correctness": {
@@ -287,4 +290,8 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             else ["Connect the answer to a specific project source or decision."],
             "supported_evidence_ids": supported_ids,
         }
-        return validate_provider_output(request.task_type, result)
+        return validate_provider_output(
+            request.task_type,
+            result,
+            conflict_metadata=request.conflict_metadata,
+        )
