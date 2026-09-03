@@ -7,26 +7,26 @@
     "compute_type": "int8",
     "device": "cpu"
   },
-  "final_real_time_factor": 0.1102,
+  "final_real_time_factor": 0.1038,
   "finalization_ms": {
-    "first_ms": 341.546,
-    "max_ms": 341.546,
-    "p50_ms": 336.528,
-    "p95_ms": 341.044
+    "first_ms": 321.743,
+    "max_ms": 654.118,
+    "p50_ms": 322.28,
+    "p95_ms": 620.935
   },
   "first_partial_after_onset_ms": {
-    "first_ms": 669.316,
-    "max_ms": 688.318,
-    "p50_ms": 669.316,
-    "p95_ms": 686.418
+    "first_ms": 660.568,
+    "max_ms": 926.449,
+    "p50_ms": 898.8,
+    "p95_ms": 923.684
   },
   "fixture_duration_seconds": 7.135,
   "fixture_id": "synthetic-asr-speech-v1",
-  "git_sha": "49ae4d5b4ddae483b621d3018438ab193df8565d",
+  "git_sha": "bda7b1c129e0b58659e5d2992d318988cbda1d27",
   "iterations": 3,
   "local_files_only": true,
   "model_id": "Systran/faster-whisper-base.en",
-  "model_load_ms": 443.877,
+  "model_load_ms": 426.034,
   "network_allowed_by_this_command": false,
   "platform": "Windows-11-10.0.26200-SP0",
   "provider_called": false,
