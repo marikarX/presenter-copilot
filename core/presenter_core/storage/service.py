@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,19 +22,23 @@ class StorageManager:
         self.paths = AppPaths(data_root)
         self.paths.ensure_layout()
         self._app = connect_app_database(self.paths.app_database)
+        self._app_lock = threading.RLock()
 
     @property
     def app_schema_version(self) -> int:
-        row = self._app.execute("PRAGMA user_version").fetchone()
-        return int(row[0]) if row else 0
+        with self._app_lock:
+            row = self._app.execute("PRAGMA user_version").fetchone()
+            return int(row[0]) if row else 0
 
     @contextmanager
     def app_database(self) -> Iterator[sqlite3.Connection]:
         """Expose the already-open app database for bounded app-scope services."""
-        yield self._app
+        with self._app_lock:
+            yield self._app
 
     def close(self) -> None:
-        self._app.close()
+        with self._app_lock:
+            self._app.close()
 
     def project_paths(self, project_id: str, *, require_exists: bool = True) -> ProjectPaths:
         normalized_id = normalize_project_id(project_id)
@@ -68,64 +73,70 @@ class StorageManager:
 
     def app_row(self, project_id: str) -> sqlite3.Row:
         normalized_id = normalize_project_id(project_id)
-        row = self._app.execute(
-            "SELECT * FROM projects WHERE id = ?",
-            (normalized_id,),
-        ).fetchone()
+        with self._app_lock:
+            row = self._app.execute(
+                "SELECT * FROM projects WHERE id = ?",
+                (normalized_id,),
+            ).fetchone()
         if row is None:
             raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
         return cast(sqlite3.Row, row)
 
     def list_app_rows(self) -> list[sqlite3.Row]:
-        return list(
-            self._app.execute(
-                "SELECT * FROM projects "
-                "ORDER BY COALESCE(last_opened_at, updated_at) DESC, created_at DESC"
-            ).fetchall()
-        )
+        with self._app_lock:
+            return list(
+                self._app.execute(
+                    "SELECT * FROM projects "
+                    "ORDER BY COALESCE(last_opened_at, updated_at) DESC, created_at DESC"
+                ).fetchall()
+            )
 
     def insert_app_project(self, values: dict[str, Any]) -> None:
-        self._app.execute(
-            """
-            INSERT INTO projects (
-                id, name, project_relative_path, created_at, updated_at, last_opened_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                values["id"],
-                values["name"],
-                values["project_relative_path"],
-                values["created_at"],
-                values["updated_at"],
-                values.get("last_opened_at"),
-            ),
-        )
-        self._app.commit()
+        with self._app_lock:
+            self._app.execute(
+                """
+                INSERT INTO projects (
+                    id, name, project_relative_path, created_at, updated_at, last_opened_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    values["id"],
+                    values["name"],
+                    values["project_relative_path"],
+                    values["created_at"],
+                    values["updated_at"],
+                    values.get("last_opened_at"),
+                ),
+            )
+            self._app.commit()
 
     def update_app_project(self, project_id: str, *, name: str, updated_at: str) -> None:
         normalized_id = normalize_project_id(project_id)
-        cursor = self._app.execute(
-            "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
-            (name, updated_at, normalized_id),
-        )
-        if cursor.rowcount != 1:
-            self._app.rollback()
-            raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
-        self._app.commit()
+        with self._app_lock:
+            cursor = self._app.execute(
+                "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
+                (name, updated_at, normalized_id),
+            )
+            if cursor.rowcount != 1:
+                self._app.rollback()
+                raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
+            self._app.commit()
 
     def mark_project_opened(self, project_id: str, opened_at: str) -> None:
         normalized_id = normalize_project_id(project_id)
-        cursor = self._app.execute(
-            "UPDATE projects SET last_opened_at = ? WHERE id = ?",
-            (opened_at, normalized_id),
-        )
-        if cursor.rowcount != 1:
-            self._app.rollback()
-            raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
-        self._app.commit()
+        with self._app_lock:
+            cursor = self._app.execute(
+                "UPDATE projects SET last_opened_at = ? WHERE id = ?",
+                (opened_at, normalized_id),
+            )
+            if cursor.rowcount != 1:
+                self._app.rollback()
+                raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
+            self._app.commit()
 
     def remove_app_project(self, project_id: str) -> bool:
         normalized_id = normalize_project_id(project_id)
-        cursor = self._app.execute("DELETE FROM projects WHERE id = ?", (normalized_id,))
-        self._app.commit()
-        return cursor.rowcount == 1
+        with self._app_lock:
+            cursor = self._app.execute("DELETE FROM projects WHERE id = ?", (normalized_id,))
+            self._app.commit()
+            return cursor.rowcount == 1

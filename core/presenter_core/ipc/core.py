@@ -4,17 +4,26 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from time import monotonic
 from typing import Any
 
 from presenter_core import CORE_VERSION
+from presenter_core.asr.adapters import (
+    DEFAULT_ASR_ADAPTER_ID,
+    FasterWhisperASRAdapter,
+)
+from presenter_core.asr.interfaces import ASRAdapter, AudioInputAdapter
+from presenter_core.asr.segmenter import VADConfig
+from presenter_core.asr.service import ASRService
 from presenter_core.audience.service import AudienceModelService
 from presenter_core.challenge.service import ChallengeService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.knowledge.service import KnowledgeService
+from presenter_core.presentation.adapters import PresentationAdapter
+from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import ProjectService
 from presenter_core.providers.context import ProviderContextBuilder
 from presenter_core.providers.models import ReasoningProvider
@@ -26,6 +35,7 @@ from presenter_core.retrieval.embeddings import (
 )
 from presenter_core.retrieval.lexical import LexicalRetrievalService
 from presenter_core.retrieval.service import HybridRetrievalService
+from presenter_core.run.service import RunService
 from presenter_core.session.service import SessionService
 from presenter_core.speaker.service import SpeakerProfileService
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
@@ -56,10 +66,15 @@ class CoreService:
         embedding_adapter: EmbeddingAdapter | None = None,
         reasoning_provider: ReasoningProvider | None = None,
         session_app_cleanup: Callable[[str, str], None] | None = None,
+        audio_input: AudioInputAdapter | None = None,
+        asr_adapters: Mapping[str, ASRAdapter] | None = None,
+        presentation_adapter: PresentationAdapter | None = None,
+        vad_config: VADConfig | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
         self._shutdown_requested = False
+        self._closed = False
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
         self._audience = AudienceModelService(self._storage)
@@ -85,6 +100,37 @@ class CoreService:
             self._storage,
             style_context=self._speaker_profile.build_style_context,
             app_cleanup=session_app_cleanup,
+            active_run_cleanup=self._cleanup_active_run_for_delete,
+        )
+        self._presentation = SlideStateService(
+            self._storage,
+            self._sessions.validate_active_run,
+            event_sink=self._emit_service_event,
+            powerpoint_adapter=presentation_adapter,
+        )
+        self._run = RunService(
+            self._storage,
+            self._sessions,
+            self._presentation,
+            self._hybrid_retrieval,
+            asr_stop=self._stop_asr,
+            event_sink=self._emit_service_event,
+            clock=self._clock,
+        )
+        configured_asr_adapters = dict(asr_adapters or {})
+        if not configured_asr_adapters:
+            default_asr = FasterWhisperASRAdapter(
+                cache_dir=self._storage.paths.asr_model_cache_directory(create=True),
+            )
+            configured_asr_adapters = {DEFAULT_ASR_ADAPTER_ID: default_asr}
+        self._asr = ASRService(
+            audio_input=audio_input,
+            adapters=configured_asr_adapters,
+            session_validator=self._sessions.validate_active_run,
+            persist_final=self._run.persist_final_utterance,
+            slide_snapshot=self._presentation.current_slide,
+            event_sink=self._emit_service_event,
+            vad_config=vad_config,
         )
         self._knowledge = KnowledgeService(
             self._storage,
@@ -151,6 +197,12 @@ class CoreService:
                 "retrieval.lexical",
                 "reasoning.fake",
                 "provider.openai.responses",
+                "audio.sounddevice",
+                "asr.faster-whisper",
+                "asr.deterministic-fake",
+                "presentation.manual",
+                "presentation.powerpoint.read-only",
+                "debrief.deterministic-local",
             ],
             "migration_status": "ready",
             "storage": {
@@ -165,6 +217,11 @@ class CoreService:
 
     def close(self) -> None:
         """Close SQLite handles before the sidecar exits."""
+        if self._closed:
+            return
+        self._closed = True
+        self._asr.close()
+        self._presentation.close()
         self._providers.close()
         self._hybrid_retrieval.close()
         self._storage.close()
@@ -307,6 +364,7 @@ class CoreService:
                 result=self._projects.acknowledge_remote_reasoning(params),
             )
         if method == "project.delete":
+            self._run.stop_project_runs(params)
             return make_response(request_id, result=self._projects.delete(params))
         if method == "source.import":
             result = self._ingestion.import_source(params)
@@ -363,15 +421,76 @@ class CoreService:
         if method == "retrieval.rebuild":
             return make_response(request_id, result=self._hybrid_retrieval.rebuild(params))
         if method == "session.start":
-            return make_response(request_id, result=self._sessions.start(params))
+            result = self._sessions.start(params)
+            session = result["session"]
+            if session["mode"] == "run":
+                try:
+                    self._run.start(session["project_id"], session["id"])
+                except Exception:
+                    # The session row is not allowed to remain active when
+                    # Run presentation initialization fails.
+                    try:
+                        self._sessions.stop(
+                            {
+                                "project_id": session["project_id"],
+                                "session_id": session["id"],
+                                "status": "error",
+                            }
+                        )
+                    except Exception:
+                        pass
+                    raise
+            self._emit_event("session.started", session)
+            return make_response(request_id, result=result)
         if method == "session.stop":
-            return make_response(request_id, result=self._sessions.stop(params))
+            session = self._sessions.get(
+                {"project_id": params.get("project_id"), "session_id": params.get("session_id")}
+            )["session"]
+            result = (
+                self._run.stop(params) if session["mode"] == "run" else self._sessions.stop(params)
+            )
+            self._emit_event("session.stopped", result["session"])
+            return make_response(request_id, result=result)
         if method == "session.get":
             return make_response(request_id, result=self._sessions.get(params))
         if method == "session.list":
             return make_response(request_id, result=self._sessions.list(params))
         if method == "session.delete":
             return make_response(request_id, result=self._sessions.delete(params))
+        if method == "asr.list_devices":
+            return make_response(request_id, result=self._asr.list_devices(params))
+        if method == "asr.configure":
+            return make_response(request_id, result=self._asr.configure(params))
+        if method == "asr.prepare_model":
+            return make_response(request_id, result=self._asr.prepare_model(params))
+        if method == "asr.start":
+            return make_response(request_id, result=self._asr.start(params))
+        if method == "asr.stop":
+            return make_response(request_id, result=self._asr.stop(params))
+        if method == "asr.status":
+            return make_response(request_id, result=self._asr.status(params))
+        if method == "presentation.detect":
+            return make_response(request_id, result=self._presentation.detect(params))
+        if method == "presentation.set_slide":
+            return make_response(request_id, result=self._presentation.set_slide(params))
+        if method == "presentation.next_slide":
+            return make_response(request_id, result=self._presentation.next_slide(params))
+        if method == "presentation.previous_slide":
+            return make_response(request_id, result=self._presentation.previous_slide(params))
+        if method == "presentation.status":
+            return make_response(request_id, result=self._presentation.status(params))
+        if method == "run.mark_event":
+            return make_response(request_id, result=self._run.mark_event(params))
+        if method == "run.generate_debrief":
+            return make_response(request_id, result=self._run.generate_debrief(params))
+        if method == "run.get_state":
+            return make_response(request_id, result=self._run.get_state(params))
+        if method == "run.list_transcript":
+            return make_response(request_id, result=self._run.list_transcript(params))
+        if method == "run.list_timeline":
+            return make_response(request_id, result=self._run.list_timeline(params))
+        if method == "run.get_debrief":
+            return make_response(request_id, result=self._run.get_debrief(params))
         if method == "teach.next_prompt":
             return make_response(request_id, result=self._teach.next_prompt(params))
         if method == "teach.get_state":
@@ -435,6 +554,22 @@ class CoreService:
 
     def _emit_service_event(self, event: str, payload: dict[str, Any]) -> None:
         self._emit_event(event, payload)
+
+    def _stop_asr(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._asr.stop(params)
+
+    def _cleanup_active_run_for_delete(self, project_id: str, session_id: str) -> None:
+        result = self._run.stop(
+            {"project_id": project_id, "session_id": session_id, "status": "aborted"}
+        )
+        cleanup_code = result.get("cleanup_error_code")
+        if isinstance(cleanup_code, str):
+            raise CoreDomainError(
+                "SESSION_DELETE_RUN_CLEANUP_FAILED",
+                "The active Run could not release its local resources; retry is safe.",
+                retryable=True,
+                details={"cleanup_error_code": cleanup_code},
+            )
 
     def _before_source_delete(self, connection: Any, document_id: str) -> None:
         self._audience.before_source_delete(connection, document_id)

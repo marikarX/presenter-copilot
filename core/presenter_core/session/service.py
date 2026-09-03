@@ -17,6 +17,7 @@ SESSION_STATUSES = frozenset({"active", "completed", "aborted", "error"})
 TEACH_STATES = frozenset(
     {"ready_for_prompt", "prompted", "awaiting_user", "candidate_ready", "completed"}
 )
+ActiveRunCleanup = Callable[[str, str], None]
 
 
 class SessionService:
@@ -27,10 +28,12 @@ class SessionService:
         storage: StorageManager,
         style_context: Callable[[str], dict[str, Any]] | None = None,
         app_cleanup: Callable[[str, str], None] | None = None,
+        active_run_cleanup: ActiveRunCleanup | None = None,
     ) -> None:
         self._storage = storage
         self._style_context = style_context
         self._app_cleanup = app_cleanup or self._clear_app_session_provenance
+        self._active_run_cleanup = active_run_cleanup
 
     def start(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -48,10 +51,10 @@ class SessionService:
         mode = params.get("mode", "teach")
         if not isinstance(mode, str) or mode not in SESSION_MODES:
             raise invalid_request("mode is not supported.", field="mode")
-        if mode not in {"teach", "challenge"}:
+        if mode not in {"teach", "challenge", "run"}:
             raise CoreDomainError(
                 "MODE_NOT_IMPLEMENTED",
-                "Only Teach and Challenge sessions are implemented.",
+                "Only Teach, Challenge, and Run sessions are implemented.",
                 details={"mode": mode},
             )
         with self._storage.project_database(project_id) as connection:
@@ -162,6 +165,34 @@ class SessionService:
             row = self._session_row(connection, project_id, session_id)
             return {"session": self._session_dict(connection, row)}
 
+    def validate_active_run(self, project_id: str, session_id: str) -> dict[str, Any]:
+        """Return the safe session projection required by Run-owned services."""
+        normalized_project_id = normalize_project_id(project_id)
+        try:
+            normalized_session_id = str(uuid.UUID(session_id))
+        except (TypeError, ValueError) as error:
+            raise CoreDomainError("SESSION_NOT_FOUND", "The session was not found.") from error
+        with self._storage.project_database(normalized_project_id) as connection:
+            row = self._session_row(connection, normalized_project_id, normalized_session_id)
+            if row["mode"] != "run":
+                raise CoreDomainError(
+                    "SESSION_MODE_INVALID",
+                    "The selected session is not a Run session.",
+                )
+            if row["status"] != "active":
+                raise CoreDomainError(
+                    "SESSION_NOT_ACTIVE",
+                    "The selected Run session is not active.",
+                )
+            return {
+                "id": row["id"],
+                "project_id": row["project_id"],
+                "mode": row["mode"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "current_slide_start": row["current_slide_start"],
+            }
+
     def list(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id"})
         project_id = self._project_id(params)
@@ -181,7 +212,22 @@ class SessionService:
         # share a transaction, so app cleanup is deliberately completed first;
         # a project-side failure then leaves a retryable, still-present session.
         with self._storage.project_database(project_id) as connection:
-            self._session_row(connection, project_id, session_id)
+            row = self._session_row(connection, project_id, session_id)
+        if (
+            self._active_run_cleanup is not None
+            and row["mode"] == "run"
+            and row["status"] == "active"
+        ):
+            try:
+                self._active_run_cleanup(project_id, session_id)
+            except CoreDomainError:
+                raise
+            except Exception as error:
+                raise CoreDomainError(
+                    "SESSION_DELETE_RUN_CLEANUP_FAILED",
+                    "The active Run could not release its local resources; retry is safe.",
+                    retryable=True,
+                ) from error
         try:
             self._app_cleanup(project_id, session_id)
         except Exception as error:

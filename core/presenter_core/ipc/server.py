@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import TextIO
 
 from .core import CoreService
@@ -16,6 +17,7 @@ class SidecarServer:
         self._stdout = stdout
         self._core = core or CoreService(event_sink=self._write)
         self._core.set_event_sink(self._write)
+        self._write_lock = threading.Lock()
 
     def run(self) -> int:
         """Emit readiness, process requests, and stop after a graceful shutdown."""
@@ -44,6 +46,7 @@ class SidecarServer:
         return 0
 
     def _write(self, message: dict[str, object]) -> None:
-        encoded = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
-        self._stdout.write(f"{encoded}\n")
-        self._stdout.flush()
+        with self._write_lock:
+            encoded = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+            self._stdout.write(f"{encoded}\n")
+            self._stdout.flush()

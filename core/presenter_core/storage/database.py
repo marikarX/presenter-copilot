@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 5
+PROJECT_SCHEMA_VERSION = 6
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -832,6 +832,55 @@ def _migrate_project_v5(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (5,))
 
 
+def _migrate_project_v6(connection: sqlite3.Connection) -> None:
+    """Add bounded Run slide, marker, and debrief persistence."""
+    connection.execute(
+        """
+        CREATE TABLE slide_state_events (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            slide_ordinal INTEGER NOT NULL CHECK (slide_ordinal >= 1),
+            timestamp_ms INTEGER NOT NULL CHECK (timestamp_ms >= 0),
+            source TEXT NOT NULL CHECK (source IN ('powerpoint', 'manual', 'inferred')),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX slide_state_events_session_idx "
+        "ON slide_state_events(session_id, timestamp_ms, id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE run_markers (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            marker_type TEXT NOT NULL CHECK (marker_type IN ('question', 'weak_point', 'note')),
+            timestamp_ms INTEGER NOT NULL CHECK (timestamp_ms >= 0),
+            slide_ordinal INTEGER NULL CHECK (slide_ordinal IS NULL OR slide_ordinal >= 1),
+            note TEXT NULL CHECK (note IS NULL OR length(note) <= 1_000),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX run_markers_session_idx ON run_markers(session_id, timestamp_ms, id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE run_debriefs (
+            session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+            algorithm_version TEXT NOT NULL,
+            transcript_fingerprint TEXT NOT NULL,
+            debrief_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (6,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -844,7 +893,7 @@ def connect_app_database(path: str | Path) -> sqlite3.Connection:
         ),
         latest_version=APP_SCHEMA_VERSION,
     )
-    connection = sqlite3.connect(database_path)
+    connection = sqlite3.connect(database_path, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -862,6 +911,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (3, _migrate_project_v3),
             (4, _migrate_project_v4),
             (5, _migrate_project_v5),
+            (6, _migrate_project_v6),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

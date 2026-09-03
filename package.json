@@ -22,8 +22,11 @@
     "setup": "pnpm install --frozen-lockfile && pnpm --filter @presenter-copilot/desktop exec electron --version && uv sync --project core --locked",
     "core:dev": "uv run --directory core --project . --locked python -m presenter_core",
     "model:prepare:embeddings": "uv run --directory core --project . --locked python -m presenter_core.tools.prepare_embeddings",
+    "model:prepare:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.prepare_asr",
     "test:embedding-real": "uv run --directory core --project . --locked python -m presenter_core.tools.embedding_acceptance",
+    "test:asr-real": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_acceptance",
     "test:provider-real": "uv run --directory core --project . --locked python -m presenter_core.tools.provider_acceptance",
-    "benchmark:retrieval": "uv run --directory core --project . --locked python -m presenter_core.tools.retrieval_benchmark"
+    "benchmark:retrieval": "uv run --directory core --project . --locked python -m presenter_core.tools.retrieval_benchmark",
+    "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark"
   }
 }
