@@ -201,6 +201,18 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
   }, [session?.status]);
 
   useEffect(() => {
+    if (session?.status !== "active") return undefined;
+    const refreshSignal = () => {
+      void requestCore<ASRStatus>("asr.status")
+        .then(setAsrStatus)
+        .catch(() => undefined);
+    };
+    refreshSignal();
+    const timer = window.setInterval(refreshSignal, 1_000);
+    return () => window.clearInterval(timer);
+  }, [session?.status]);
+
+  useEffect(() => {
     const removeListener = window.presenterCopilot.core.onEvent((event) => {
       const eventSessionId = runEventSessionId(event);
       const currentSessionId = session?.id;
@@ -322,6 +334,10 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
   }, [project.id, session?.id]);
 
   const active = session?.status === "active";
+  const inputSignalMissing =
+    active &&
+    asrStatus?.input_signal_state === "silent" &&
+    asrStatus.input_frames_received >= 25;
   const durationMs = currentElapsedMs(session, runState, now);
   const currentSlide = runState?.current_slide ?? session?.current_slide_start;
   const modelReady =
@@ -700,11 +716,18 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
           <div className="run-live-row" aria-live="polite">
             <span className="listening-indicator" aria-hidden="true" />
             <strong>
-              {asrStatus?.capture_state === "running"
-                ? "Listening"
-                : "Starting microphone…"}
+              {inputSignalMissing
+                ? "Microphone open · no signal"
+                : asrStatus?.capture_state === "running"
+                  ? "Listening"
+                  : "Starting microphone…"}
             </strong>
-            {partial ? (
+            {inputSignalMissing ? (
+              <span>
+                Audio frames are arriving, but no usable input signal has been
+                detected. Check mute/routing or choose another microphone.
+              </span>
+            ) : partial ? (
               <span>{partial.text}</span>
             ) : (
               <span>Waiting for speech…</span>

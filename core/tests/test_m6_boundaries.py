@@ -158,6 +158,167 @@ def test_sounddevice_stream_lifecycle_matches_pinned_backend_api() -> None:
     assert stream.started and stream.stopped and stream.closed
 
 
+def test_sounddevice_normalizes_native_stereo_blocks_to_bounded_asr_frames() -> None:
+    class FakeStream:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        def start(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    fake_sounddevice = SimpleNamespace(
+        query_devices=lambda: [
+            {
+                "name": "native stereo input",
+                "hostapi": 0,
+                "max_input_channels": 2,
+                "default_samplerate": 44_100,
+            }
+        ],
+        query_hostapis=lambda: [{"name": "fixture host"}],
+        default=SimpleNamespace(device=(0, 0)),
+        InputStream=FakeStream,
+    )
+    received: list[np.ndarray[Any, Any]] = []
+    audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
+
+    audio.open("0", lambda frame: received.append(frame))
+    stream = audio._stream
+    assert isinstance(stream, FakeStream)
+    assert stream.kwargs["samplerate"] == 44_100.0
+    assert stream.kwargs["blocksize"] == 882
+    assert stream.kwargs["channels"] == 2
+
+    left = np.full(882, 0.01, dtype=np.float32)
+    right = np.full(882, 0.2, dtype=np.float32)
+    stream.kwargs["callback"](np.column_stack((left, right)), 882, None, None)
+
+    assert len(received) == 1
+    assert received[0].dtype == np.float32
+    assert received[0].shape == (ASR_FRAME_SAMPLES,)
+    assert float(np.mean(received[0])) == pytest.approx(0.2, abs=1e-5)
+
+
+def test_asr_status_surfaces_silent_capture_without_exposing_pcm(tmp_path: Path) -> None:
+    audio = DeterministicFakeAudioInput()
+    adapter = DeterministicFakeASRAdapter()
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+        audio_input=audio,
+        asr_adapters={adapter.id: adapter},
+    )
+    try:
+        project_id = str(call(core, "project.create", {"name": "Signal status"})["project"]["id"])
+        session_id = str(
+            call(core, "session.start", {"project_id": project_id, "mode": "run"})["session"]["id"]
+        )
+        call(core, "asr.start", {"project_id": project_id, "session_id": session_id})
+        before = call(core, "asr.status", {})
+        assert before["input_signal_state"] == "unknown"
+        assert before["input_frames_received"] == 0
+
+        with core._asr._lock:
+            active = core._asr._active
+            assert active is not None
+            ingestion_progress = active.ingestion_progress
+        audio.feed(np.zeros(ASR_FRAME_SAMPLES, dtype=np.float32))
+        assert ingestion_progress.wait(2.0)
+
+        after = call(core, "asr.status", {})
+        assert after["input_signal_state"] == "silent"
+        assert after["input_frames_received"] >= 1
+        assert "pcm" not in after
+        assert "audio" not in after
+    finally:
+        core.close()
+
+
+def test_native_sounddevice_callback_reaches_vad_and_durable_final(tmp_path: Path) -> None:
+    class FakeStream:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+            loud = np.full(882, 0.1, dtype=np.float32)
+            quiet = np.zeros(882, dtype=np.float32)
+            for frame in [loud] * 8 + [quiet] * 31:
+                stereo = np.column_stack((frame * 0.5, frame))
+                self.kwargs["callback"](stereo, 882, None, None)
+
+        def stop(self) -> None:
+            self.started = False
+
+        def close(self) -> None:
+            return None
+
+    fake_sounddevice = SimpleNamespace(
+        query_devices=lambda: [
+            {
+                "name": "native stereo input",
+                "hostapi": 0,
+                "max_input_channels": 2,
+                "default_samplerate": 44_100,
+            }
+        ],
+        query_hostapis=lambda: [{"name": "fixture host"}],
+        default=SimpleNamespace(device=(0, 0)),
+        InputStream=FakeStream,
+    )
+    events: list[tuple[str, dict[str, Any]]] = []
+    final_seen = threading.Event()
+    adapter = DeterministicFakeASRAdapter(
+        partial_texts=("native partial",),
+        final_text="Native microphone final.",
+    )
+    audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
+
+    def on_event(envelope: dict[str, Any]) -> None:
+        event = str(envelope["event"])
+        events.append((event, dict(envelope["payload"])))
+        if event == "asr.final":
+            final_seen.set()
+
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+        audio_input=audio,
+        asr_adapters={adapter.id: adapter},
+        event_sink=on_event,
+    )
+    try:
+        project_id = str(call(core, "project.create", {"name": "Native callback"})["project"]["id"])
+        session_id = str(
+            call(core, "session.start", {"project_id": project_id, "mode": "run"})["session"]["id"]
+        )
+        call(core, "asr.start", {"project_id": project_id, "session_id": session_id})
+
+        assert final_seen.wait(5.0)
+        assert [event for event, _payload in events].count("asr.final") == 1
+        assert any(event == "asr.partial" for event, _payload in events)
+        transcript = call(
+            core,
+            "run.list_transcript",
+            {"project_id": project_id, "session_id": session_id, "limit": 10},
+        )
+        assert transcript["utterances"][0]["text"] == "Native microphone final."
+        call(
+            core,
+            "session.stop",
+            {"project_id": project_id, "session_id": session_id, "status": "completed"},
+        )
+    finally:
+        core.close()
+
+
 def test_asr_requires_active_run_and_invalid_device_never_owns_capture(tmp_path: Path) -> None:
     core = make_core(tmp_path / "data")
     try:

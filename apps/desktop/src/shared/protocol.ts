@@ -730,6 +730,8 @@ export interface ASRStatus {
   capture_state: "stopped" | "running" | "stopping";
   session_id: string | null;
   language: string;
+  input_signal_state: "unknown" | "silent" | "detected";
+  input_frames_received: number;
   last_error_code: string | null;
   config: {
     adapter_id: string;

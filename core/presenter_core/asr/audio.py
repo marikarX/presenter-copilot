@@ -18,6 +18,8 @@ ASR_CHANNELS = 1
 ASR_FRAME_DURATION_MS = 20
 ASR_FRAME_SAMPLES = ASR_SAMPLE_RATE * ASR_FRAME_DURATION_MS // 1_000
 MAX_AUDIO_FRAME_SAMPLES = ASR_FRAME_SAMPLES * 2
+MAX_CAPTURE_CHANNELS = 2
+ASR_SIGNAL_RMS_THRESHOLD = 0.001
 MAX_AUDIO_DEVICES = 32
 MAX_DEVICE_NAME_LENGTH = 120
 
@@ -29,7 +31,7 @@ def _safe_text(value: Any, *, fallback: str) -> str:
 
 
 class SoundDeviceAudioInput:
-    """Reference microphone input using sounddevice's callback stream."""
+    """Reference microphone input normalized to the core's 16 kHz mono PCM."""
 
     def __init__(
         self,
@@ -38,11 +40,14 @@ class SoundDeviceAudioInput:
         frame_samples: int = ASR_FRAME_SAMPLES,
         sounddevice_module: Any | None = None,
     ) -> None:
+        if sample_rate <= 0 or frame_samples <= 0:
+            raise ValueError("sample_rate and frame_samples must be positive.")
         self._sample_rate = sample_rate
         self._frame_samples = frame_samples
         self._sounddevice = sounddevice_module
         self._stream: Any | None = None
         self._callback: AudioCallback | None = None
+        self._stream_sample_rate = float(sample_rate)
         self._lock = threading.RLock()
 
     def list_devices(self) -> list[AudioDevice]:
@@ -107,15 +112,28 @@ class SoundDeviceAudioInput:
             devices = self.list_devices()
             selected = self._select_device(devices, device_id)
             sounddevice = self._module()
+            stream: Any | None = None
+            last_error: Exception | None = None
             try:
-                self._stream = sounddevice.InputStream(
-                    samplerate=self._sample_rate,
-                    blocksize=self._frame_samples,
-                    device=int(selected.device_id),
-                    channels=ASR_CHANNELS,
-                    dtype="float32",
-                    callback=self._on_stream_callback,
-                )
+                for stream_rate, blocksize, channels in self._stream_attempts(selected):
+                    try:
+                        stream = sounddevice.InputStream(
+                            samplerate=stream_rate,
+                            blocksize=blocksize,
+                            device=int(selected.device_id),
+                            channels=channels,
+                            dtype="float32",
+                            callback=self._on_stream_callback,
+                        )
+                        self._stream_sample_rate = stream_rate
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                if stream is None:
+                    raise RuntimeError(
+                        "all supported input stream formats were rejected"
+                    ) from last_error
+                self._stream = stream
                 self._callback = callback
             except CoreDomainError:
                 raise
@@ -173,23 +191,79 @@ class SoundDeviceAudioInput:
                 ) from exc
 
     def _on_stream_callback(self, indata: Any, _frames: int, _time_info: Any, status: Any) -> None:
-        # Keep this callback deliberately boring: bounded copy, enqueue, return.
+        # Keep this callback bounded: normalize the device block, copy it, and
+        # return.  Recognition and queueing remain owned by ASRService.
         callback = self._callback
         if callback is None:
             return
         try:
-            frame = np.asarray(indata, dtype=np.float32).reshape(-1)
+            frame = self._normalize_frame(indata)
             if frame.size == 0:
                 return
-            bounded = frame[:MAX_AUDIO_FRAME_SAMPLES].copy()
             if self._status_reports_input_loss(status):
-                callback(bounded, status)
+                callback(frame, status)
             else:
-                callback(bounded)
+                callback(frame)
         except Exception:
             # The worker owns error reporting.  Never let a callback exception
             # destabilize PortAudio's real-time thread.
             return
+
+    def _stream_attempts(self, selected: AudioDevice) -> list[tuple[float, int, int]]:
+        """Prefer the device's native format, then use safe mono fallbacks."""
+        native_rate = float(selected.default_sample_rate)
+        if not math.isfinite(native_rate) or native_rate <= 0:
+            native_rate = float(self._sample_rate)
+        native_blocksize = max(
+            1,
+            round(native_rate * self._frame_samples / float(self._sample_rate)),
+        )
+        preferred_channels = min(max(1, selected.max_input_channels), MAX_CAPTURE_CHANNELS)
+        attempts: list[tuple[float, int, int]] = [
+            (native_rate, native_blocksize, preferred_channels)
+        ]
+        if preferred_channels != ASR_CHANNELS:
+            attempts.append((native_rate, native_blocksize, ASR_CHANNELS))
+        if not math.isclose(native_rate, float(self._sample_rate), rel_tol=1e-6, abs_tol=0.1):
+            attempts.append((float(self._sample_rate), self._frame_samples, ASR_CHANNELS))
+
+        unique: list[tuple[float, int, int]] = []
+        for attempt in attempts:
+            if attempt not in unique:
+                unique.append(attempt)
+        return unique
+
+    def _normalize_frame(self, indata: Any) -> AudioFrame:
+        samples = np.asarray(indata, dtype=np.float32)
+        if samples.size == 0:
+            return np.asarray([], dtype=np.float32)
+        if samples.ndim <= 1:
+            mono = samples.reshape(-1)[: self._max_source_samples()]
+        else:
+            channels = samples.reshape(samples.shape[0], -1)
+            channels = channels[: self._max_source_samples(), :MAX_CAPTURE_CHANNELS]
+            channel_energy = np.mean(np.square(channels, dtype=np.float64), axis=0)
+            mono = channels[:, int(np.argmax(channel_energy))]
+        mono = np.nan_to_num(mono, nan=0.0, posinf=0.0, neginf=0.0)
+        if not math.isclose(
+            self._stream_sample_rate,
+            float(self._sample_rate),
+            rel_tol=1e-6,
+            abs_tol=0.1,
+        ):
+            target_size = max(
+                1,
+                round(mono.size * float(self._sample_rate) / self._stream_sample_rate),
+            )
+            positions = np.linspace(0.0, float(mono.size - 1), target_size)
+            mono = np.interp(positions, np.arange(mono.size), mono).astype(np.float32, copy=False)
+        return mono[:MAX_AUDIO_FRAME_SAMPLES].astype(np.float32, copy=True)
+
+    def _max_source_samples(self) -> int:
+        return max(
+            self._frame_samples,
+            round(MAX_AUDIO_FRAME_SAMPLES * self._stream_sample_rate / float(self._sample_rate)),
+        )
 
     @staticmethod
     def _status_reports_input_loss(status: Any) -> bool:

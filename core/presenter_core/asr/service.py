@@ -22,7 +22,7 @@ from presenter_core.limits import (
     MAX_PARTIAL_EVENT_CHARS,
 )
 
-from .audio import SoundDeviceAudioInput
+from .audio import ASR_SIGNAL_RMS_THRESHOLD, SoundDeviceAudioInput
 from .interfaces import ASRAdapter, AudioDevice, AudioFrame, AudioInputAdapter
 from .segmenter import UtteranceSegment, UtteranceSegmenter, VADConfig
 
@@ -97,6 +97,7 @@ class _ActiveCapture:
     async_error_reported: bool = False
     stop_attempts: int = 0
     frames_processed: int = 0
+    input_signal_detected: bool = False
     ingestion_progress: threading.Event = field(default_factory=threading.Event)
     final_enqueued: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = field(default_factory=monotonic)
@@ -604,6 +605,9 @@ class ASRService:
                 active.frame_clock_ms += self._vad_config.frame_duration_ms
                 with self._lock:
                     active.frames_processed += 1
+                    active.input_signal_detected = active.input_signal_detected or (
+                        self._frame_rms(frame) >= ASR_SIGNAL_RMS_THRESHOLD
+                    )
                     active.ingestion_progress.set()
                 was_active = segmenter.speech_active
                 completed = segmenter.process(frame, frame_start_ms)
@@ -1001,6 +1005,11 @@ class ASRService:
             model_status = "unavailable"
         active = self._active
         device = active.device.to_dict() if active is not None else None
+        input_frames_received = active.frames_processed if active is not None else 0
+        if active is None or input_frames_received == 0:
+            input_signal_state = "unknown"
+        else:
+            input_signal_state = "detected" if active.input_signal_detected else "silent"
         capture_state = "running" if active is not None and active.accepting else "stopped"
         if active is not None and (
             self._thread_alive(active.worker)
@@ -1018,6 +1027,8 @@ class ASRService:
             "capture_state": capture_state,
             "session_id": active.session_id if active is not None else None,
             "language": self._configuration.language,
+            "input_signal_state": input_signal_state,
+            "input_frames_received": input_frames_received,
             "last_error_code": self._last_error_code,
             "config": self._configuration.to_dict(),
             "capabilities": adapter.capabilities(),
@@ -1081,6 +1092,13 @@ class ASRService:
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self._event_sink is not None:
             self._event_sink(event, payload)
+
+    @staticmethod
+    def _frame_rms(frame: AudioFrame) -> float:
+        if frame.size == 0:
+            return 0.0
+        value = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
+        return value if np.isfinite(value) else 0.0
 
     @staticmethod
     def _required_id(params: dict[str, Any], field: str) -> str:

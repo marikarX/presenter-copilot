@@ -54,13 +54,15 @@ the active utterance is decoded. The Electron main process owns only the
 minimum `{ project_id, session_id }` target required to route manual Run slide
 shortcuts back through canonical presentation IPC.
 
-The capture callback performs only a bounded PCM copy and non-blocking enqueue.
-The ingestion/VAD worker never waits for a full-prefix partial decode. The
-serialized decoder has one replaceable partial request and a bounded queue for
-durable finals; a final request always runs before an optional partial, and
-final audio is never dropped to preserve a partial update. Input overflow or
-another status indicating dropped microphone data stops acceptance and reports
-`ASR_BACKPRESSURE`.
+The sounddevice adapter opens a selected device at its native default rate and
+bounded channel count, normalizes each block to the core's 16 kHz mono PCM, and
+then performs only a bounded copy and non-blocking enqueue at the service
+boundary. The ingestion/VAD worker never waits for a full-prefix partial
+decode. The serialized decoder has one replaceable partial request and a
+bounded queue for durable finals; a final request always runs before an
+optional partial, and final audio is never dropped to preserve a partial
+update. Input overflow or another status indicating dropped microphone data
+stops acceptance and reports `ASR_BACKPRESSURE`.
 
 ## 2. Technology baseline
 

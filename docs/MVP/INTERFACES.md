@@ -424,8 +424,10 @@ the core.
 
 `asr.status` returns `adapter_id`, `model_id`, `model_status`, safe device
 metadata, `capture_state`, nullable `session_id`, `language`, configuration,
-capabilities, and a nullable safe error code. It never returns raw PCM, model
-paths, COM objects, stack traces, or secrets.
+`input_signal_state`, bounded `input_frames_received`, capabilities, and a
+nullable safe error code. `input_signal_state` is only `unknown`, `silent`, or
+`detected`; it is a coarse capture diagnostic, not a speech/transcript result.
+It never returns raw PCM, model paths, COM objects, stack traces, or secrets.
 
 `run.list_transcript` returns final utterances only, ordered by start time and
 bounded by `limit`/`offset`. `run.list_timeline` returns bounded slide events
