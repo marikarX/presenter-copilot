@@ -225,6 +225,7 @@ provider candidate is pending.
 ```text
 asr.list_devices
 asr.configure
+asr.prepare_model
 asr.start
 asr.stop
 asr.status
@@ -251,7 +252,8 @@ teach.confirm_knowledge_item
 teach.reject_knowledge_item
 ```
 
-Voice input arrives through ASR utterances rather than a separate audio upload method.
+M6 voice input arrives through Run ASR utterances rather than a separate audio
+upload method. Teach and Challenge remain typed-first in this milestone.
 
 Core owns the Teach state machine:
 
@@ -380,7 +382,35 @@ secrets, complete prompts, or hidden model reasoning.
 ```text
 run.mark_event
 run.generate_debrief
+run.get_state
+run.list_transcript
+run.list_timeline
+run.get_debrief
 ```
+
+Run uses the ordinary `session.start`, `session.stop`, `session.get`,
+`session.list`, and `session.delete` lifecycle. `session.start` with
+`mode=run` is the only M6 microphone consumer; `live_assist` remains
+`MODE_NOT_IMPLEMENTED`.
+
+`asr.list_devices` returns only bounded device metadata. `asr.configure` accepts
+the core-approved `adapter_id`, `model_id`, English `language`, and selected
+`device_id`; it rejects changes while capture/model preparation is active.
+`asr.prepare_model` is an explicit setup operation for the approved local
+model. `asr.start` requires an active Run session and never downloads. A second
+capture returns `ASR_ALREADY_RUNNING`; a missing model returns
+`ASR_MODEL_UNAVAILABLE`. `asr.stop` is idempotent only for the matching active
+Run session and always attempts bounded worker/device cleanup.
+
+`asr.status` returns `adapter_id`, `model_id`, `model_status`, safe device
+metadata, `capture_state`, nullable `session_id`, `language`, configuration,
+capabilities, and a nullable safe error code. It never returns raw PCM, model
+paths, COM objects, stack traces, or secrets.
+
+`run.list_transcript` returns final utterances only, ordered by start time and
+bounded by `limit`/`offset`. `run.list_timeline` returns bounded slide events
+and manual markers. `run.get_state` is a bounded recovery projection, and
+`run.get_debrief` returns the persisted local debrief without regenerating it.
 
 ### Retrieval / assist
 
@@ -461,11 +491,16 @@ privacy.remote_context_manifest
   "start_ms": 12340,
   "end_ms": 14820,
   "is_final": true,
-  "confidence": 0.93
+  "slide_ordinal": 12
 }
 ```
 
-Do not assume confidence is available from every ASR adapter.
+`confidence` may be included only when an adapter supplies a defensible value;
+the M6 faster-whisper adapter leaves it absent. Partial payloads are
+ephemeral. Final persistence commits the `Utterance` before `asr.final` is
+emitted, and the same `utterance_id` is used for all partial/final updates.
+Timestamps are monotonic and session-relative. No raw audio appears in any
+event.
 
 ## 6. Evidence contract
 

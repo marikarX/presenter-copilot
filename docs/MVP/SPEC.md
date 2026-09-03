@@ -105,7 +105,8 @@ Required behavior:
 - choose one or more audience profiles;
 - generate grounded questions from Project Brain + Audience Model;
 - avoid generic questions when project-specific evidence exists;
-- let user answer by voice;
+- let the user answer with the typed-first Challenge flow; spoken Challenge
+  answers remain outside the current milestone;
 - evaluate correctness, directness, completeness, source support, and concision;
 - offer retry;
 - save best answer versions.
@@ -121,6 +122,12 @@ Required behavior:
 - do not interrupt unless user requests a question segment;
 - save transcript and slide timeline;
 - produce a post-run debrief with weak points and likely questions.
+
+M6 Run capture is owned by the Python core. Audio is processed as bounded
+16 kHz mono PCM in memory, never crosses the stdio protocol, and is not
+persisted. Only final user utterances are stored. Model acquisition is an
+explicit local setup action; starting Run never downloads a model. Run mode
+does not invoke a reasoning provider.
 
 ### Live Assist
 

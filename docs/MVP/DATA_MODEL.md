@@ -548,13 +548,15 @@ embedding model cache survive.
 
 Every DB has an integer schema version. Migrations are forward-only in normal
 operation and must be covered by fixture tests from every released pre-1.0
-schema once releases begin. M5 uses explicit migration history:
-`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4 -> 5, preserving existing
-registry, source, chunk, generation, mapping, project-setting, session,
-Teach, provider-run, and style rows. The v3 -> v4 migration adds only
-project-local transcript attribution and Audience Model tables. The v4 -> v5
-migration adds only project-local Challenge state and promotion tables. A
-future schema version is rejected without mutating the database.
+schema once releases begin. M6 uses explicit migration history:
+`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4 -> 5 -> 6, preserving
+existing registry, source, chunk, generation, mapping, project-setting,
+session, Teach, Challenge, provider-run, and style rows. The v3 -> v4
+migration adds only project-local transcript attribution and Audience Model
+tables. The v4 -> v5 migration adds only project-local Challenge state and
+promotion tables. The v5 -> v6 migration adds only Run slide, marker, and
+debrief state. A future schema version is rejected without mutating the
+database. `app.db` remains at version 2.
 
 ## 14. M4 transcript attribution and Audience Model
 
@@ -636,7 +638,7 @@ pending candidates become stale, and stale rows are excluded from context.
 ## 15. M5 Challenge mode
 
 Challenge state is project-local and session-owned. `app.db` remains at schema
-version 2; `project.db` is schema version 5. The explicit v4 -> v5 migration
+version 2; `project.db` is schema version 6. The explicit v4 -> v5 migration
 creates these tables:
 
 ```text
@@ -748,3 +750,55 @@ the durable snapshot from the deleted session before cascading ordinary
 Challenge rows. Replacing a promotion removes the prior active promotion and
 its semantic mapping while retaining answer history. Knowledge deletion uses
 the normal KnowledgeItem/index deletion path.
+
+## 16. M6 Run mode
+
+Run state remains project-local and reuses the existing `sessions` and
+`utterances` tables. Only final ASR output creates an `Utterance` row:
+
+```text
+actor = user
+is_final = 1
+start_ms / end_ms = monotonic session-relative timestamps
+asr_confidence = nullable adapter value
+slide_ordinal = slide snapshot from utterance start, or latest valid slide
+```
+
+Partial ASR text is ephemeral and creates no row. No audio table exists and
+raw PCM is never persisted.
+
+The v5 -> v6 migration adds:
+
+```text
+slide_state_events
+- id UUID PK
+- session_id UUID FK sessions ON DELETE CASCADE
+- slide_ordinal INTEGER NOT NULL CHECK >= 1
+- timestamp_ms INTEGER NOT NULL CHECK >= 0
+- source ENUM(powerpoint, manual, inferred)
+- created_at DATETIME
+
+run_markers
+- id UUID PK
+- session_id UUID FK sessions ON DELETE CASCADE
+- marker_type ENUM(question, weak_point, note)
+- timestamp_ms INTEGER NOT NULL CHECK >= 0
+- slide_ordinal INTEGER nullable
+- note TEXT nullable, bounded to 1,000 characters
+- created_at DATETIME
+
+run_debriefs
+- session_id UUID PK/FK sessions ON DELETE CASCADE
+- algorithm_version TEXT
+- transcript_fingerprint TEXT
+- debrief_json JSON
+- created_at DATETIME
+- updated_at DATETIME
+```
+
+`slide_state_events` persist only actual state changes, and
+`presentation.slide_changed` is emitted after the insert commits. PowerPoint
+state is read-only and `inferred` is reserved for a later milestone. Run
+transcript/timeline/debrief reads are bounded and paginated. Session and
+project deletion cascade all M6 rows; the app-level ASR model cache is not
+project data and survives deletion.

@@ -611,3 +611,83 @@ Reason:
 Strict output schemas alone do not define the task's behavioral contract.
 Separating task instructions from imported text preserves the prompt-injection
 boundary and makes invalid evaluation claims fail before persistence.
+
+## D-042 — Python core owns microphone capture; raw audio never crosses NDJSON
+
+**Status:** Accepted for Milestone 6
+
+The Python sidecar owns the M6 `AudioInputAdapter`, bounded PCM queue, VAD, and
+local ASR worker. Electron/browser microphone APIs are not used for Run, raw
+PCM is never transported over stdio NDJSON, and audio is not persisted in
+files, SQLite, logs, provider packets, retrieval requests, or renderer state.
+
+Reason:
+
+Keeping capture and recognition in one local process makes the privacy and
+lifecycle boundary explicit while preserving the existing stdio transport and
+renderer isolation.
+
+## D-043 — Runtime ASR is local-files-only; model bootstrap is explicit
+
+**Status:** Accepted for Milestone 6
+
+The approved `Systran/faster-whisper-base.en` model is acquired only through
+the explicit model-preparation operation/command and stored in the shared
+app-level ASR cache. `asr.start` uses local-files-only loading and fails with
+`ASR_MODEL_UNAVAILABLE` when the model is absent; it never downloads and never
+accepts an arbitrary renderer-supplied model path.
+
+Reason:
+
+An explicit setup boundary prevents a Run action from unexpectedly making a
+network request or changing model identity during a rehearsal.
+
+## D-044 — ASR partials are ephemeral; final utterances are the durable Run transcript
+
+**Status:** Accepted for Milestone 6
+
+One utterance receives one UUID across bounded partial and final events.
+Partial text is renderer-facing transient state only. A final decode is
+committed as an existing session `Utterance` with actor/user, timestamps,
+optional adapter confidence, and the slide snapshot taken at utterance start;
+`asr.final` is emitted only after that commit.
+
+Reason:
+
+This keeps the transcript durable and restartable without creating duplicate
+rows or retaining a raw-audio/partial-text history that the user did not ask
+to save.
+
+## D-045 — PowerPoint integration is read-only and feature detected
+
+**Status:** Accepted for Milestone 6
+
+The Windows PowerPoint adapter inspects only an already-running slideshow and
+trusts it only when bounded filename and slide-count checks match the current
+project presentation and the slide ordinal is valid. It never launches,
+opens, edits, advances, or controls PowerPoint. Absence, mismatch, invalid
+state, or mid-run COM failure switches the Run to persisted manual slide
+tracking while preserving the latest known slide and active session.
+
+Reason:
+
+Read-only feature detection avoids arbitrary Office automation and ensures
+manual tracking remains a reliable fallback on machines without PowerPoint or
+when the active deck cannot be matched.
+
+## D-046 — M6 debrief is deterministic, local, and retrieval-backed
+
+**Status:** Accepted for Milestone 6
+
+`RunService` produces a bounded debrief from final local utterances, persisted
+slide state, markers, and current canonical retrieval evidence. It reports
+evidence-review candidates rather than unsupported certainty, preserves
+canonical evidence references, creates no KnowledgeItem automatically, and
+uses a versioned fingerprint for idempotent persistence. It does not invoke a
+remote reasoning provider.
+
+Reason:
+
+The first voice rehearsal must remain useful and repeatable without a provider
+key, cloud transcript upload, or hidden promotion of rehearsal text into the
+Project Brain.

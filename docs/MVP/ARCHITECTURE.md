@@ -29,6 +29,30 @@ The MVP is a Windows desktop application with two local processes:
 
 No localhost HTTP server is required for normal desktop operation. The Electron main process owns sidecar lifecycle and communicates through stdin/stdout. This reduces local attack surface and port conflicts.
 
+### M6 Run pipeline
+
+```text
+Windows microphone
+       |
+       v
+Python AudioInputAdapter -> bounded in-memory PCM queue
+       |
+       v
+energy VAD / UtteranceSegmenter -> local ASRAdapter
+       |                                  |
+       |                                  +--> ephemeral asr.partial
+       v
+RunService: persist final Utterance + slide snapshot -> asr.final
+       |
+       +--> SlideStateService timeline / manual markers / local debrief
+```
+
+The Python core owns microphone capture. Raw PCM never enters the renderer or
+NDJSON stdio transport, is not written to SQLite/files, and is discarded after
+the active utterance is decoded. The Electron main process owns only the
+minimum `{ project_id, session_id }` target required to route manual Run slide
+shortcuts back through canonical presentation IPC.
+
 ## 2. Technology baseline
 
 ### Desktop
@@ -51,6 +75,8 @@ No localhost HTTP server is required for normal desktop operation. The Electron 
 - NumPy/in-process vector search for MVP corpus sizes;
 - replaceable embedding adapter;
 - `faster-whisper` as initial local ASR reference adapter;
+- `sounddevice` for the Windows microphone reference input;
+- `pywin32` for optional read-only PowerPoint feature detection on Windows;
 - parsers behind file-type adapters;
 - provider adapters behind one reasoning interface.
 
@@ -139,6 +165,12 @@ Owns:
 - model loading/status;
 - adapter abstraction.
 
+M6 uses `Systran/faster-whisper-base.en` through a local-files-only runtime.
+The approved model is prepared explicitly into the app-level `models/asr`
+cache; `asr.start` never downloads. The service owns one bounded frame queue,
+one worker, one active microphone capture, and deterministic stop/shutdown
+cleanup. Teach and Challenge do not consume this microphone path in M6.
+
 ### SlideStateService
 
 Priority order:
@@ -148,6 +180,11 @@ Priority order:
 3. future screen inference adapter.
 
 The application must remain functional if PowerPoint integration fails.
+
+`RunService` composes session lifecycle, final-transcript persistence, bounded
+pagination, manual markers, and the deterministic retrieval-backed debrief.
+Its debrief is local and provider-free; unchanged completed state is reused by
+an algorithm/timeline/transcript fingerprint.
 
 ### RetrievalService
 
@@ -331,6 +368,8 @@ Per-user app root, for example under Windows Local AppData:
 ```text
 PresenterCopilot/
   app.db
+  models/
+    asr/              # shared approved local ASR model cache
   projects/
     <project-id>/
       project.db
@@ -344,6 +383,7 @@ PresenterCopilot/
 Project-local databases/files make deletion/export easier and reduce accidental cross-project retrieval. M4
 adds its AudienceProfile, transcript mapping, candidate, observation, and
 evidence tables to `project.db` only; there is no global Audience Model table.
+The shared ASR model cache is app-level and survives project/session deletion.
 
 ### Source snapshots
 

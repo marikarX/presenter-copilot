@@ -288,7 +288,53 @@ The deterministic core suite covers at minimum:
 
 ### E2E-05 Run
 
-Start Run -> feed ASR fixture -> change slides -> stop -> generate debrief -> verify timeline and weak-point outputs.
+Create a disposable project, import the synthetic deck/supporting documents,
+build or reuse the local retrieval index, start `mode=run`, configure the
+deterministic local ASR adapter, feed bounded synthetic PCM, and verify the
+partial/final sequence. Move through slides 1 -> 2 -> 3, mark a weak point and
+a question, stop through the canonical session lifecycle, and verify final
+transcript rows, utterance slide snapshots, slide timeline, markers, and the
+deterministic debrief. Restart the core and verify transcript/timeline/debrief
+recovery without regeneration, then delete the disposable session/project and
+verify no Run rows remain while the shared ASR cache survives.
+
+### M6 Local ASR and Run regression matrix
+
+The deterministic suite covers:
+
+- Python-core microphone ownership with bounded 16 kHz mono frames and no raw
+  audio table/event payload;
+- device enumeration/invalid-device handling, single-capture ownership,
+  busy configuration, model-missing/no-implicit-prepare, and shutdown release;
+- energy VAD start confirmation, silence finalization, forced max-duration
+  finalization, monotonic timestamps, same-utterance partial/final IDs,
+  ephemeral partials, and final persistence before `asr.final`;
+- v5 -> v6, new v6, no-op, and future-version-without-mutation migrations;
+- manual slide state/bounds, duplicate suppression, PowerPoint filename and
+  slide-count matching, absent/mismatched/invalid/failing fallback, and
+  persistence before `presentation.slide_changed`;
+- bounded transcript/timeline reads, marker limits, debrief retrieval/conflict
+  review, deterministic question recommendations, debrief idempotency,
+  restart recovery, session/project cascade deletion, and no automatic
+  KnowledgeItem creation;
+- serialized asynchronous NDJSON writes so one event/response remains one
+  complete line;
+- renderer/main/preload allowlists, typed Run projections, and global shortcut
+  routing through presentation IPC.
+
+Real local ASR is separate from normal CI and uses only the checked-in
+synthetic fixture after explicit `pnpm model:prepare:asr`:
+
+```text
+pnpm model:prepare:asr
+pnpm test:asr-real
+pnpm benchmark:asr
+```
+
+The real acceptance reports model identity, local execution, bounded phrase
+matching, and unavailable status without fabricating success when the model or
+hardware is unavailable. The benchmark stores metadata/timings only and does
+not store transcript text.
 
 ### E2E-06 Live Assist
 
@@ -314,6 +360,11 @@ The M3 automated scope is the Teach/provider routing boundary. Expected:
   adapter;
 - no content-processing network attempt;
 - test fails on unexpected socket/connect call from core path.
+
+M6 adds the already-prepared-model Run path: `asr.start`, local transcription,
+and deterministic debrief must make no download, provider, or content-network
+call. Raw PCM must not reach retrieval, renderer, logs, SQLite, or any provider;
+the explicit model-prepare command is tested separately as setup.
 
 ### Selected Context Cloud inspection
 
@@ -429,6 +480,20 @@ acceptance is run only with `OPENAI_API_KEY`; Windows Electron smoke, hosted
 CI, and trusted Local CI pass on the same final SHA. Do not require a provider
 key for deterministic M5 CI. Do not start Run, ASR, HUD, or any M6 work as
 part of this gate.
+
+### M6 milestone gate
+
+Before opening the M6 review PR, verify the v5 -> v6 migration preserves all
+M0-M5 rows; the E2E-05 deterministic Run flow and M6 regression matrix pass;
+Python core owns microphone capture; partial/final ordering and final-before-
+event durability hold; model preparation is explicit and `asr.start` is local-
+files-only; manual slide state, global shortcuts, PowerPoint fallback,
+restart/deletion, bounded debrief, renderer boundaries, and Local Only audio
+isolation remain intact. Run `pnpm setup`, `pnpm check`, `pnpm build`, the real
+embedding acceptance, retrieval benchmark, explicit ASR prepare/acceptance/
+benchmark, and exact-head hosted Windows plus Trusted Local CI; record any
+unavailable hardware/model/PowerPoint result precisely. Do not merge and do
+not start M7.
 
 A pre-1.0 MVP release requires:
 

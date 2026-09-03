@@ -198,18 +198,20 @@ Your strongest prior phrasing:
 ```
 
 Scoring must be advisory and explainable, not presented as scientific truth.
-Challenge is typed-first in M5. There is no microphone control, spoken-answer
-timing measurement, ASR, or live meeting capture until M6. Retry keeps the same
-Question and creates another immutable AnswerVersion; Save as preferred is an
-explicit promotion into Project Brain knowledge. The expandable “Why this
-question / Sources” view shows only the concise rationale, accepted audience
-basis, and canonical source labels—not hidden model reasoning.
+Challenge remains typed-first through M6. M6 microphone capture is a Run-only
+path; it does not change Teach/Challenge answer semantics or add live meeting
+capture. Retry keeps the same Question and creates another immutable
+AnswerVersion; Save as preferred is an explicit promotion into Project Brain
+knowledge. The expandable “Why this question / Sources” view shows only the
+concise rationale, accepted audience basis, and canonical source labels—not
+hidden model reasoning.
 
 ## 9. Run mode
 
 Pre-run checklist:
 
 - microphone status;
+- local ASR model status and explicit prepare action;
 - presentation detected/manual mode;
 - recording/transcript status;
 - privacy mode;
@@ -220,8 +222,12 @@ During Run:
 - minimal controls;
 - current slide indicator;
 - timer;
+- ephemeral partial speech and recent final transcript text;
+- explicit `Mark question`, `Mark weak point`, and bounded note actions;
+- on-screen previous/next slide controls plus manual global shortcuts;
 - no coaching popups by default;
-- manual `Mark question/weak point` hotkey.
+- PowerPoint tracking is read-only and falls back to manual tracking without
+  ending Run.
 
 Post-run debrief:
 
@@ -231,6 +237,10 @@ Post-run debrief:
 - unanswered likely objections;
 - best explanations captured;
 - recommended Challenge questions.
+
+Only final utterances are shown in recovered transcript history. A completed
+Run's transcript, slide timeline, markers, and debrief remain available after
+core/app restart; raw microphone audio and partial text do not.
 
 ## 10. Live Assist mode
 
@@ -310,7 +320,8 @@ Deletion confirmation must state what will be removed. Avoid dark patterns and c
 Errors are actionable:
 
 - microphone disconnected -> select another device;
-- ASR model missing -> install/load model;
+- ASR model missing -> explicitly prepare the approved local model;
+- microphone failure -> show the stable error and offer device selection/retry;
 - PowerPoint state unavailable -> switch to manual slide control;
 - provider quota/auth failure -> retrieval-only fallback;
 - unsupported source -> preserve file, show parser error, let user remove/retry;

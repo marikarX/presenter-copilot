@@ -104,7 +104,11 @@ mode to `local_only` immediately prevents subsequent remote content calls; the
 session's stored mode is not an authority override. Challenge question and
 evaluation requests use the same local/remote router and selected-context
 manifest path as the rest of the product. Challenge history is local project
-state; it is not uploaded as a corpus.
+state; it is not uploaded as a corpus. M6 Run ASR is local regardless of the
+project privacy mode: the Python core owns capture, no provider receives
+microphone data, and the deterministic post-run debrief does not call a
+provider. The explicit `asr.prepare_model` operation is separate setup and is
+the only M6 operation permitted to download approved model assets.
 
 ### Selected Context Cloud
 
@@ -245,6 +249,13 @@ profile notes as user-supplied content and includes only active profiles and
 active, evidence-valid observations; pending, rejected, stale, unresolved, and
 evidence-less source-derived rows are excluded.
 
+M6 ASR/Run logs and events contain only safe device/model metadata, bounded
+transcript text where the Run event contract requires it, timestamps, IDs,
+statuses, and error codes. Raw PCM, PortAudio objects, model objects, COM
+objects, complete prompts, and filesystem paths are excluded. Partial text is
+ephemeral; only final utterances, slide state, markers, and the bounded local
+debrief are stored.
+
 User-requested diagnostic export must be previewable/redactable before sharing.
 
 ## 13. Deletion
@@ -262,8 +273,9 @@ P0 must support:
 
 Automated tests verify filesystem and DB removal.
 
-Deleting an individual session cascades its session, utterances, provider runs,
-and pending Teach candidates. Confirmed project KnowledgeItems survive through
+Deleting an individual session cascades its session, final Run utterances,
+slide state events, Run markers, Run debrief, provider runs, and pending Teach
+candidates. Confirmed project KnowledgeItems survive through
 durable UserStatement snapshots; their old session and utterance IDs are
 detached. Approved global SpeakerEvidence also detaches a deleted session ID.
 Because app and project SQLite databases cannot share a transaction, deletion
