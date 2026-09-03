@@ -294,7 +294,86 @@ challenge.next_question
 challenge.submit_answer
 challenge.retry_question
 challenge.save_preferred_answer
+challenge.get_state
+challenge.list_history
 ```
+
+Challenge is a typed-first, project-local rehearsal surface. Core owns the
+state machine; the renderer may display `valid_next_actions` but cannot infer
+authority from button state.
+
+`challenge.configure` accepts:
+
+```json
+{
+  "project_id": "uuid",
+  "session_id": "uuid",
+  "audience_profile_ids": ["uuid", "uuid"],
+  "intensity": "normal | skeptical | adversarial",
+  "allow_follow_ups": true,
+  "scope": "full_deck | slide_range",
+  "slide_start": 1,
+  "slide_end": 8
+}
+```
+
+The list contains 1–3 unique active profiles from the current project. A
+slide range is required only for `slide_range`, is bounded, and must be within
+the current presentation. Configuration is stored in `project.db` and cannot
+change after a question has been generated.
+
+`challenge.next_question` creates one project-grounded Question. Core chooses
+the configured audience profile fairly; provider output cannot choose the
+profile. An optional `follow_up_to_question_id` creates one bounded follow-up
+with the same profile and `parent_question_id`. Follow-ups are rejected with
+`CHALLENGE_FOLLOW_UP_DISABLED` when disabled. No autonomous provider loop is
+permitted.
+
+`challenge.submit_answer` accepts only the current Question and a non-empty
+typed `text` bounded to 4,000 characters. It creates an immutable
+`AnswerVersion` with `origin=user_typed`, evaluates it through the existing
+ReasoningProvider contract, and transitions the session to `evaluated`.
+Evaluation contains bounded correctness, directness, completeness, concision,
+and style-match objects, source support, missing points, and validated
+canonical evidence IDs. Scores are normalized to 0.0–1.0; style match may be
+null when approved style evidence is unavailable.
+
+For `challenge_evaluation`, the complete validated answer is sent to the
+provider up to the 4,000-character answer bound. Provider packet fitting may
+drop lower-priority prior questions, extra audience observations, style
+examples, or extra retrieved evidence, but never shortens the current answer.
+If the complete answer, trusted instructions, and minimum grounding cannot
+fit the bounded request, core returns `CHALLENGE_CONTEXT_TOO_LARGE` without
+creating an AnswerVersion.
+
+`challenge.retry_question` transitions the current evaluated Question back to
+`awaiting_answer` without creating another Question. The next submission
+creates another AnswerVersion. `challenge.save_preferred_answer` is explicit
+and idempotent: it promotes one selected user answer through the existing
+durable `UserStatement` and `KnowledgeItem` path. It does not promote provider
+evaluation prose.
+
+`challenge.get_state` returns bounded recovery data: configuration, selected
+audience summaries, the current Question, the latest AnswerVersion/evaluation,
+reasoning availability, and valid next actions. `challenge.list_history`
+accepts bounded `limit` and `offset` values and returns paginated Question,
+AnswerVersion, evaluation, preference, and evidence summaries. It never
+returns a raw database or unbounded session payload.
+
+`challenge.get_state` also returns `session_status`. A stopped session remains
+readable for history/recovery, but its `valid_next_actions` is empty and all
+Challenge mutations are rejected as inactive.
+
+Challenge mutations reject cross-project IDs and invalid transitions with
+stable errors including `CHALLENGE_CONFIG_INVALID`,
+`CHALLENGE_AUDIENCE_INVALID`, `CHALLENGE_STATE_INVALID`,
+`CHALLENGE_QUESTION_NOT_FOUND`, `CHALLENGE_ANSWER_NOT_FOUND`,
+`CHALLENGE_CONTEXT_INSUFFICIENT`, `CHALLENGE_CONTEXT_TOO_LARGE`,
+`CHALLENGE_CONTEXT_STALE`, and `CHALLENGE_OUTPUT_INVALID`.
+
+The `challenge.question` and `challenge.evaluation` events contain only
+bounded IDs, statuses, and summaries. They contain no filesystem paths,
+secrets, complete prompts, or hidden model reasoning.
 
 ### Run
 
@@ -470,6 +549,7 @@ ReasoningProvider
 
 ```text
 task_type
+task_instruction (core-owned trusted Challenge contract)
 question
 user_input
 current_slide_summary
@@ -484,6 +564,15 @@ latency_budget_ms
 ```
 
 Provider adapters must not query project storage directly. Context assembly happens before provider invocation so privacy behavior is testable.
+
+For `challenge_question`, `challenge_follow_up`, and `challenge_evaluation`,
+core supplies a bounded trusted task instruction. The OpenAI adapter places
+the application policy and task instruction in trusted system/application
+content, structurally separate from user content containing untrusted project
+evidence, audience text, transcript excerpts, and prior answers. The task
+instruction is included in request-size budgeting but its body is never
+persisted in a ProviderRun manifest. Providers receive no tools and do not
+receive a request to reveal chain-of-thought.
 
 M3 implements the `NONE`, `RETRIEVAL_ONLY`, `LOCAL_REASONING`, and
 `REMOTE_REASONING` route vocabulary for Teach. The deterministic fake provider
@@ -527,7 +616,7 @@ Before every remote call, core emits/stores a manifest:
   "provider_id": "...",
   "task_type": "teach_candidate",
   "privacy_mode": "selected_context_cloud",
-  "classes_sent": ["application_policy", "question", "document_excerpt", "user_knowledge"],
+  "classes_sent": ["application_policy", "task_instruction", "question", "document_excerpt", "user_knowledge"],
   "source_ids": ["..."],
   "knowledge_item_ids": ["..."],
   "speaker_evidence_ids": [],

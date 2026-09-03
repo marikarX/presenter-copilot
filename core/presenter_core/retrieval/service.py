@@ -40,6 +40,7 @@ EventSink = Callable[[str, dict[str, Any]], None]
 MAX_DOCUMENT_IDS = 100
 MAX_SLIDE = 10_000
 MAX_SLIDE_WINDOW = 100
+MAX_SLIDE_RANGE = 200
 SEMANTIC_CANDIDATE_LIMIT = 100
 CURRENT_SLIDE_CANDIDATE_LIMIT = 100
 CONFLICT_CANDIDATE_LIMIT = 20
@@ -485,6 +486,8 @@ class HybridRetrievalService:
                 "slide_window",
                 "usage",
                 "allow_private",
+                "slide_start",
+                "slide_end",
             },
         )
         project_id = self._project_id(params)
@@ -573,6 +576,8 @@ class HybridRetrievalService:
                                 and not filters.source_types
                                 and filters.usage == "all"
                                 and filters.allow_private
+                                and filters.slide_start is None
+                                and filters.slide_end is None
                             )
                             if unfiltered and indexed_count == matrix_rows:
                                 # Every active matrix row has a current,
@@ -883,7 +888,9 @@ class HybridRetrievalService:
             source_id=record.source_id or record.document_id,
             source_unit_id=record.source_unit_id,
             label=(
-                "Your Teach explanation"
+                "Your practiced answer"
+                if record.entity_type == "knowledge_item" and record.knowledge_kind == "answer"
+                else "Your Teach explanation"
                 if record.entity_type == "knowledge_item"
                 else provenance_label(
                     record.original_name,
@@ -1127,7 +1134,12 @@ class HybridRetrievalService:
     ) -> np.ndarray[Any, Any]:
         values: list[int] = []
         generation_id = str(generation["id"])
-        if current_only or filters.document_ids or filters.source_types:
+        if (
+            current_only
+            or filters.document_ids
+            or filters.source_types
+            or filters.slide_start is not None
+        ):
             chunk_clauses = [
                 "ev.generation_id = ?",
                 "ev.entity_type = 'chunk'",
@@ -1302,6 +1314,7 @@ class HybridRetrievalService:
                        k.project_id AS document_id, 'Your Teach explanation' AS original_name,
                        'user_knowledge' AS mime_type, 'knowledge_item' AS entity_type,
                        'user_knowledge' AS source_class, k.id AS knowledge_item_id,
+                       k.kind AS knowledge_kind,
                        k.private AS private, k.preferred AS preferred,
                        k.use_live AS use_live, k.use_rehearsal AS use_rehearsal,
                        (
@@ -1515,6 +1528,25 @@ def _parse_filters(
     allow_private = params.get("allow_private", True)
     if not isinstance(allow_private, bool):
         raise invalid_request("allow_private must be a boolean.", field="allow_private")
+    slide_start_value = params.get("slide_start")
+    slide_end_value = params.get("slide_end")
+    if (slide_start_value is None) != (slide_end_value is None):
+        raise invalid_request(
+            "slide_start and slide_end must be supplied together.", field="slide_start"
+        )
+    if slide_start_value is None:
+        slide_start = None
+        slide_end = None
+    else:
+        slide_start = _validated_integer(slide_start_value, "slide_start", 1, MAX_SLIDE)
+        slide_end = _validated_integer(slide_end_value, "slide_end", 1, MAX_SLIDE)
+        if slide_end < slide_start:
+            raise invalid_request("slide_end must be at least slide_start.", field="slide_end")
+        if slide_end - slide_start + 1 > MAX_SLIDE_RANGE:
+            raise invalid_request(
+                f"slide range must be at most {MAX_SLIDE_RANGE} slides.",
+                field="slide_end",
+            )
     return (
         RetrievalFilters(
             project_id=project_id,
@@ -1522,6 +1554,8 @@ def _parse_filters(
             source_types=tuple(source_types),
             usage=usage,
             allow_private=allow_private,
+            slide_start=slide_start,
+            slide_end=slide_end,
         ),
         current_slide,
         slide_window,
@@ -1541,6 +1575,12 @@ def _append_filter_clauses(
         parameters.extend(filters.document_ids)
     if filters.source_types:
         _append_source_type_filter(clauses, parameters, filters.source_types, table_alias)
+    if filters.slide_start is not None and filters.slide_end is not None:
+        clauses.append(
+            f"({table_alias}.kind <> 'presentation' OR "
+            "(su.unit_type = 'slide' AND su.ordinal BETWEEN ? AND ?))"
+        )
+        parameters.extend([filters.slide_start, filters.slide_end])
 
 
 def _slide_boost(record: ChunkRecord, current_slide: int | None, slide_window: int) -> float:

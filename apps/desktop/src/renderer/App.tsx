@@ -16,6 +16,7 @@ import {
   unwrapInvokeResult,
 } from "../shared/protocol";
 import { AudiencePanel } from "./AudiencePanel";
+import { ChallengePanel } from "./ChallengePanel";
 import { TeachPanel } from "./TeachPanel";
 import {
   requiresTranscriptDisclosure,
@@ -85,6 +86,9 @@ export function App() {
   );
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [audienceRefreshToken, setAudienceRefreshToken] = useState(0);
+  const refreshAudiencePanels = useCallback(() => {
+    setAudienceRefreshToken((value) => value + 1);
+  }, []);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [preview, setPreview] = useState<SourcePreviewResult | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -577,7 +581,7 @@ export function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Milestone 4 · transcript Audience Model</p>
+          <p className="eyebrow">Milestone 5 · Challenge Mode</p>
           <h1>Presenter Copilot</h1>
           <p className="lede">
             Import presentation material, preserve its boundaries, and inspect
@@ -790,6 +794,13 @@ export function App() {
                 <TeachPanel project={selectedProject} />
               ) : null}
 
+              {selectedProject.storage_status === "ready" ? (
+                <ChallengePanel
+                  project={selectedProject}
+                  refreshToken={audienceRefreshToken}
+                />
+              ) : null}
+
               <div className="source-heading section-heading">
                 <div>
                   <p className="eyebrow">Snapshot → parse → chunk</p>
@@ -946,6 +957,7 @@ export function App() {
                 <AudiencePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
+                  onAudienceChange={refreshAudiencePanels}
                 />
               ) : null}
 

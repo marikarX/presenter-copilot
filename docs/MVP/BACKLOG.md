@@ -143,16 +143,16 @@ conferencing integration is part of this milestone.
 
 ### P0
 
-- [ ] I01 Challenge configuration UI.
-- [ ] I02 Select 1–3 audience profiles.
-- [ ] I03 Generate source-grounded audience-specific questions.
-- [ ] I04 Question provenance/rationale display.
-- [ ] I05 Typed answer submission first.
-- [ ] I06 Evaluation schema and display.
-- [ ] I07 Retry same question.
-- [ ] I08 Save preferred answer.
-- [ ] I09 Follow-up question support.
-- [ ] I10 Persist Question/AnswerVersion/Evidence.
+- [x] I01 Challenge configuration UI.
+- [x] I02 Select 1–3 audience profiles.
+- [x] I03 Generate source-grounded audience-specific questions.
+- [x] I04 Question provenance/rationale display.
+- [x] I05 Typed answer submission first.
+- [x] I06 Evaluation schema and display.
+- [x] I07 Retry same question.
+- [x] I08 Save preferred answer.
+- [x] I09 Follow-up question support.
+- [x] I10 Persist Question/AnswerVersion/Evidence.
 
 ## Epic J — ASR and Run mode
 

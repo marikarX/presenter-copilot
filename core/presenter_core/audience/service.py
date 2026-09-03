@@ -610,6 +610,20 @@ class AudienceModelService:
             audience_profile_ids=normalized_ids,
         )
 
+    def build_context_for_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        audience_profile_ids: list[str] | tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Reuse M4 context policy inside a caller-owned project transaction."""
+        return self._context_builder.build_with_connection(
+            connection,
+            project_id=project_id,
+            audience_profile_ids=audience_profile_ids,
+        )
+
     def before_source_delete(self, connection: sqlite3.Connection, document_id: str) -> None:
         """Remove source evidence before document cascade while retaining stale rows."""
         unit_ids = self._source_unit_ids(connection, document_id)

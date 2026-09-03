@@ -346,7 +346,7 @@ AnswerVersion
 - question_id UUID
 - session_id UUID
 - text TEXT
-- origin ENUM(user_spoken, user_edited, ai_suggested)
+- origin ENUM(user_typed, user_spoken, user_edited, ai_suggested)
 - preferred BOOLEAN
 - correctness_score REAL nullable
 - directness_score REAL nullable
@@ -548,11 +548,13 @@ embedding model cache survive.
 
 Every DB has an integer schema version. Migrations are forward-only in normal
 operation and must be covered by fixture tests from every released pre-1.0
-schema once releases begin. M4 uses explicit migration history:
-`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4, preserving existing
+schema once releases begin. M5 uses explicit migration history:
+`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4 -> 5, preserving existing
 registry, source, chunk, generation, mapping, project-setting, session,
 Teach, provider-run, and style rows. The v3 -> v4 migration adds only
-project-local transcript attribution and Audience Model tables.
+project-local transcript attribution and Audience Model tables. The v4 -> v5
+migration adds only project-local Challenge state and promotion tables. A
+future schema version is rejected without mutating the database.
 
 ## 14. M4 transcript attribution and Audience Model
 
@@ -630,3 +632,119 @@ Source-derived observations require at least one currently attributed
 transcript evidence row at acceptance. Attribution changes never transfer an
 old observation to another profile: incompatible observations become stale,
 pending candidates become stale, and stale rows are excluded from context.
+
+## 15. M5 Challenge mode
+
+Challenge state is project-local and session-owned. `app.db` remains at schema
+version 2; `project.db` is schema version 5. The explicit v4 -> v5 migration
+creates these tables:
+
+```text
+challenge_configurations
+- session_id UUID PK/FK sessions ON DELETE CASCADE
+- intensity ENUM(normal, skeptical, adversarial)
+- allow_follow_ups BOOLEAN
+- scope ENUM(full_deck, slide_range)
+- slide_start INTEGER nullable
+- slide_end INTEGER nullable
+- state ENUM(ready_for_question, awaiting_answer, evaluated)
+- created_at / updated_at
+
+challenge_audiences
+- id UUID PK
+- session_id UUID FK sessions ON DELETE CASCADE
+- audience_profile_id UUID nullable FK audience_profiles ON DELETE SET NULL
+- selection_order INTEGER (0..2)
+- display_name_snapshot / role_snapshot / organization_snapshot
+- selected_at
+
+questions
+- id UUID PK
+- session_id UUID FK sessions ON DELETE CASCADE
+- asked_by_audience_profile_id UUID nullable FK audience_profiles ON DELETE SET NULL
+- parent_question_id UUID nullable FK questions ON DELETE SET NULL
+- provider_run_id UUID nullable FK provider_runs ON DELETE SET NULL
+- audience_display_name_snapshot / audience_role_snapshot
+- text TEXT
+- origin = simulated
+- rationale TEXT
+- created_at
+
+question_evidence
+- question_id UUID FK questions ON DELETE CASCADE
+- evidence_id UUID
+- source_type / source_id / source_unit_id / label
+- available BOOLEAN
+
+question_audience_observations
+- question_id UUID FK questions ON DELETE CASCADE
+- observation_id UUID
+- available BOOLEAN
+
+answer_versions
+- id UUID PK
+- question_id UUID FK questions ON DELETE CASCADE
+- session_id UUID FK sessions ON DELETE CASCADE
+- provider_run_id UUID nullable FK provider_runs ON DELETE SET NULL
+- text TEXT
+- origin ENUM(user_typed, user_spoken, user_edited, ai_suggested)
+- preferred BOOLEAN (at most one per question)
+- correctness_score / directness_score / completeness_score /
+  concision_score / style_match_score REAL nullable, normalized 0.0..1.0
+- source_support_status / source_support_feedback
+- bounded evaluation_json
+- created_at
+
+answer_evidence
+- answer_version_id UUID FK answer_versions ON DELETE CASCADE
+- evidence_id UUID
+- source_type / source_id / source_unit_id / label
+- available BOOLEAN
+
+challenge_answer_promotions
+- question_id UUID PK/FK questions ON DELETE CASCADE
+- answer_version_id UUID UNIQUE/FK answer_versions ON DELETE CASCADE
+- knowledge_item_id UUID UNIQUE/FK knowledge_items ON DELETE CASCADE
+- promoted_at / updated_at
+```
+
+Question and answer evidence store canonical IDs and labels, never copied source
+excerpts. Source deletion marks those references unavailable before the source
+cascade. Profile deletion sets historical question links to NULL while the
+question's display snapshots remain. Pending, rejected, stale, unresolved, or
+prohibited Audience Model data is never copied into Challenge context.
+
+Challenge uses `origin=user_typed` for M5 answers. A retry keeps one Question
+row and creates another immutable AnswerVersion. Normal and follow-up questions
+are separate Question rows; a follow-up records `parent_question_id` and uses
+the same audience profile.
+
+The complete validated typed answer up to 4,000 characters is the text sent to
+the Challenge evaluation provider and the text persisted in AnswerVersion;
+provider context fitting never substitutes a document-excerpt prefix. Word
+count and estimated speaking time are calculated from that same complete
+validated answer. If the complete answer plus trusted instructions and minimum
+grounding cannot fit the bounded request, evaluation fails with
+`CHALLENGE_CONTEXT_TOO_LARGE` and no AnswerVersion is created.
+
+Audience observation references are checked against the current M4
+AudienceContext rules before a generated Question is inserted. Historical
+references remain in Challenge history, but `available` is false when the
+profile is inactive/deleted, the observation is stale/sensitive/deleted, or a
+source-derived observation no longer has current transcript attribution.
+
+For KnowledgeItem-backed Challenge evidence, `KnowledgeItem.text` is the
+authoritative current evidence payload and `UserStatement.text` is provenance
+only. The canonical reference returns the KnowledgeItem ID and UserStatement
+ID separately, and `preferred` is read from the KnowledgeItem flag rather than
+inferred from `kind=answer`. An explicit re-save of an already promoted answer
+sets both linked preferred flags true again.
+
+An ordinary Challenge answer is not Project Brain knowledge. Only explicit
+`challenge.save_preferred_answer` creates a `kind=answer`, `preferred=true`,
+`use_rehearsal=true`, `use_live=true`, `created_by=user` KnowledgeItem through
+the existing durable `UserStatement` provenance path. Session deletion detaches
+the durable snapshot from the deleted session before cascading ordinary
+Challenge rows. Replacing a promotion removes the prior active promotion and
+its semantic mapping while retaining answer history. Knowledge deletion uses
+the normal KnowledgeItem/index deletion path.

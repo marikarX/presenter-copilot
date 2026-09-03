@@ -483,3 +483,131 @@ Reason:
 An attribution change invalidates the original interpretation. Requiring
 fresh extraction/review is safer than silently rewriting a person's audience
 model from evidence gathered under another mapping.
+
+## D-034 — Challenge history is session-owned until explicit promotion
+
+**Status:** Accepted for Milestone 5
+
+Challenge Questions and AnswerVersions remain ordinary project-local session
+history. They are not automatically indexed or treated as reusable user
+knowledge. Only the explicit `challenge.save_preferred_answer` operation may
+promote a typed user answer through the existing KnowledgeItem pipeline.
+
+Reason:
+
+Rehearsal history must remain inspectable without silently changing the
+Project Brain. Explicit promotion gives the user a clear authorship and
+retrieval boundary while retaining immutable retry history.
+
+## D-035 — Challenge reuses canonical grounding, audience context, and routing
+
+**Status:** Accepted for Milestone 5
+
+Challenge question and evaluation generation composes the existing
+`RetrievalService`, `AudienceContextBuilder`, `ProviderContextBuilder`, and
+`ReasoningRouter`. Core owns audience rotation, privacy authority, state
+transitions, and provenance validation; providers receive bounded trust-labeled
+context and cannot invent Evidence, AudienceProfile identity, or authority.
+
+Reason:
+
+Keeping Challenge on the M2–M4 seams preserves project scoping, stale and
+prohibited-observation filtering, prompt-injection isolation, conflict
+handling, and the existing Local Only/Selected Context Cloud guarantees.
+
+## D-036 — Preferred Challenge answers use durable user-authored provenance
+
+**Status:** Accepted for Milestone 5
+
+An explicitly preferred Challenge answer is copied as a durable user-authored
+snapshot and promoted through the existing `KnowledgeItem` retrieval path with
+`kind=answer`, `preferred=true`, `use_rehearsal=true`, and `use_live=true`.
+The active promotion is replaced idempotently when another version is chosen;
+the session may then be deleted without leaving provenance that points only at
+session-owned rows. Evaluation prose is never promoted as user wording.
+
+Reason:
+
+Preferred practiced language should behave like other Project Brain evidence
+and survive session cleanup, while remaining distinguishable from document or
+transcript evidence.
+
+## D-037 — Deterministic fake reasoning is explicit developer-only smoke support
+
+**Status:** Accepted for Milestone 5
+
+The desktop sidecar keeps the OpenAI reference provider as its normal default.
+Deterministic fake reasoning is selected only when both
+`PRESENTER_COPILOT_DEV_MODE=1` and
+`PRESENTER_COPILOT_TEST_PROVIDER=deterministic_fake` are explicitly present.
+It is local-only and cannot silently replace the normal provider or bypass
+project privacy routing.
+
+Reason:
+
+Offline deterministic Electron acceptance must be possible without a provider
+credential, while missing production credentials must not create a hidden cloud
+or fake fallback.
+
+## D-038 — Challenge evaluation preserves the complete accepted answer
+
+**Status:** Accepted for Milestone 5 hardening
+
+Challenge uses a distinct bounded current-user-input limit of 4,000 characters.
+The complete validated answer is passed to `challenge_evaluation` and persisted
+as the AnswerVersion text. Context fitting may remove lower-priority history,
+audience, style, or extra evidence, but it never shortens the current answer;
+an irreducible overflow fails with `CHALLENGE_CONTEXT_TOO_LARGE`.
+
+Reason:
+
+Evaluating a prefix while recording the full answer would make the coaching
+result non-reproducible and could misrepresent the user's response.
+
+## D-039 — Challenge revalidates current AudienceContext at the commit boundary
+
+**Status:** Accepted for Milestone 5 hardening
+
+After provider generation, Challenge reuses the M4 AudienceContextBuilder from
+the caller-owned project connection before inserting a Question. A cited
+observation must still belong to the active selected profile, be active and
+non-sensitive, and retain valid source attribution. Historical references are
+kept but are reported unavailable when those rules no longer hold.
+
+Reason:
+
+Provider calls can outlive a speaker remap, profile change, or source mutation;
+storing an observation that was valid only at request start would make the
+question's audience rationale untrustworthy.
+
+## D-040 — KnowledgeItem payload and flags are authoritative
+
+**Status:** Accepted for Milestone 5 hardening
+
+Challenge canonical evidence reads the current `KnowledgeItem.text` and
+`KnowledgeItem.preferred` values. The linked `UserStatement` supplies durable
+user-authored provenance and its ID, but never replaces the curated knowledge
+payload or determines preferred status. Explicit re-promotion sets both the
+KnowledgeItem and AnswerVersion preferred flags true.
+
+Reason:
+
+Curated project knowledge may be edited after its provenance snapshot is
+created. Retrieval and Challenge context must not resurrect stale wording or
+claim that an answer remains preferred after the user clears the flag.
+
+## D-041 — Challenge task contracts are trusted provider instructions
+
+**Status:** Accepted for Milestone 5 hardening
+
+Core supplies separate trusted instructions for Challenge question,
+follow-up, and evaluation tasks. The OpenAI adapter places them with the
+application policy in system/application content, while project and audience
+text remains an untrusted data payload. Source-support status must agree with
+supporting evidence IDs, and stopped sessions expose no mutation actions.
+
+Reason:
+
+Strict output schemas alone do not define the task's behavioral contract.
+Separating task instructions from imported text preserves the prompt-injection
+boundary and makes invalid evaluation claims fail before persistence.

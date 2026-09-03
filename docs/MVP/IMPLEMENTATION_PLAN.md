@@ -138,6 +138,12 @@ diarization, remote transcript profiling, or Challenge mode.
 
 Challenge produces project-specific questions for two synthetic audience profiles, user retries a weak answer, and preferred answer becomes retrievable evidence.
 
+M5 implementation status for this branch: typed Challenge setup, bounded
+project-local AudienceProfile selection, canonical Project Brain grounding,
+advisory evaluation, retry/follow-up history, explicit preferred-answer
+promotion, recovery, and the E2E-04 synthetic acceptance gate. M6 voice/ASR and
+Run-mode work remain out of scope.
+
 ## Milestone 6 — Local ASR and Run mode
 
 ### Build

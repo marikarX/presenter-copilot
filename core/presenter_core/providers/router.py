@@ -42,11 +42,16 @@ class ReasoningRouter:
         provider_health: ProviderHealth | None,
         local_only_submission: bool = False,
     ) -> RouteDecision:
-        del task_type
         if local_only_submission:
             return RouteDecision(ReasoningRoute.RETRIEVAL_ONLY, "local_only", None)
         if provider is None or provider_health is None:
             return RouteDecision(ReasoningRoute.RETRIEVAL_ONLY, "no_provider", None)
+        if task_type not in provider.capabilities().task_types:
+            return RouteDecision(
+                ReasoningRoute.RETRIEVAL_ONLY,
+                "provider_task_unsupported",
+                None,
+            )
         if provider_health.status != "ready":
             return RouteDecision(
                 ReasoningRoute.RETRIEVAL_ONLY,

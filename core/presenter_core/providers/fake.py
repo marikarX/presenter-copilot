@@ -6,6 +6,7 @@ from time import monotonic
 from typing import Any
 
 from .models import (
+    CHALLENGE_INTENSITIES,
     ProviderCapabilities,
     ProviderError,
     ProviderHealth,
@@ -32,6 +33,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
         self.model_id = model_id
         self.failure_code = failure_code
         self.requests: list[dict[str, Any]] = []
+        self.request_objects: list[ReasoningRequest] = []
         self.call_count = 0
 
     def capabilities(self) -> ProviderCapabilities:
@@ -39,7 +41,13 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             structured_outputs=True,
             streaming=False,
             cancellation=False,
-            task_types=("teach_question", "teach_candidate"),
+            task_types=(
+                "teach_question",
+                "teach_candidate",
+                "challenge_question",
+                "challenge_follow_up",
+                "challenge_evaluation",
+            ),
         )
 
     def health(self) -> ProviderHealth:
@@ -63,6 +71,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
         self.call_count += 1
         self.requests.append(request.to_payload())
+        self.request_objects.append(request)
         if self.failure_code is not None:
             raise ProviderError(
                 self.failure_code,
@@ -109,6 +118,10 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                     "follow_up_question": None,
                 },
             )
+        elif request.task_type in {"challenge_question", "challenge_follow_up"}:
+            output = self._challenge_question(request)
+        elif request.task_type == "challenge_evaluation":
+            output = self._challenge_evaluation(request)
         else:
             raise ProviderError("PROVIDER_REQUEST_FAILED", "Unsupported fake provider task.")
         return ReasoningResult(
@@ -116,4 +129,169 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             input_token_count=None,
             output_token_count=None,
             latency_ms=max(0, int((monotonic() - started) * 1000)),
+        )
+
+    @staticmethod
+    def _challenge_question(request: ReasoningRequest) -> dict[str, Any]:
+        profile = request.audience_context[0] if request.audience_context else {}
+        role = str(profile.get("role") or "audience member")
+        role_lower = role.casefold()
+        observation_text = " ".join(
+            str(item.get("text", ""))
+            for item in profile.get("observations", [])
+            if isinstance(item, dict)
+        ).casefold()
+        is_finance = any(
+            marker in f"{role_lower} {observation_text}"
+            for marker in ("cfo", "finance", "cost", "budget", "status quo")
+        )
+        is_technical = any(
+            marker in f"{role_lower} {observation_text}"
+            for marker in ("cto", "technical", "rto", "availability", "rollback", "migration")
+        )
+        intensity = request.challenge_intensity
+        if intensity not in CHALLENGE_INTENSITIES:
+            intensity = "normal"
+        if is_finance:
+            stems = {
+                "normal": "What is the cost and downside case for this proposal "
+                "compared with keeping the current platform?",
+                "skeptical": "What evidence supports the cost and downside case "
+                "instead of extending the current platform?",
+                "adversarial": "Why should we accept this cost and downside exposure "
+                "instead of keeping the current platform?",
+            }
+        elif is_technical:
+            stems = {
+                "normal": "What is the migration rollback and recovery plan if "
+                "availability is threatened?",
+                "skeptical": "What evidence shows the migration can meet the recovery "
+                "target and still roll back safely?",
+                "adversarial": "What fails first in this migration, and how will you "
+                "restore service within the recovery target?",
+            }
+        else:
+            stems = {
+                "normal": "What decision or trade-off should this audience understand "
+                "about the proposal?",
+                "skeptical": "Which assumption or trade-off in the proposal has the "
+                "weakest supporting evidence?",
+                "adversarial": "What is the strongest professional counterargument to "
+                "this proposal?",
+            }
+        question = stems[intensity]
+        prior_count = len(request.prior_question_context)
+        if request.task_type == "challenge_follow_up":
+            question = (
+                "What specific evidence or next step would resolve the concern raised "
+                "by your prior answer?"
+            )
+        elif prior_count:
+            question = question.rstrip("?") + " Which part of that case remains least tested?"
+        grounding = (
+            request.grounding_evidence or request.evidence or request.preferred_user_explanations
+        )
+        evidence_ids = [
+            str(item["evidence_id"])
+            for item in grounding[:2]
+            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+        ]
+        observation_ids = [
+            str(item["id"])
+            for item in profile.get("observations", [])[:2]
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        ]
+        rationale = (
+            f"This {intensity} question reflects the selected {role} audience context and "
+            f"the supplied project evidence."
+        )
+        return validate_provider_output(
+            request.task_type,
+            {
+                "question": question,
+                "rationale": rationale,
+                "evidence_ids": evidence_ids,
+                "audience_observation_ids": observation_ids,
+            },
+            conflict_metadata=request.conflict_metadata,
+        )
+
+    @staticmethod
+    def _challenge_evaluation(request: ReasoningRequest) -> dict[str, Any]:
+        answer = (request.user_input or "").strip()
+        answer_lower = answer.casefold()
+        words = answer_lower.split()
+        grounding = (
+            request.grounding_evidence or request.evidence or request.preferred_user_explanations
+        )
+        grounding_text = " ".join(
+            str(item.get("text", "")) for item in grounding if isinstance(item, dict)
+        ).casefold()
+        overlap = sum(1 for token in set(words) if len(token) >= 4 and token in grounding_text)
+        correctness = min(1.0, 0.35 + (0.1 * min(overlap, 4)) + (0.1 if len(words) >= 12 else 0.0))
+        directness = min(1.0, 0.55 + (0.1 if len(words) <= 55 else -0.15))
+        completeness = min(1.0, 0.35 + (0.1 * min(overlap, 5)))
+        concision = max(0.2, min(1.0, 0.9 - max(0, len(words) - 35) * 0.01))
+        if request.speaker_evidence:
+            style = {
+                "score": 0.8,
+                "feedback": "The answer is consistent with approved style evidence.",
+            }
+        else:
+            style = {"score": None, "feedback": "Not enough style evidence to assess style match."}
+        if request.conflict_metadata:
+            support_status = "conflicted"
+            support_feedback = (
+                "Relevant project evidence contains a conflict; state the ambiguity explicitly."
+            )
+        elif overlap >= 2:
+            support_status = "supported"
+            support_feedback = "The answer uses terms supported by the supplied project evidence."
+        elif overlap >= 1:
+            support_status = "partially_supported"
+            support_feedback = "Only part of the answer is connected to the supplied evidence."
+        else:
+            support_status = "unsupported"
+            support_feedback = "The answer did not provide source-supported content."
+        supported_ids = [
+            str(item["evidence_id"])
+            for item in grounding[:2]
+            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str) and overlap >= 1
+        ]
+        result = {
+            "correctness": {
+                "score": round(correctness, 3),
+                "feedback": "The answer addresses the question using the available evidence."
+                if overlap
+                else "Add a project-supported claim or example.",
+            },
+            "directness": {
+                "score": round(directness, 3),
+                "feedback": "The answer is focused on the question."
+                if len(words) <= 55
+                else "Lead with the answer before adding detail.",
+            },
+            "completeness": {
+                "score": round(completeness, 3),
+                "feedback": "The answer covers the main supported point."
+                if overlap >= 2
+                else "Cover the main cost, risk, or decision point explicitly.",
+            },
+            "concision": {
+                "score": round(concision, 3),
+                "feedback": "The answer is a usable length."
+                if len(words) <= 55
+                else "Trim repeated context and keep the decision point.",
+            },
+            "style_match": style,
+            "source_support": {"status": support_status, "feedback": support_feedback},
+            "missing_points": []
+            if overlap >= 2
+            else ["Connect the answer to a specific project source or decision."],
+            "supported_evidence_ids": supported_ids,
+        }
+        return validate_provider_output(
+            request.task_type,
+            result,
+            conflict_metadata=request.conflict_metadata,
         )

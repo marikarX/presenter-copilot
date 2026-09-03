@@ -45,6 +45,13 @@ export const CORE_METHODS = [
   "teach.discard_answer",
   "teach.confirm_knowledge_item",
   "teach.reject_knowledge_item",
+  "challenge.configure",
+  "challenge.next_question",
+  "challenge.submit_answer",
+  "challenge.retry_question",
+  "challenge.save_preferred_answer",
+  "challenge.get_state",
+  "challenge.list_history",
   "knowledge.list",
   "knowledge.update_flags",
   "knowledge.delete",
@@ -101,6 +108,13 @@ export const RENDERER_CORE_METHODS = [
   "teach.discard_answer",
   "teach.confirm_knowledge_item",
   "teach.reject_knowledge_item",
+  "challenge.configure",
+  "challenge.next_question",
+  "challenge.submit_answer",
+  "challenge.retry_question",
+  "challenge.save_preferred_answer",
+  "challenge.get_state",
+  "challenge.list_history",
   "knowledge.list",
   "knowledge.update_flags",
   "knowledge.delete",
@@ -490,6 +504,131 @@ export interface AudienceObservationCandidate {
   updated_at: string;
   evidence: AudienceEvidence[];
   provisional: boolean;
+}
+
+export type ChallengeIntensity = "normal" | "skeptical" | "adversarial";
+export type ChallengeScope = "full_deck" | "slide_range";
+
+export interface ChallengeConfig {
+  session_id: string;
+  intensity: ChallengeIntensity;
+  allow_follow_ups: boolean;
+  scope: ChallengeScope;
+  slide_start: number | null;
+  slide_end: number | null;
+  state: "ready_for_question" | "awaiting_answer" | "evaluated";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChallengeAudienceSummary {
+  id: string | null;
+  display_name: string;
+  role: string | null;
+  organization: string | null;
+  active: boolean;
+  available: boolean;
+  selection_order: number;
+}
+
+export interface ChallengeEvidenceRef {
+  evidence_id: string;
+  source_type: string;
+  source_id: string;
+  source_unit_id: string | null;
+  label: string;
+  available: boolean;
+}
+
+export interface ChallengeQuestion {
+  id: string;
+  session_id: string;
+  audience_profile_id: string | null;
+  audience: {
+    id: string | null;
+    display_name: string;
+    role: string | null;
+    organization: string | null;
+    available: boolean;
+    historical: boolean;
+  };
+  parent_question_id: string | null;
+  text: string;
+  origin: "simulated";
+  rationale: string;
+  evidence: ChallengeEvidenceRef[];
+  audience_observations: Array<{ observation_id: string; available: boolean }>;
+  created_at: string;
+}
+
+export interface ChallengeScore {
+  score: number | null;
+  feedback: string;
+}
+
+export interface ChallengeEvaluation {
+  correctness: ChallengeScore;
+  directness: ChallengeScore;
+  completeness: ChallengeScore;
+  concision: ChallengeScore;
+  style_match: ChallengeScore;
+  source_support: {
+    status: "supported" | "partially_supported" | "unsupported" | "conflicted";
+    feedback: string;
+  };
+  missing_points: string[];
+  supported_evidence_ids: string[];
+  strongest_prior_phrasing?: string;
+  word_count?: number;
+  estimated_speaking_seconds?: number;
+  preferred_answer_seconds?: number | null;
+}
+
+export interface ChallengeAnswerVersion {
+  id: string;
+  question_id: string;
+  session_id: string;
+  text: string;
+  origin: "user_typed" | "user_spoken" | "user_edited" | "ai_suggested";
+  preferred: boolean;
+  evaluation: ChallengeEvaluation | null;
+  evidence: ChallengeEvidenceRef[];
+  created_at: string;
+}
+
+export interface ChallengeReasoningStatus {
+  route: string;
+  reason: string;
+  provider_id: string | null;
+  provider_status: string;
+  privacy_mode: string;
+}
+
+export interface ChallengeStateResult {
+  project_id: string;
+  session_id: string;
+  session_status: Session["status"];
+  state: "unconfigured" | ChallengeConfig["state"];
+  config: ChallengeConfig | null;
+  audiences: ChallengeAudienceSummary[];
+  current_question: ChallengeQuestion | null;
+  latest_answer_version: ChallengeAnswerVersion | null;
+  valid_next_actions: string[];
+  reasoning: ChallengeReasoningStatus;
+}
+
+export interface ChallengeHistoryItem extends ChallengeQuestion {
+  answer_versions: ChallengeAnswerVersion[];
+}
+
+export interface ChallengeHistoryResult {
+  project_id: string;
+  session_id: string;
+  items: ChallengeHistoryItem[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  total: number;
 }
 
 export interface Session {

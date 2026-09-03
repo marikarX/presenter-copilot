@@ -12,6 +12,8 @@ class RetrievalFilters:
     source_types: tuple[str, ...] = ()
     usage: str = "all"
     allow_private: bool = True
+    slide_start: int | None = None
+    slide_end: int | None = None
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,7 @@ class ChunkRecord:
     source_class: str = "document"
     source_id: str | None = None
     knowledge_item_id: str | None = None
+    knowledge_kind: str | None = None
     user_statement_id: str | None = None
     private: bool = False
     preferred: bool = False
