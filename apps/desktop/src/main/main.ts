@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreProcessClient, toCoreError } from "./core-client";
@@ -29,6 +29,14 @@ let mainWindow: BrowserWindow | null = null;
 let coreClient: CoreProcessClient | null = null;
 let isQuitting = false;
 
+export const MANUAL_PREVIOUS_SHORTCUT = "Ctrl+Alt+PageUp";
+export const MANUAL_NEXT_SHORTCUT = "Ctrl+Alt+PageDown";
+
+type ManualRunTarget = { projectId: string; sessionId: string };
+
+let manualRunTarget: ManualRunTarget | null = null;
+let manualShortcutsRegistered = false;
+
 function createWindow(
   rendererPolicy: RendererValidationOptions,
 ): BrowserWindow {
@@ -52,6 +60,7 @@ function createWindow(
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.once("ready-to-show", () => window.show());
   window.on("closed", () => {
+    disableManualRunShortcuts();
     if (mainWindow === window) mainWindow = null;
   });
 
@@ -75,6 +84,19 @@ function sendStatus(status: CoreStatus): void {
 }
 
 function sendEvent(event: EventEnvelope): void {
+  if (
+    event.event === "presentation.status_changed" &&
+    event.payload.mode === "powerpoint"
+  ) {
+    disableManualRunShortcuts();
+  }
+  if (
+    event.event === "session.stopped" &&
+    manualRunTarget &&
+    event.payload.id === manualRunTarget.sessionId
+  ) {
+    disableManualRunShortcuts();
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send("core:event", event);
 }
@@ -115,6 +137,90 @@ function validateImportPickerRequest(value: unknown): {
     throw new Error("Source kind is invalid.");
   }
   return { projectId: value.project_id, kind };
+}
+
+function validateManualShortcutRequest(value: unknown): ManualRunTarget {
+  if (!isJsonObject(value)) throw new Error("A Run target is required.");
+  const projectId = value.project_id;
+  const sessionId = value.session_id;
+  if (
+    typeof projectId !== "string" ||
+    typeof sessionId !== "string" ||
+    projectId.length === 0 ||
+    sessionId.length === 0 ||
+    projectId.length > 80 ||
+    sessionId.length > 80
+  ) {
+    throw new Error("The Run target is invalid.");
+  }
+  return { projectId, sessionId };
+}
+
+function requestTrackedSlide(
+  method: "presentation.previous_slide" | "presentation.next_slide",
+): void {
+  const target = manualRunTarget;
+  if (!target || !coreClient) return;
+  void coreClient
+    .request(method, {
+      project_id: target.projectId,
+      session_id: target.sessionId,
+    })
+    .catch((error) => {
+      const safe = toCoreError(error);
+      console.error(`[run:shortcut:${safe.code}] ${safe.message}`);
+    });
+}
+
+export function disableManualRunShortcuts(): void {
+  if (manualShortcutsRegistered) {
+    globalShortcut.unregister(MANUAL_PREVIOUS_SHORTCUT);
+    globalShortcut.unregister(MANUAL_NEXT_SHORTCUT);
+  }
+  manualShortcutsRegistered = false;
+  manualRunTarget = null;
+}
+
+export function enableManualRunShortcuts(target: ManualRunTarget): {
+  registered: boolean;
+  previous_shortcut: string;
+  next_shortcut: string;
+  error_code?: string;
+} {
+  disableManualRunShortcuts();
+  try {
+    const previousRegistered = globalShortcut.register(
+      MANUAL_PREVIOUS_SHORTCUT,
+      () => requestTrackedSlide("presentation.previous_slide"),
+    );
+    const nextRegistered = globalShortcut.register(MANUAL_NEXT_SHORTCUT, () =>
+      requestTrackedSlide("presentation.next_slide"),
+    );
+    if (!previousRegistered || !nextRegistered) {
+      disableManualRunShortcuts();
+      return {
+        registered: false,
+        previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
+        next_shortcut: MANUAL_NEXT_SHORTCUT,
+        error_code: "SHORTCUT_REGISTRATION_FAILED",
+      };
+    }
+    manualRunTarget = target;
+    manualShortcutsRegistered = true;
+    return {
+      registered: true,
+      previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
+      next_shortcut: MANUAL_NEXT_SHORTCUT,
+    };
+  } catch {
+    disableManualRunShortcuts();
+    return {
+      registered: false,
+      previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
+      next_shortcut: MANUAL_NEXT_SHORTCUT,
+      error_code: "SHORTCUT_REGISTRATION_FAILED",
+    };
+  }
 }
 
 async function bootstrapCore(): Promise<void> {
@@ -168,13 +274,18 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
           ? 60_000
           : request.method === "retrieval.rebuild"
             ? 10 * 60_000
-            : request.method === "teach.next_prompt" ||
-                request.method === "teach.submit_text" ||
-                request.method === "challenge.next_question" ||
-                request.method === "challenge.submit_answer" ||
-                request.method === "provider.test"
-              ? 30_000
-              : undefined;
+            : request.method === "asr.prepare_model"
+              ? 15 * 60_000
+              : request.method === "asr.start" ||
+                  request.method === "run.generate_debrief"
+                ? 60_000
+                : request.method === "teach.next_prompt" ||
+                    request.method === "teach.submit_text" ||
+                    request.method === "challenge.next_question" ||
+                    request.method === "challenge.submit_answer" ||
+                    request.method === "provider.test"
+                  ? 30_000
+                  : undefined;
       return timeoutMs === undefined
         ? requireClient().request(request.method, request.params)
         : requireClient().request(request.method, request.params, timeoutMs);
@@ -217,9 +328,23 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
       );
     });
   });
+  ipcMain.handle("run:enable-manual-shortcuts", (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() =>
+      enableManualRunShortcuts(validateManualShortcutRequest(value)),
+    );
+  });
+  ipcMain.handle("run:disable-manual-shortcuts", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => {
+      disableManualRunShortcuts();
+      return { disabled: true as const };
+    });
+  });
 }
 
 async function stopCore(): Promise<void> {
+  disableManualRunShortcuts();
   if (!coreClient) return;
   await coreClient.shutdown();
 }
@@ -233,7 +358,16 @@ void app.whenReady().then(() => {
   registerIpc(rendererPolicy);
   const command = createSidecarCommand();
   coreClient = new CoreProcessClient(command);
-  coreClient.onStatus(sendStatus);
+  coreClient.onStatus((nextStatus) => {
+    if (
+      nextStatus.state === "unavailable" ||
+      nextStatus.state === "stopping" ||
+      nextStatus.state === "stopped"
+    ) {
+      disableManualRunShortcuts();
+    }
+    sendStatus(nextStatus);
+  });
   coreClient.onEvent(sendEvent);
   coreClient.onProtocolError((error) => {
     // Keep protocol diagnostics in the main process; never expose raw stderr

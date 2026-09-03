@@ -39,6 +39,23 @@ export const CORE_METHODS = [
   "session.get",
   "session.list",
   "session.delete",
+  "asr.list_devices",
+  "asr.configure",
+  "asr.prepare_model",
+  "asr.start",
+  "asr.stop",
+  "asr.status",
+  "presentation.detect",
+  "presentation.set_slide",
+  "presentation.next_slide",
+  "presentation.previous_slide",
+  "presentation.status",
+  "run.mark_event",
+  "run.generate_debrief",
+  "run.get_state",
+  "run.list_transcript",
+  "run.list_timeline",
+  "run.get_debrief",
   "teach.next_prompt",
   "teach.get_state",
   "teach.submit_text",
@@ -68,6 +85,37 @@ export const CORE_METHODS = [
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
+
+export const CORE_EVENTS = [
+  "core.ready",
+  "core.error",
+  "source.import_progress",
+  "source.import_error",
+  "project.index_progress",
+  "project.index_ready",
+  "teach.prompt",
+  "teach.knowledge_candidate",
+  "challenge.question",
+  "challenge.evaluation",
+  "session.started",
+  "session.stopped",
+  "asr.model_loading",
+  "asr.ready",
+  "asr.partial",
+  "asr.final",
+  "asr.device_error",
+  "presentation.slide_changed",
+  "presentation.status_changed",
+  "run.debrief_progress",
+  "provider.status_changed",
+  "privacy.remote_context_manifest",
+] as const;
+
+export type CoreEvent = (typeof CORE_EVENTS)[number];
+// Keep forward compatibility for additive sidecar events while documenting
+// the M0-M6 event contract above.
+export type EventName = CoreEvent | (string & {});
+
 export const RENDERER_CORE_METHODS = [
   "core.health",
   "project.create",
@@ -102,6 +150,23 @@ export const RENDERER_CORE_METHODS = [
   "session.get",
   "session.list",
   "session.delete",
+  "asr.list_devices",
+  "asr.configure",
+  "asr.prepare_model",
+  "asr.start",
+  "asr.stop",
+  "asr.status",
+  "presentation.detect",
+  "presentation.set_slide",
+  "presentation.next_slide",
+  "presentation.previous_slide",
+  "presentation.status",
+  "run.mark_event",
+  "run.generate_debrief",
+  "run.get_state",
+  "run.list_transcript",
+  "run.list_timeline",
+  "run.get_debrief",
   "teach.next_prompt",
   "teach.get_state",
   "teach.submit_text",
@@ -180,7 +245,7 @@ export type ResponseEnvelope<T = unknown> = SuccessResponse<T> | ErrorResponse;
 export interface EventEnvelope {
   protocol_version: typeof PROTOCOL_VERSION;
   type: "event";
-  event: string;
+  event: EventName;
   payload: JsonObject;
 }
 
@@ -648,6 +713,173 @@ export interface Session {
   provider_runs: number;
 }
 
+export interface AudioDevice {
+  device_id: string;
+  display_name: string;
+  host_api: string;
+  max_input_channels: number;
+  default_sample_rate: number;
+  is_default: boolean;
+}
+
+export interface ASRStatus {
+  adapter_id: string;
+  model_id: string;
+  model_status: string;
+  device: AudioDevice | null;
+  capture_state: "stopped" | "running" | "stopping";
+  session_id: string | null;
+  language: string;
+  last_error_code: string | null;
+  config: {
+    adapter_id: string;
+    model_id: string;
+    language: string;
+    device_id: string | null;
+  };
+  capabilities: JsonObject;
+}
+
+export interface PresentationStatus {
+  project_id: string;
+  session_id: string;
+  mode: "manual" | "powerpoint";
+  reason: string;
+  current_slide: number | null;
+  slide_count: number | null;
+  tracking: "active" | "stopped";
+}
+
+export type RunMarkerType = "question" | "weak_point" | "note";
+
+export interface RunMarker {
+  id: string;
+  session_id: string;
+  marker_type: RunMarkerType;
+  timestamp_ms: number;
+  slide_ordinal: number | null;
+  note: string | null;
+  created_at?: string | null;
+}
+
+export interface RunSlideStateEvent {
+  id: string;
+  session_id: string;
+  slide_ordinal: number;
+  timestamp_ms: number;
+  source: "powerpoint" | "manual" | "inferred";
+  created_at: string | null;
+}
+
+export interface RunUtterance {
+  utterance_id: string;
+  text: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  confidence: number | null;
+  slide_ordinal: number | null;
+}
+
+export interface RunState {
+  project_id: string;
+  session_id: string;
+  mode: "run";
+  status: Session["status"];
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number;
+  current_slide: number | null;
+  slide_count: number | null;
+  presentation_mode: "manual" | "powerpoint";
+  presentation_reason: string;
+  tracking: "active" | "stopped";
+  transcript_count: number;
+  timeline_count: number;
+  marker_count: number;
+  debrief_available: boolean;
+}
+
+export interface RunTranscriptResult {
+  project_id: string;
+  session_id: string;
+  utterances: RunUtterance[];
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
+}
+
+export interface RunTimelineResult {
+  project_id: string;
+  session_id: string;
+  slide_events: RunSlideStateEvent[];
+  markers: RunMarker[];
+  timeline: Array<
+    ({ kind: "slide" } & RunSlideStateEvent) | ({ kind: "marker" } & RunMarker)
+  >;
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
+}
+
+export interface RunDebrief {
+  algorithm_version: string;
+  session: {
+    session_id: string;
+    duration_ms: number;
+    word_count: number;
+    utterance_count: number;
+  };
+  per_slide: Array<{
+    slide_ordinal: number | null;
+    speaking_time_ms: number;
+    word_count: number;
+    utterance_count: number;
+  }>;
+  markers: RunMarker[];
+  long_segments: Array<{
+    utterance_id: string;
+    slide_ordinal: number | null;
+    duration_ms: number;
+    word_count: number;
+    excerpt: string;
+  }>;
+  evidence_review_candidates: Array<{
+    utterance_id: string;
+    slide_ordinal: number | null;
+    excerpt: string;
+    status: "needs_evidence_review" | "conflict_review";
+    evidence: Array<JsonObject>;
+    conflicts: Array<JsonObject>;
+  }>;
+  best_explanation_candidates: Array<{
+    utterance_id: string;
+    slide_ordinal: number | null;
+    excerpt: string;
+    evidence: Array<JsonObject>;
+  }>;
+  recommended_challenge_questions: string[];
+}
+
+export interface RunDebriefResult {
+  project_id: string;
+  session_id: string;
+  debrief: RunDebrief | null;
+  algorithm_version?: string;
+  transcript_fingerprint?: string;
+  created_at?: string;
+  updated_at?: string;
+  reused?: boolean;
+}
+
+export interface ManualShortcutResult {
+  registered: boolean;
+  previous_shortcut: string;
+  next_shortcut: string;
+  error_code?: string;
+}
+
 export interface TeachCandidate {
   id: string;
   source_utterance_id: string;
@@ -752,6 +984,13 @@ export interface PresenterCopilotApi {
       projectId: string,
       kind?: "presentation" | "supporting" | "transcript",
     ): Promise<InvokeResult<ImportSourceResult>>;
+  };
+  shortcuts: {
+    enableManualRun(
+      projectId: string,
+      sessionId: string,
+    ): Promise<InvokeResult<ManualShortcutResult>>;
+    disableManualRun(): Promise<InvokeResult<{ disabled: true }>>;
   };
 }
 

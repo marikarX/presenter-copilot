@@ -17,6 +17,7 @@ import {
 } from "../shared/protocol";
 import { AudiencePanel } from "./AudiencePanel";
 import { ChallengePanel } from "./ChallengePanel";
+import { RunPanel } from "./RunPanel";
 import { TeachPanel } from "./TeachPanel";
 import {
   requiresTranscriptDisclosure,
@@ -119,6 +120,7 @@ export function App() {
   const [retrievalSourceType, setRetrievalSourceType] = useState("");
   const [retrievalResult, setRetrievalResult] =
     useState<RetrievalQueryResult | null>(null);
+  const [runActive, setRunActive] = useState(false);
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -252,6 +254,7 @@ export function App() {
 
   const selectProject = useCallback(
     async (project: ProjectSummary) => {
+      if (runActive) return;
       setBusy("open-project");
       setNotice(null);
       try {
@@ -275,11 +278,11 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources],
+    [loadRetrievalHealth, loadSources, runActive],
   );
 
   const createProject = useCallback(async () => {
-    if (!newProjectName.trim()) return;
+    if (runActive || !newProjectName.trim()) return;
     setBusy("create-project");
     setNotice(null);
     try {
@@ -303,10 +306,10 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  }, [loadProjects, loadRetrievalHealth, newProjectName]);
+  }, [loadProjects, loadRetrievalHealth, newProjectName, runActive]);
 
   const saveSettings = useCallback(async () => {
-    if (!selectedProject || !projectName.trim()) return;
+    if (runActive || !selectedProject || !projectName.trim()) return;
     setBusy("save-settings");
     setNotice(null);
     try {
@@ -338,11 +341,12 @@ export function App() {
     selectedProject,
     stylePolicy,
     styleOverrideEnabled,
+    runActive,
   ]);
 
   const importSource = useCallback(
     async (transcriptAuthorized = false) => {
-      if (!selectedProject) return;
+      if (runActive || !selectedProject) return;
       if (requiresTranscriptDisclosure(importKind, transcriptAuthorized)) {
         setTranscriptDisclosureOpen(true);
         return;
@@ -380,6 +384,7 @@ export function App() {
       loadProjects,
       loadRetrievalHealth,
       loadSources,
+      runActive,
       selectedProject,
     ],
   );
@@ -391,7 +396,7 @@ export function App() {
 
   const inspectSource = useCallback(
     async (source: SourceSummary) => {
-      if (!selectedProject) return;
+      if (runActive || !selectedProject) return;
       setSelectedSourceId(source.id);
       setBusy(`preview-${source.id}`);
       setNotice(null);
@@ -412,12 +417,12 @@ export function App() {
         setBusy(null);
       }
     },
-    [selectedProject],
+    [runActive, selectedProject],
   );
 
   const reindexSource = useCallback(
     async (source: SourceSummary) => {
-      if (!selectedProject) return;
+      if (runActive || !selectedProject) return;
       setBusy(`reindex-${source.id}`);
       setNotice(null);
       try {
@@ -437,12 +442,13 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources, selectedProject],
+    [loadRetrievalHealth, loadSources, runActive, selectedProject],
   );
 
   const deleteSource = useCallback(
     async (source: SourceSummary) => {
       if (
+        runActive ||
         !selectedProject ||
         !window.confirm(`Delete ${source.original_name} from this project?`)
       )
@@ -471,11 +477,18 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadProjects, loadRetrievalHealth, selectedProject, selectedSourceId],
+    [
+      loadProjects,
+      loadRetrievalHealth,
+      runActive,
+      selectedProject,
+      selectedSourceId,
+    ],
   );
 
   const deleteProject = useCallback(async () => {
     if (
+      runActive ||
       !selectedProject ||
       !window.confirm(
         `Delete project “${selectedProject.name}” and all vault data?`,
@@ -501,7 +514,7 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  }, [loadProjects, selectedProject]);
+  }, [loadProjects, runActive, selectedProject]);
 
   const rebuildRetrieval = useCallback(async () => {
     if (!selectedProject) return;
@@ -581,7 +594,7 @@ export function App() {
     <main className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Milestone 5 · Challenge Mode</p>
+          <p className="eyebrow">Milestone 6 · Local ASR + Run mode</p>
           <h1>Presenter Copilot</h1>
           <p className="lede">
             Import presentation material, preserve its boundaries, and inspect
@@ -660,7 +673,7 @@ export function App() {
               type="button"
               className="primary-button"
               onClick={() => void createProject()}
-              disabled={busy !== null || status.state !== "ready"}
+              disabled={busy !== null || runActive || status.state !== "ready"}
             >
               Create
             </button>
@@ -675,7 +688,7 @@ export function App() {
                 type="button"
                 className={`project-item ${selectedProject?.id === project.id ? "selected" : ""}`}
                 onClick={() => void selectProject(project)}
-                disabled={busy !== null}
+                disabled={busy !== null || runActive}
               >
                 <span className="project-item-name">{project.name}</span>
                 <span className="project-item-meta">
@@ -718,7 +731,7 @@ export function App() {
                   type="button"
                   className="danger-button"
                   onClick={() => void deleteProject()}
-                  disabled={busy !== null}
+                  disabled={busy !== null || runActive}
                 >
                   Delete project
                 </button>
@@ -785,16 +798,23 @@ export function App() {
                 type="button"
                 className="secondary-button"
                 onClick={() => void saveSettings()}
-                disabled={busy !== null}
+                disabled={busy !== null || runActive}
               >
                 Save settings
               </button>
 
               {selectedProject.storage_status === "ready" ? (
+                <RunPanel
+                  project={selectedProject}
+                  onActiveChange={setRunActive}
+                />
+              ) : null}
+
+              {selectedProject.storage_status === "ready" && !runActive ? (
                 <TeachPanel project={selectedProject} />
               ) : null}
 
-              {selectedProject.storage_status === "ready" ? (
+              {selectedProject.storage_status === "ready" && !runActive ? (
                 <ChallengePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
@@ -816,6 +836,7 @@ export function App() {
                           "presentation" | "supporting" | "transcript",
                       )
                     }
+                    disabled={busy !== null || runActive}
                   >
                     <option value="presentation">Presentation</option>
                     <option value="supporting">Supporting document</option>
@@ -825,7 +846,7 @@ export function App() {
                     type="button"
                     className="primary-button"
                     onClick={() => void importSource()}
-                    disabled={busy !== null}
+                    disabled={busy !== null || runActive}
                   >
                     Import source…
                   </button>
@@ -861,7 +882,7 @@ export function App() {
                       type="button"
                       className="source-main"
                       onClick={() => void inspectSource(source)}
-                      disabled={busy !== null}
+                      disabled={busy !== null || runActive}
                     >
                       <span className="source-name">
                         {source.original_name}
@@ -877,7 +898,7 @@ export function App() {
                         type="button"
                         className="text-button"
                         onClick={() => void reindexSource(source)}
-                        disabled={busy !== null}
+                        disabled={busy !== null || runActive}
                       >
                         Re-index
                       </button>
@@ -885,7 +906,7 @@ export function App() {
                         type="button"
                         className="text-button danger-text"
                         onClick={() => void deleteSource(source)}
-                        disabled={busy !== null}
+                        disabled={busy !== null || runActive}
                       >
                         Delete
                       </button>
@@ -1043,7 +1064,7 @@ export function App() {
                       onClick={() =>
                         void loadRetrievalHealth(selectedProject.id)
                       }
-                      disabled={busy !== null}
+                      disabled={busy !== null || runActive}
                     >
                       Refresh health
                     </button>
@@ -1051,7 +1072,7 @@ export function App() {
                       type="button"
                       className="primary-button"
                       onClick={() => void rebuildRetrieval()}
-                      disabled={busy !== null}
+                      disabled={busy !== null || runActive}
                     >
                       {busy === "retrieval-rebuild"
                         ? "Building index…"
@@ -1118,7 +1139,7 @@ export function App() {
                       type="button"
                       className="secondary-button retrieval-query-button"
                       onClick={() => void runRetrievalQuery()}
-                      disabled={busy !== null}
+                      disabled={busy !== null || runActive}
                     >
                       {busy === "retrieval-query" ? "Querying…" : "Run query"}
                     </button>
