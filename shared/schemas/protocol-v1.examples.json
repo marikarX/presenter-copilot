@@ -55,6 +55,23 @@
             "session.get",
             "session.list",
             "session.delete",
+            "asr.list_devices",
+            "asr.configure",
+            "asr.prepare_model",
+            "asr.start",
+            "asr.stop",
+            "asr.status",
+            "presentation.detect",
+            "presentation.set_slide",
+            "presentation.next_slide",
+            "presentation.previous_slide",
+            "presentation.status",
+            "run.mark_event",
+            "run.generate_debrief",
+            "run.get_state",
+            "run.list_transcript",
+            "run.list_timeline",
+            "run.get_debrief",
             "teach.next_prompt",
             "teach.get_state",
             "teach.submit_text",
@@ -93,6 +110,16 @@
             "teach.knowledge_candidate",
             "challenge.question",
             "challenge.evaluation",
+            "session.started",
+            "session.stopped",
+            "asr.model_loading",
+            "asr.ready",
+            "asr.partial",
+            "asr.final",
+            "asr.device_error",
+            "presentation.slide_changed",
+            "presentation.status_changed",
+            "run.debrief_progress",
             "provider.status_changed",
             "privacy.remote_context_manifest"
           ]
@@ -111,12 +138,18 @@
           "retrieval.hybrid",
           "retrieval.lexical",
           "reasoning.fake",
-          "provider.openai.responses"
+          "provider.openai.responses",
+          "audio.sounddevice",
+          "asr.faster-whisper",
+          "asr.deterministic-fake",
+          "presentation.manual",
+          "presentation.powerpoint.read-only",
+          "debrief.deterministic-local"
         ],
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 5
+          "project_schema_version": 6
         }
       }
     },
@@ -178,6 +211,23 @@
             "session.get",
             "session.list",
             "session.delete",
+            "asr.list_devices",
+            "asr.configure",
+            "asr.prepare_model",
+            "asr.start",
+            "asr.stop",
+            "asr.status",
+            "presentation.detect",
+            "presentation.set_slide",
+            "presentation.next_slide",
+            "presentation.previous_slide",
+            "presentation.status",
+            "run.mark_event",
+            "run.generate_debrief",
+            "run.get_state",
+            "run.list_transcript",
+            "run.list_timeline",
+            "run.get_debrief",
             "teach.next_prompt",
             "teach.get_state",
             "teach.submit_text",
@@ -216,6 +266,16 @@
             "teach.knowledge_candidate",
             "challenge.question",
             "challenge.evaluation",
+            "session.started",
+            "session.stopped",
+            "asr.model_loading",
+            "asr.ready",
+            "asr.partial",
+            "asr.final",
+            "asr.device_error",
+            "presentation.slide_changed",
+            "presentation.status_changed",
+            "run.debrief_progress",
             "provider.status_changed",
             "privacy.remote_context_manifest"
           ]
@@ -234,12 +294,18 @@
           "retrieval.hybrid",
           "retrieval.lexical",
           "reasoning.fake",
-          "provider.openai.responses"
+          "provider.openai.responses",
+          "audio.sounddevice",
+          "asr.faster-whisper",
+          "asr.deterministic-fake",
+          "presentation.manual",
+          "presentation.powerpoint.read-only",
+          "debrief.deterministic-local"
         ],
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 5
+          "project_schema_version": 6
         }
       }
     },

@@ -78,9 +78,15 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "retrieval.lexical",
         "reasoning.fake",
         "provider.openai.responses",
+        "audio.sounddevice",
+        "asr.faster-whisper",
+        "asr.deterministic-fake",
+        "presentation.manual",
+        "presentation.powerpoint.read-only",
+        "debrief.deterministic-local",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 5}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 6}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:

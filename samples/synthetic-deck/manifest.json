@@ -1,6 +1,6 @@
 {
   "fixture_id": "synthetic-deck",
-  "status": "m4-complete",
+  "status": "m6-complete",
   "generator": "generate_fixture.py",
   "assets": {
     "presentation": "deck/presentation.pptx",
@@ -14,6 +14,17 @@
         "transcript/equivalent.srt",
         "transcript/equivalent.txt",
         "transcript/equivalent.json"
+      ]
+    },
+    "audio": {
+      "speech_fixture": "audio/speech-fixture.wav",
+      "format": "16 kHz mono signed 16-bit PCM",
+      "fixture_id": "synthetic-asr-speech-v1",
+      "expected_terms": [
+        "three year",
+        "eighteen percent",
+        "recovery time objective",
+        "thirty minutes"
       ]
     },
     "expected": [
