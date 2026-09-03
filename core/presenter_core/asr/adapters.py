@@ -17,6 +17,8 @@ from .interfaces import ASRTranscription, AudioFrame
 
 DEFAULT_ASR_MODEL_ID = "Systran/faster-whisper-base.en"
 DEFAULT_ASR_ADAPTER_ID = "faster-whisper"
+DEFAULT_ASR_DEVICE = "cpu"
+DEFAULT_ASR_COMPUTE_TYPE = "int8"
 FAKE_ASR_ADAPTER_ID = "deterministic-fake"
 MAX_ASR_SEGMENTS = 64
 MAX_ADAPTER_TEXT_CHARS = 12_000
@@ -30,8 +32,8 @@ class FasterWhisperASRAdapter:
         cache_dir: str | Path,
         *,
         model_id: str = DEFAULT_ASR_MODEL_ID,
-        device: str = "auto",
-        compute_type: str = "default",
+        device: str = DEFAULT_ASR_DEVICE,
+        compute_type: str = DEFAULT_ASR_COMPUTE_TYPE,
     ) -> None:
         if model_id != DEFAULT_ASR_MODEL_ID:
             raise ValueError("Only the approved M6 reference model is supported.")

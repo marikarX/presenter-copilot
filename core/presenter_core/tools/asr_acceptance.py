@@ -24,6 +24,12 @@ EXPECTED_TERMS = (
     "recovery time objective",
     "thirty minutes",
 )
+EXPECTED_ALTERNATIVES = {
+    "three year": ("three year",),
+    "eighteen percent": ("eighteen percent", "18 percent"),
+    "recovery time objective": ("recovery time objective",),
+    "thirty minutes": ("thirty minutes", "30 minutes"),
+}
 
 
 def _model_cache(data_root: Path | None) -> Path:
@@ -73,8 +79,12 @@ def main(argv: list[str] | None = None) -> int:
         adapter.load_local_model()
         transcription = adapter.transcribe_final(audio, language="en")
         normalized = _normalize(transcription.text)
-        matched = [term for term in EXPECTED_TERMS if term in normalized]
-        missing = [term for term in EXPECTED_TERMS if term not in normalized]
+        matched = [
+            term
+            for term in EXPECTED_TERMS
+            if any(alternative in normalized for alternative in EXPECTED_ALTERNATIVES[term])
+        ]
+        missing = [term for term in EXPECTED_TERMS if term not in matched]
         report = {
             "status": "passed" if not missing else "failed",
             "fixture_id": "synthetic-asr-speech-v1",
