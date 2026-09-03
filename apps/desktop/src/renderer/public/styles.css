@@ -481,6 +481,11 @@ textarea {
   color: #a9edc9;
 }
 
+.notice-message.warning {
+  background: rgba(240, 132, 132, 0.14);
+  color: #ffc4c4;
+}
+
 .source-list {
   margin-top: 16px;
 }
@@ -883,6 +888,49 @@ textarea {
 .run-actions-wrap input {
   flex: 1 1 220px;
   min-width: 160px;
+}
+
+.live-question-field,
+.shortcut-settings {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  color: #9aaac4;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-question-field input,
+.shortcut-settings input {
+  min-height: 38px;
+  text-transform: none;
+}
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shortcut-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #9aaac4;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shortcut-settings small {
+  color: #8194b3;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
 }
 
 .run-facts {

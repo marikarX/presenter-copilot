@@ -53,6 +53,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 "challenge_question",
                 "challenge_follow_up",
                 "challenge_evaluation",
+                "live_cue",
             ),
         )
 
@@ -94,6 +95,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
             "challenge_question": "challenge_question",
             "challenge_follow_up": "challenge_follow_up",
             "challenge_evaluation": "challenge_evaluation",
+            "live_cue": "live_cue",
         }.get(request.task_type)
         if schema_name is None:
             raise ProviderError(

@@ -1,4 +1,4 @@
-"""Thread-safe local ASR orchestration for Run sessions."""
+"""Thread-safe local ASR orchestration for Run and Live Assist sessions."""
 
 from __future__ import annotations
 
@@ -68,6 +68,19 @@ class _DecodeRequest:
     generation: int
 
 
+@dataclass(frozen=True)
+class ASRPartialSnapshot:
+    """Latest bounded partial text available to the core-owned assist path."""
+
+    project_id: str
+    session_id: str
+    utterance_id: str
+    text: str
+    start_ms: int
+    end_ms: int
+    generation: int
+
+
 @dataclass
 class _ActiveCapture:
     project_id: str
@@ -89,6 +102,7 @@ class _ActiveCapture:
     decode_condition: threading.Condition | None = None
     final_requests: deque[_DecodeRequest] = field(default_factory=deque)
     partial_request: _DecodeRequest | None = None
+    latest_partial: ASRPartialSnapshot | None = None
     pending_final_retry: _DecodeRequest | None = None
     ingestion_done: threading.Event = field(default_factory=threading.Event)
     decoder_done: threading.Event = field(default_factory=threading.Event)
@@ -172,7 +186,7 @@ class ASRService:
             if self._active is not None or self._preparing or self._closing:
                 raise CoreDomainError(
                     "ASR_BUSY",
-                    "Audio, model, and device configuration cannot change while Run is listening.",
+                    "Audio, model, and device configuration cannot change while capture is active.",
                     retryable=True,
                 )
             adapter_id = params.get("adapter_id", self._configuration.adapter_id)
@@ -210,7 +224,7 @@ class ASRService:
             if self._active is not None or self._preparing or self._closing:
                 raise CoreDomainError(
                     "ASR_BUSY",
-                    "The ASR model cannot change while Run is listening.",
+                    "The ASR model cannot change while capture is active.",
                     retryable=True,
                 )
             adapter_id = params.get("adapter_id", self._configuration.adapter_id)
@@ -281,7 +295,7 @@ class ASRService:
             if self._active is not None:
                 raise CoreDomainError(
                     "ASR_ALREADY_RUNNING",
-                    "Only one Run microphone capture may be active at a time.",
+                    "Only one Run or Live Assist microphone capture may be active at a time.",
                     retryable=True,
                 )
         try:
@@ -289,7 +303,7 @@ class ASRService:
         except CoreDomainError as error:
             raise CoreDomainError(
                 "ASR_SESSION_INVALID",
-                "ASR requires an active Run session in the selected project.",
+                "ASR requires an active Run or Live Assist session in the selected project.",
                 details={"reason": error.code},
             ) from error
 
@@ -384,6 +398,7 @@ class ASRService:
             active.stop_requested.set()
             active.stop_attempts += 1
             active.partial_request = None
+            active.latest_partial = None
             condition = active.decode_condition
             if condition is not None:
                 condition.notify_all()
@@ -501,11 +516,33 @@ class ASRService:
             return self._status_locked()
 
     def active_owner(self) -> tuple[str, str] | None:
-        """Return the Run that still owns capture or model cleanup, if any."""
+        """Return the Run or Live Assist session that owns capture cleanup."""
         with self._lock:
             if self._active is None:
                 return None
             return self._active.project_id, self._active.session_id
+
+    def latest_partial(self, project_id: str, session_id: str) -> dict[str, Any] | None:
+        """Return a copy of the current bounded partial for one live session."""
+        with self._lock:
+            active = self._active
+            snapshot = active.latest_partial if active is not None else None
+            if (
+                active is None
+                or snapshot is None
+                or active.project_id != project_id
+                or active.session_id != session_id
+            ):
+                return None
+            return {
+                "project_id": snapshot.project_id,
+                "session_id": snapshot.session_id,
+                "utterance_id": snapshot.utterance_id,
+                "text": snapshot.text,
+                "start_ms": snapshot.start_ms,
+                "end_ms": snapshot.end_ms,
+                "generation": snapshot.generation,
+            }
 
     def close(self) -> bool:
         """Stop capture and release model/device resources before core shutdown."""
@@ -757,6 +794,7 @@ class ASRService:
             # A pending partial is optional and stale as soon as final audio
             # exists.  It can never occupy the bounded final queue.
             active.partial_request = None
+            active.latest_partial = None
             condition = active.decode_condition
             if condition is None:
                 raise CoreDomainError(
@@ -825,6 +863,15 @@ class ASRService:
                 or request.utterance.finalizing
             ):
                 return
+            active.latest_partial = ASRPartialSnapshot(
+                project_id=active.project_id,
+                session_id=active.session_id,
+                utterance_id=request.utterance.utterance_id,
+                text=text,
+                start_ms=request.start_ms,
+                end_ms=request.end_ms,
+                generation=request.generation,
+            )
         self._emit(
             "asr.partial",
             {

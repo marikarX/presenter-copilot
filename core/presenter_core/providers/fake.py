@@ -47,6 +47,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                 "challenge_question",
                 "challenge_follow_up",
                 "challenge_evaluation",
+                "live_cue",
             ),
         )
 
@@ -92,6 +93,29 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             output = validate_provider_output(
                 request.task_type,
                 {"question": question, "focus": "decision_rationale"},
+            )
+        elif request.task_type == "live_cue":
+            grounding = (
+                request.grounding_evidence
+                or request.evidence
+                or request.preferred_user_explanations
+            )
+            evidence = grounding[0] if grounding else None
+            if isinstance(evidence, dict):
+                label = str(evidence.get("label") or "Project source")
+                excerpt = " ".join(str(evidence.get("text") or "").split())
+                line = f"{label}: {excerpt}"[:180].rstrip()
+                evidence_ids = [
+                    str(item["evidence_id"])
+                    for item in grounding[:2]
+                    if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+                ]
+            else:
+                line = "Use the prepared project context to answer directly."
+                evidence_ids = []
+            output = validate_provider_output(
+                request.task_type,
+                {"cue_type": "fact", "lines": [line], "evidence_ids": evidence_ids},
             )
         elif request.task_type == "teach_candidate":
             answer = (request.user_input or "").strip()

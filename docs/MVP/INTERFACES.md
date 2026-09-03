@@ -397,10 +397,11 @@ run.list_timeline
 run.get_debrief
 ```
 
-Run uses the ordinary `session.start`, `session.stop`, `session.get`,
-`session.list`, and `session.delete` lifecycle. `session.start` with
-`mode=run` is the only M6 microphone consumer; `live_assist` remains
-`MODE_NOT_IMPLEMENTED`.
+Run and Live Assist use the ordinary `session.start`, `session.stop`,
+`session.get`, `session.list`, and `session.delete` lifecycle. `mode=run` and
+`mode=live_assist` may own the M6 local microphone consumer, but only one
+capture can be active at a time. Live Assist finals use
+`actor=unknown_audience`; Run finals use `actor=user`.
 
 `asr.list_devices` returns only bounded device metadata. A sounddevice
 `device_id` is a stable opaque identity for the selected backend endpoint, not
@@ -409,10 +410,11 @@ backend index immediately before opening capture. `asr.configure` accepts the
 core-approved `adapter_id`, `model_id`, English `language`, and selected
 `device_id`; it rejects changes while capture/model preparation is active.
 `asr.prepare_model` is an explicit setup operation for the approved local
-model. `asr.start` requires an active Run session and never downloads. A second
+model. `asr.start` requires an active Run or Live Assist session and never
+downloads. A second
 capture returns `ASR_ALREADY_RUNNING`; a missing model returns
 `ASR_MODEL_UNAVAILABLE`. `asr.stop` is idempotent only for the matching active
-Run session and performs bounded cleanup. It reports success only after the
+matching active Run or Live Assist session and performs bounded cleanup. It reports success only after the
 ingestion and serialized decoder workers have terminated, any active final has
 been persisted or deterministically found empty, and audio/model resources
 have been released. A failed join or final remains in retryable `stopping`
@@ -450,8 +452,29 @@ absence of support.
 ```text
 assist.request
 assist.cancel
+cue.list
+cue.dismiss
 cue.expand_sources
+hud.settings.get
+hud.settings.update
 ```
+
+`assist.request` accepts a project/session pair, optional bounded `question`
+text (the `text` field is a compatibility alias), and `trigger` of `hotkey`,
+`button`, or `typed`. With no explicit question, core uses at most six recent
+final `unknown_audience` utterances from the last 15 seconds plus the latest
+ephemeral ASR partial, bounded to 1,200 characters. The current slide is read
+from the canonical presentation-state service. Empty context fails with
+`ASSIST_CONTEXT_INSUFFICIENT`; automatic question segmentation is not part of
+M7.
+
+The asynchronous assist emits `assist.started`, `assist.retrieval_ready`,
+optional `assist.reasoning_started`, `cue.partial`, and `cue.ready`; failures
+use `cue.error`. One assist owns one cue row. Retrieval-only exact facts and
+source pointers do not require a provider. Provider output must use the
+`live_cue` schema, cite only supplied evidence, and is logically cancelled or
+suppressed when a newer assist supersedes it. Provider-native cancellation is
+deferred to M8.
 
 ### Providers
 
@@ -605,7 +628,9 @@ The sidecar owns routing. Renderer must not decide to call a cloud provider dire
 }
 ```
 
-Hard UI constraint: P0 HUD renderer accepts at most 3 cue lines in collapsed mode.
+Hard UI constraint: the HUD accepts at most 3 cue lines, with at most 2
+provider-supplied content lines; core may append one bounded source-pointer
+line.
 
 ## 9. Reasoning provider interface
 

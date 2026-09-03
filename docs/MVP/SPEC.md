@@ -142,7 +142,7 @@ Required behavior:
 - source/slide pointer available without expanding into a chat window;
 - global hotkey to hide/show HUD;
 - global hotkey or button to request assistance explicitly;
-- automatic question segmentation may be experimental, but explicit push-to-assist is mandatory as a reliable fallback.
+- explicit push-to-assist is the M7 trigger; automatic question segmentation is not implemented.
 
 ## 6. Style policies
 

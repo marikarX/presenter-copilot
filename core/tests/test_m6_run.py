@@ -545,8 +545,8 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             ]
     assert connection is not None
     migrated = connect_project_database(path)
-    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 6
-    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 6
+    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 7
+    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 7
     tables = {
         row[0]
         for row in migrated.execute(
@@ -554,7 +554,14 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
         ).fetchall()
     }
     assert {"slide_state_events", "run_markers", "run_debriefs"} <= tables
-    assert tables.difference(before_tables) == {"slide_state_events", "run_markers", "run_debriefs"}
+    assert {"cues", "cue_evidence"} <= tables
+    assert tables.difference(before_tables) == {
+        "slide_state_events",
+        "run_markers",
+        "run_debriefs",
+        "cues",
+        "cue_evidence",
+    }
     for table, rows in before_rows.items():
         after_rows = [
             tuple(row) for row in migrated.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
@@ -574,7 +581,7 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             ]
             for table in sorted(tables)
         }
-        connection.execute("PRAGMA user_version = 7")
+        connection.execute("PRAGMA user_version = 8")
         connection.commit()
     try:
         connect_project_database(path)
@@ -583,7 +590,7 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
     else:  # pragma: no cover
         raise AssertionError("future schema was accepted")
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         for table, rows in before_future.items():
             assert [
                 tuple(row) for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid')

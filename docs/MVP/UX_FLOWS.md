@@ -250,7 +250,7 @@ Before activation show explicit status:
 Privacy: Selected Context Cloud
 Audio: processed locally
 Remote context: question + selected excerpts only
-HUD capture protection: ON
+HUD capture protection: best effort (status shown)
 ```
 
 HUD default:
@@ -283,6 +283,18 @@ Example:
 3. `3-year TCO ↓ 18% · includes licenses + ops`
 
 A correct useful partial is preferred to waiting for polished prose.
+
+M7 push-to-assist uses an optional typed question when supplied. Without one,
+core combines the latest bounded final `unknown_audience` utterances and the
+latest ephemeral ASR partial from the active Live Assist session, then applies
+the current slide as retrieval context. The window is limited to six final
+utterances from the last 15 seconds and 1,200 characters. Automatic question
+segmentation is not implemented; the presenter explicitly pushes the action.
+
+The collapsed HUD is click-through and limited to three lines. Expanded mode
+enables source inspection, clear, and the push button. A core/provider failure
+leaves the HUD available for hide/show and reports an actionable error rather
+than covering the presentation with a frozen result.
 
 ## 11. Provenance expansion
 

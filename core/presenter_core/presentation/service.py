@@ -66,6 +66,7 @@ class SlideStateService:
         self._event_sink = event_sink
 
     def start_run(self, project_id: str, session_id: str) -> dict[str, Any]:
+        """Start presentation tracking for a Run or Live Assist session."""
         project_id = self._project_id(project_id)
         session_id = self._session_id(session_id)
         session = self._validate_run(project_id, session_id)
@@ -112,6 +113,10 @@ class SlideStateService:
             raise
         self._emit_status(active)
         return self.status({"project_id": project_id, "session_id": session_id})
+
+    def start_live(self, project_id: str, session_id: str) -> dict[str, Any]:
+        """Explicit Live Assist alias kept separate at the composition seam."""
+        return self.start_run(project_id, session_id)
 
     def detect(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "session_id"})
@@ -312,7 +317,11 @@ class SlideStateService:
                 "SELECT status, mode FROM sessions WHERE id = ? AND project_id = ?",
                 (active.session_id, active.project_id),
             ).fetchone()
-            if session is None or session["mode"] != "run" or session["status"] != "active":
+            if (
+                session is None
+                or session["mode"] not in {"run", "live_assist"}
+                or session["status"] != "active"
+            ):
                 return
             count_row = connection.execute(
                 "SELECT COUNT(*) FROM slide_state_events WHERE session_id = ?",
@@ -321,7 +330,7 @@ class SlideStateService:
             if count_row is not None and int(count_row[0]) >= MAX_SLIDE_EVENTS_PER_SESSION:
                 raise CoreDomainError(
                     "RUN_SESSION_LIMIT_REACHED",
-                    "The Run slide timeline reached its safety bound.",
+                    "The presentation slide timeline reached its safety bound.",
                 )
             latest = connection.execute(
                 "SELECT slide_ordinal, timestamp_ms FROM slide_state_events "
@@ -395,7 +404,7 @@ class SlideStateService:
             active = self._runs.get((project_id, session_id))
         if active is None:
             raise CoreDomainError(
-                "PRESENTATION_STATE_UNAVAILABLE", "Run presentation state is unavailable."
+                "PRESENTATION_STATE_UNAVAILABLE", "Presentation state is unavailable."
             )
         return active
 
@@ -405,7 +414,7 @@ class SlideStateService:
         except CoreDomainError as error:
             raise CoreDomainError(
                 "PRESENTATION_SESSION_INVALID",
-                "Presentation state requires an active Run session.",
+                "Presentation state requires an active Run or Live Assist session.",
                 details={"reason": error.code},
             ) from error
 

@@ -396,11 +396,12 @@ SlideStateEvent
 Cue
 - id UUID PK
 - session_id UUID
-- question_id UUID nullable
+- assist_id UUID-like request identifier, unique within the session
 - cue_type ENUM(fact, structure, reminder, source_pointer, warning)
 - text TEXT
 - state ENUM(partial, final)
-- confidence REAL nullable
+- route ENUM(retrieval_only, local_reasoning, remote_reasoning)
+- provider_run_id UUID nullable
 - created_at DATETIME
 - displayed_at DATETIME nullable
 - dismissed_at DATETIME nullable
@@ -411,9 +412,13 @@ Cue
 ```text
 CueEvidence
 - cue_id UUID
-- provenance_type ENUM(document, user_statement, transcript, practiced_answer)
-- provenance_id UUID
+- source_type ENUM(document, user_statement, transcript)
+- source_id UUID
+- source_unit_id UUID nullable
+- knowledge_item_id UUID nullable
+- label_snapshot TEXT
 - rank INTEGER
+- available BOOLEAN
 ```
 
 ## 10. Provider calls
@@ -548,14 +553,15 @@ embedding model cache survive.
 
 Every DB has an integer schema version. Migrations are forward-only in normal
 operation and must be covered by fixture tests from every released pre-1.0
-schema once releases begin. M6 uses explicit migration history:
-`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4 -> 5 -> 6, preserving
+schema once releases begin. M7 uses explicit migration history:
+`app.db` 1 -> 2 and `project.db` 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7, preserving
 existing registry, source, chunk, generation, mapping, project-setting,
 session, Teach, Challenge, provider-run, and style rows. The v3 -> v4
 migration adds only project-local transcript attribution and Audience Model
 tables. The v4 -> v5 migration adds only project-local Challenge state and
 promotion tables. The v5 -> v6 migration adds only Run slide, marker, and
-debrief state. A future schema version is rejected without mutating the
+debrief state. The v6 -> v7 migration adds only Live Assist cue and cue-evidence
+state. A future schema version is rejected without mutating the
 database. `app.db` remains at version 2.
 
 ## 14. M4 transcript attribution and Audience Model
@@ -638,7 +644,7 @@ pending candidates become stale, and stale rows are excluded from context.
 ## 15. M5 Challenge mode
 
 Challenge state is project-local and session-owned. `app.db` remains at schema
-version 2; `project.db` is schema version 6. The explicit v4 -> v5 migration
+version 2; `project.db` is schema version 7. The explicit v4 -> v5 migration
 creates these tables:
 
 ```text
@@ -757,7 +763,7 @@ Run state remains project-local and reuses the existing `sessions` and
 `utterances` tables. Only final ASR output creates an `Utterance` row:
 
 ```text
-actor = user
+actor = user for Run and `unknown_audience` for Live Assist
 is_final = 1
 start_ms / end_ms = monotonic session-relative timestamps
 asr_confidence = nullable adapter value
@@ -800,5 +806,43 @@ run_debriefs
 `presentation.slide_changed` is emitted after the insert commits. PowerPoint
 state is read-only and `inferred` is reserved for a later milestone. Run
 transcript/timeline/debrief reads are bounded and paginated. Session and
-project deletion cascade all M6 rows; the app-level ASR model cache is not
+project deletion cascade all M6/M7 rows; the app-level ASR model cache is not
 project data and survives deletion.
+
+## 17. M7 Live Assist cues
+
+Live Assist reuses the existing `sessions`, `utterances`, `slide_state_events`,
+and embedding/retrieval tables. Live microphone finals are persisted as
+unattributed `unknown_audience` utterances; partial text remains ephemeral.
+There is no audio table and no question-segmentation table.
+
+The v6 -> v7 migration adds:
+
+```text
+cues
+- id UUID PK
+- session_id UUID FK sessions ON DELETE CASCADE
+- assist_id TEXT, UNIQUE(session_id, assist_id)
+- cue_type ENUM(fact, structure, reminder, source_pointer, warning)
+- text TEXT
+- state ENUM(partial, final)
+- route ENUM(retrieval_only, local_reasoning, remote_reasoning)
+- provider_run_id UUID nullable FK provider_runs ON DELETE SET NULL
+- created_at / displayed_at / dismissed_at
+
+cue_evidence
+- cue_id UUID FK cues ON DELETE CASCADE
+- evidence_id TEXT
+- source_type / source_id / source_unit_id
+- knowledge_item_id nullable
+- label_snapshot TEXT
+- rank INTEGER
+- available BOOLEAN
+- PRIMARY KEY(cue_id, evidence_id)
+```
+
+CueService writes one row per Assist request, updates that row from `partial`
+to `final`, caps evidence at eight items, and revalidates source/knowledge
+availability before a cue is displayed. Source deletion/re-indexing preserves
+the historical pointer but marks it unavailable. Cues and cue evidence cascade
+with their session or project.

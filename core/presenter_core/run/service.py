@@ -104,7 +104,13 @@ class RunService:
             # A stale/terminal session row must not hide a still-owned ASR
             # resource from project deletion.  Run.stop performs the retryable
             # resource cleanup before any project filesystem operation.
-            self.stop({"project_id": owner[0], "session_id": owner[1], "status": "aborted"})
+            with self._storage.project_database(owner[0]) as connection:
+                owner_row = connection.execute(
+                    "SELECT mode FROM sessions WHERE id = ? AND project_id = ?",
+                    (owner[1], owner[0]),
+                ).fetchone()
+            if owner_row is not None and owner_row["mode"] == "run":
+                self.stop({"project_id": owner[0], "session_id": owner[1], "status": "aborted"})
 
     def stop_active_runs(self, *, status: str = "aborted") -> None:
         """Flush every active Run before a normal core shutdown."""
@@ -135,16 +141,22 @@ class RunService:
                     first_error = first_error or error
         asr_owner = self._current_asr_owner()
         if asr_owner is not None and asr_owner not in active_sessions:
-            try:
-                self.stop(
-                    {
-                        "project_id": asr_owner[0],
-                        "session_id": asr_owner[1],
-                        "status": status,
-                    }
-                )
-            except CoreDomainError as error:
-                first_error = first_error or error
+            with self._storage.project_database(asr_owner[0]) as connection:
+                owner_row = connection.execute(
+                    "SELECT mode FROM sessions WHERE id = ? AND project_id = ?",
+                    (asr_owner[1], asr_owner[0]),
+                ).fetchone()
+            if owner_row is not None and owner_row["mode"] == "run":
+                try:
+                    self.stop(
+                        {
+                            "project_id": asr_owner[0],
+                            "session_id": asr_owner[1],
+                            "status": status,
+                        }
+                    )
+                except CoreDomainError as error:
+                    first_error = first_error or error
         if first_error is not None:
             raise first_error
 
@@ -250,10 +262,14 @@ class RunService:
                 "SELECT status, mode, started_at FROM sessions WHERE id = ? AND project_id = ?",
                 (session_id, project_id),
             ).fetchone()
-            if session is None or session["mode"] != "run" or session["status"] != "active":
+            if (
+                session is None
+                or session["mode"] not in {"run", "live_assist"}
+                or session["status"] != "active"
+            ):
                 raise CoreDomainError(
                     "ASR_SESSION_INVALID",
-                    "Final ASR text requires an active Run session.",
+                    "Final ASR text requires an active Run or Live Assist session.",
                 )
             existing = connection.execute(
                 "SELECT slide_ordinal, text FROM utterances WHERE id = ? AND session_id = ?",
@@ -276,7 +292,7 @@ class RunService:
             if count is not None and int(count[0]) >= MAX_RUN_UTTERANCES_PER_SESSION:
                 raise CoreDomainError(
                     "ASR_SESSION_LIMIT_REACHED",
-                    "The Run transcript reached its safety bound.",
+                    "The session transcript reached its safety bound.",
                 )
             previous = connection.execute(
                 "SELECT end_ms FROM utterances WHERE session_id = ? AND is_final = 1 "
@@ -290,7 +306,7 @@ class RunService:
             ):
                 raise CoreDomainError(
                     "ASR_TRANSCRIBE_FAILED",
-                    "ASR timestamps must be monotonic within a Run session.",
+                    "ASR timestamps must be monotonic within a session.",
                 )
             presentation_slide = self._presentation.current_slide(project_id, session_id)
             slide_ordinal = self._valid_slide_hint(slide_hint, presentation_slide)
@@ -299,11 +315,12 @@ class RunService:
                 INSERT INTO utterances (
                     id, session_id, actor, text, created_at, start_ms, end_ms,
                     asr_confidence, slide_ordinal, is_final
-                ) VALUES (?, ?, 'user', ?, ?, ?, ?, ?, ?, 1)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
                 (
                     utterance_id,
                     session_id,
+                    "unknown_audience" if session["mode"] == "live_assist" else "user",
                     text.strip(),
                     utc_now(),
                     start_ms,

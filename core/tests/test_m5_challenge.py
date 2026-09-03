@@ -1022,8 +1022,8 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
         connection.commit()
     migrated = connect_project_database(project_path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 6
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 6
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 7
         assert (
             migrated.execute(
                 "SELECT id FROM audience_profiles WHERE id = ?", (profile_id,)
@@ -1105,7 +1105,7 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
     no_op = connect_project_database(project_path)
     no_op.close()
     with sqlite3.connect(project_path) as future:
-        future.execute("PRAGMA user_version = 7")
+        future.execute("PRAGMA user_version = 8")
         future.commit()
     try:
         connect_project_database(project_path)
@@ -1114,7 +1114,7 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("future project schema was accepted")
     with sqlite3.connect(project_path) as unchanged:
-        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 class InventedEvidenceProvider(DeterministicFakeReasoningProvider):

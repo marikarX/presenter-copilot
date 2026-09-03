@@ -175,19 +175,19 @@ conferencing integration is part of this milestone.
 
 ### P0
 
-- [ ] K01 Dedicated transparent frameless HUD BrowserWindow.
-- [ ] K02 Top-center display positioning and calibration.
-- [ ] K03 Collapsed cue renderer hard-limited to <=3 lines.
-- [ ] K04 Global show/hide shortcut.
-- [ ] K05 Global push-to-assist shortcut.
-- [ ] K06 Click-through collapsed mode.
-- [ ] K07 Electron/OS content protection and visible status.
-- [ ] K08 CueService with user-wording preference.
-- [ ] K09 `cue.partial` progressive updates.
-- [ ] K10 Expanded provenance view.
-- [ ] K11 Retrieval-only fast path.
-- [ ] K12 HUD survives provider/core error and remains hideable.
-- [ ] K13 Question-to-cue latency instrumentation.
+- [x] K01 Dedicated transparent frameless HUD BrowserWindow.
+- [x] K02 Top-center display positioning and calibration.
+- [x] K03 Collapsed cue renderer hard-limited to <=3 lines.
+- [x] K04 Global show/hide shortcut.
+- [x] K05 Global push-to-assist shortcut.
+- [x] K06 Click-through collapsed mode.
+- [x] K07 Electron/OS content protection and visible status.
+- [x] K08 CueService with user-wording preference.
+- [x] K09 `cue.partial` progressive updates.
+- [x] K10 Expanded provenance view.
+- [x] K11 Retrieval-only fast path.
+- [x] K12 HUD survives provider/core error and remains hideable.
+- [x] K13 Question-to-cue latency instrumentation.
 
 ### P1
 

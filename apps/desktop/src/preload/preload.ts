@@ -8,6 +8,10 @@ import type {
   ImportSourceResult,
   InvokeResult,
   ManualShortcutResult,
+  HudDisplay,
+  HudSettings,
+  HudSettingsUpdate,
+  HudStatus,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -66,6 +70,40 @@ const api: PresenterCopilotApi = {
     disableManualRun(): Promise<InvokeResult<{ disabled: true }>> {
       return ipcRenderer.invoke("run:disable-manual-shortcuts") as Promise<
         InvokeResult<{ disabled: true }>
+      >;
+    },
+  },
+  hud: {
+    getStatus(): Promise<InvokeResult<HudStatus>> {
+      return ipcRenderer.invoke("hud:get-status") as Promise<
+        InvokeResult<HudStatus>
+      >;
+    },
+    getSettings(): Promise<InvokeResult<HudSettings>> {
+      return ipcRenderer.invoke("hud:get-settings") as Promise<
+        InvokeResult<HudSettings>
+      >;
+    },
+    updateSettings(
+      settings: HudSettingsUpdate,
+    ): Promise<InvokeResult<HudSettings>> {
+      return ipcRenderer.invoke("hud:update-settings", settings) as Promise<
+        InvokeResult<HudSettings>
+      >;
+    },
+    getDisplays(): Promise<InvokeResult<{ displays: HudDisplay[] }>> {
+      return ipcRenderer.invoke("hud:get-displays") as Promise<
+        InvokeResult<{ displays: HudDisplay[] }>
+      >;
+    },
+    show(): Promise<InvokeResult<{ visible: true }>> {
+      return ipcRenderer.invoke("hud:show") as Promise<
+        InvokeResult<{ visible: true }>
+      >;
+    },
+    hide(): Promise<InvokeResult<{ visible: false }>> {
+      return ipcRenderer.invoke("hud:hide") as Promise<
+        InvokeResult<{ visible: false }>
       >;
     },
   },

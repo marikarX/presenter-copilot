@@ -17,6 +17,7 @@ import {
 } from "../shared/protocol";
 import { AudiencePanel } from "./AudiencePanel";
 import { ChallengePanel } from "./ChallengePanel";
+import { LiveAssistPanel } from "./LiveAssistPanel";
 import { RunPanel } from "./RunPanel";
 import { TeachPanel } from "./TeachPanel";
 import {
@@ -120,7 +121,9 @@ export function App() {
   const [retrievalSourceType, setRetrievalSourceType] = useState("");
   const [retrievalResult, setRetrievalResult] =
     useState<RetrievalQueryResult | null>(null);
-  const [runActive, setRunActive] = useState(false);
+  const [runPanelActive, setRunPanelActive] = useState(false);
+  const [livePanelActive, setLivePanelActive] = useState(false);
+  const runActive = runPanelActive || livePanelActive;
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -806,7 +809,16 @@ export function App() {
               {selectedProject.storage_status === "ready" ? (
                 <RunPanel
                   project={selectedProject}
-                  onActiveChange={setRunActive}
+                  blocked={livePanelActive}
+                  onActiveChange={setRunPanelActive}
+                />
+              ) : null}
+
+              {selectedProject.storage_status === "ready" ? (
+                <LiveAssistPanel
+                  project={selectedProject}
+                  blocked={runPanelActive}
+                  onActiveChange={setLivePanelActive}
                 />
               ) : null}
 

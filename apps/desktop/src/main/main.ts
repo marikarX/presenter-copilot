@@ -1,9 +1,16 @@
 import path from "node:path";
 
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  screen,
+} from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
-import { CoreProcessClient, toCoreError } from "./core-client";
+import { CoreClientError, CoreProcessClient, toCoreError } from "./core-client";
 import { invokeResult } from "./invoke-result";
 import { createSidecarCommand } from "./sidecar-command";
 import {
@@ -17,15 +24,30 @@ import {
   type CoreStatus,
   type EventEnvelope,
   type HealthResult,
+  type HudDisplay,
+  type HudSettings,
+  type HudStatus,
   type JsonObject,
 } from "../shared/protocol";
 import {
+  isTrustedHudSender,
   isTrustedRendererSender,
   selectRendererLoadTarget,
+  type HudValidationOptions,
   type RendererValidationOptions,
 } from "./sender-validation";
+import {
+  calculateHudBounds,
+  DEFAULT_HUD_SETTINGS,
+  normalizeHudSettings,
+} from "./hud-geometry";
+import {
+  GlobalShortcutRegistry,
+  type ShortcutBinding,
+} from "./shortcut-manager";
 
 let mainWindow: BrowserWindow | null = null;
+let hudWindow: BrowserWindow | null = null;
 let coreClient: CoreProcessClient | null = null;
 let isQuitting = false;
 
@@ -33,9 +55,35 @@ export const MANUAL_PREVIOUS_SHORTCUT = "Ctrl+Alt+PageUp";
 export const MANUAL_NEXT_SHORTCUT = "Ctrl+Alt+PageDown";
 
 type ManualRunTarget = { projectId: string; sessionId: string };
+type LiveTarget = ManualRunTarget;
 
 let manualRunTarget: ManualRunTarget | null = null;
-let manualShortcutsRegistered = false;
+let liveTarget: LiveTarget | null = null;
+let liveShortcutsRegistered = false;
+let hudExpanded = false;
+let hudSettings: HudSettings = normalizeHudSettings(DEFAULT_HUD_SETTINGS);
+let hudCoreState: CoreStatus["state"] = "stopped";
+let hudCaptureProtection: HudStatus["capture_protection"] = "unsupported";
+let hudCaptureProtectionMessage =
+  "Capture protection status is not available yet.";
+let currentHudCueId: string | null = null;
+let currentHudAssistId: string | null = null;
+const ignoredHudAssistIds = new Set<string>();
+let hudCueOrder: string[] = [];
+let hudRegistry: GlobalShortcutRegistry | null = null;
+let currentHudPolicy: HudValidationOptions | null = null;
+
+const HUD_EVENT_NAMES = new Set([
+  "session.started",
+  "session.stopped",
+  "asr.partial",
+  "assist.started",
+  "assist.retrieval_ready",
+  "assist.reasoning_started",
+  "cue.partial",
+  "cue.ready",
+  "cue.error",
+]);
 
 function createWindow(
   rendererPolicy: RendererValidationOptions,
@@ -78,7 +126,157 @@ function createWindow(
   return window;
 }
 
+function allHudDisplays(): HudDisplay[] {
+  const primaryId = String(screen.getPrimaryDisplay().id);
+  return screen.getAllDisplays().map((display) => ({
+    id: String(display.id),
+    workArea: {
+      x: display.workArea.x,
+      y: display.workArea.y,
+      width: display.workArea.width,
+      height: display.workArea.height,
+    },
+    scaleFactor: display.scaleFactor,
+    primary: String(display.id) === primaryId,
+  }));
+}
+
+function selectedHudDisplay(): HudDisplay {
+  const displays = allHudDisplays();
+  return (
+    displays.find((display) => display.id === hudSettings.display_id) ??
+    displays.find((display) => display.primary) ??
+    displays[0] ?? {
+      id: "primary",
+      workArea: { x: 0, y: 0, width: 1280, height: 720 },
+      scaleFactor: 1,
+      primary: true,
+    }
+  );
+}
+
+function currentHudStatus(): HudStatus {
+  const visible = Boolean(
+    hudWindow && !hudWindow.isDestroyed() && hudWindow.isVisible(),
+  );
+  return {
+    visible,
+    expanded: hudExpanded,
+    core_state: hudCoreState,
+    font_size: hudSettings.font_size,
+    capture_protection: hudCaptureProtection,
+    capture_protection_message: hudCaptureProtectionMessage,
+    shortcuts_registered: liveShortcutsRegistered,
+  };
+}
+
+function sendHudStatus(): void {
+  if (!hudWindow || hudWindow.isDestroyed()) return;
+  hudWindow.webContents.send("hud:status", currentHudStatus());
+}
+
+function repositionHud(): void {
+  if (!hudWindow || hudWindow.isDestroyed()) return;
+  const bounds = calculateHudBounds(
+    selectedHudDisplay(),
+    hudSettings,
+    hudExpanded,
+  );
+  hudWindow.setBounds(bounds, false);
+}
+
+function setHudExpanded(expanded: boolean): void {
+  hudExpanded = expanded;
+  if (hudWindow && !hudWindow.isDestroyed()) {
+    hudWindow.setFocusable(expanded);
+    hudWindow.setIgnoreMouseEvents(!expanded, { forward: true });
+    if (expanded) hudWindow.show();
+    repositionHud();
+  }
+  sendHudStatus();
+}
+
+function createHudWindow(policy: HudValidationOptions): BrowserWindow {
+  const display = selectedHudDisplay();
+  const bounds = calculateHudBounds(display, hudSettings, false);
+  const window = new BrowserWindow({
+    ...bounds,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/hud-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+  window.setAlwaysOnTop(true, "floating");
+  window.setIgnoreMouseEvents(true, { forward: true });
+  try {
+    if (typeof window.setContentProtection !== "function") {
+      hudCaptureProtection = "unsupported";
+      hudCaptureProtectionMessage =
+        "This platform does not expose content-protection support.";
+    } else {
+      window.setContentProtection(true);
+      hudCaptureProtection = "enabled";
+      hudCaptureProtectionMessage =
+        "Capture protection API enabled; external capture exclusion was not independently verified on this validation environment.";
+    }
+  } catch {
+    hudCaptureProtection = "error";
+    hudCaptureProtectionMessage =
+      "Capture protection could not be enabled on this platform.";
+  }
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.on("closed", () => {
+    if (hudWindow === window) hudWindow = null;
+  });
+  const development =
+    !app.isPackaged && policy.allowDevelopmentHud
+      ? "http://127.0.0.1:5173/hud/index.html"
+      : null;
+  if (development) void window.loadURL(development);
+  else void window.loadFile(policy.bundledHudPath);
+  return window;
+}
+
+function ensureHudWindow(): BrowserWindow | null {
+  if (hudWindow && !hudWindow.isDestroyed()) return hudWindow;
+  if (!currentHudPolicy) return null;
+  hudWindow = createHudWindow(currentHudPolicy);
+  return hudWindow;
+}
+
+function showHud(): void {
+  const window = ensureHudWindow();
+  if (!window || window.isDestroyed()) return;
+  repositionHud();
+  window.showInactive();
+  sendHudStatus();
+}
+
+function hideHud(): void {
+  if (!hudWindow || hudWindow.isDestroyed()) return;
+  hudWindow.hide();
+  sendHudStatus();
+}
+
 function sendStatus(status: CoreStatus): void {
+  hudCoreState = status.state;
+  sendHudStatus();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send("core:status", status);
 }
@@ -97,8 +295,78 @@ function sendEvent(event: EventEnvelope): void {
   ) {
     disableManualRunShortcuts();
   }
+  if (
+    event.event === "session.started" &&
+    event.payload.mode === "live_assist"
+  ) {
+    const projectId = event.payload.project_id;
+    const sessionId = event.payload.id;
+    if (typeof projectId === "string" && typeof sessionId === "string") {
+      liveTarget = { projectId, sessionId };
+      currentHudAssistId = null;
+      ensureHudWindow();
+      showHud();
+      enableLiveShortcuts(liveTarget);
+    }
+  }
+  if (
+    event.event === "session.stopped" &&
+    liveTarget &&
+    event.payload.id === liveTarget.sessionId
+  ) {
+    disableLiveShortcuts();
+    hideHud();
+    currentHudCueId = null;
+    currentHudAssistId = null;
+    hudCueOrder = [];
+  }
+  if (event.event === "assist.started") {
+    const assistId = event.payload.assist_id;
+    if (typeof assistId === "string") currentHudAssistId = assistId;
+  }
+  if (
+    event.event === "cue.ready" ||
+    event.event === "cue.partial" ||
+    event.event === "cue.error"
+  ) {
+    const assistId = event.payload.assist_id;
+    if (typeof assistId !== "string") return;
+    if (ignoredHudAssistIds.has(assistId)) return;
+    if (currentHudAssistId !== null && assistId !== currentHudAssistId) {
+      return;
+    }
+    const cueId = event.payload.cue_id;
+    if (typeof cueId === "string") {
+      currentHudCueId = cueId;
+      if (!hudCueOrder.includes(cueId)) hudCueOrder.push(cueId);
+    }
+  }
+  if (hudWindow && !hudWindow.isDestroyed()) {
+    const hudEvent = eventForHud(event);
+    if (hudEvent) hudWindow.webContents.send("hud:event", hudEvent);
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send("core:event", event);
+}
+
+function eventForHud(event: EventEnvelope): EventEnvelope | null {
+  if (!HUD_EVENT_NAMES.has(event.event)) return null;
+  if (
+    (event.event === "session.started" || event.event === "session.stopped") &&
+    event.payload.mode !== "live_assist"
+  ) {
+    return null;
+  }
+  if (event.event !== "asr.partial") return event;
+  // The HUD only needs the listening transition. Keep audience speech out of
+  // the HUD renderer's event channel even though the main renderer receives
+  // the full core event for the existing transcript UI.
+  const payload: JsonObject = {};
+  for (const key of ["project_id", "session_id"] as const) {
+    if (typeof event.payload[key] === "string")
+      payload[key] = event.payload[key];
+  }
+  return { ...event, payload };
 }
 
 function requireClient(): CoreProcessClient {
@@ -172,13 +440,203 @@ function requestTrackedSlide(
     });
 }
 
-export function disableManualRunShortcuts(): void {
-  if (manualShortcutsRegistered) {
-    globalShortcut.unregister(MANUAL_PREVIOUS_SHORTCUT);
-    globalShortcut.unregister(MANUAL_NEXT_SHORTCUT);
+function requestLiveCore(
+  method:
+    | "assist.request"
+    | "assist.cancel"
+    | "presentation.previous_slide"
+    | "presentation.next_slide"
+    | "cue.dismiss"
+    | "cue.list",
+  params: JsonObject,
+): void {
+  if (!liveTarget || !coreClient) return;
+  void coreClient.request(method, params).catch((error) => {
+    const safe = toCoreError(error);
+    console.error(`[live:shortcut:${safe.code}] ${safe.message}`);
+  });
+}
+
+function requestLiveAssist(): void {
+  requestLiveAssistWithTrigger("hotkey");
+}
+
+function requestLiveAssistWithTrigger(
+  trigger: "hotkey" | "button" | "typed",
+  question?: string,
+): void {
+  const target = liveTarget;
+  if (!target) return;
+  requestLiveCore("assist.request", {
+    project_id: target.projectId,
+    session_id: target.sessionId,
+    trigger,
+    ...(question ? { question } : {}),
+  });
+}
+
+function requestLiveSlide(
+  method: "presentation.previous_slide" | "presentation.next_slide",
+): void {
+  if (!liveTarget) return;
+  requestLiveCore(method, {
+    project_id: liveTarget.projectId,
+    session_id: liveTarget.sessionId,
+  });
+}
+
+function navigateHudCue(direction: "previous" | "next"): void {
+  const target = liveTarget;
+  if (!target || !coreClient) return;
+  void coreClient
+    .request("cue.list", {
+      project_id: target.projectId,
+      session_id: target.sessionId,
+      limit: 50,
+    })
+    .then((result: unknown) => {
+      if (!isJsonObject(result) || !Array.isArray(result.cues)) return;
+      const cues = result.cues.filter(isJsonObject);
+      if (cues.length === 0) return;
+      const currentIndex = cues.findIndex((cue) => cue.id === currentHudCueId);
+      const offset = direction === "next" ? 1 : -1;
+      const nextIndex =
+        currentIndex < 0
+          ? direction === "next"
+            ? 0
+            : cues.length - 1
+          : (currentIndex + offset + cues.length) % cues.length;
+      const cue = cues[nextIndex];
+      if (!cue) return;
+      currentHudCueId = typeof cue.id === "string" ? cue.id : currentHudCueId;
+      if (currentHudCueId && !hudCueOrder.includes(currentHudCueId))
+        hudCueOrder.push(currentHudCueId);
+      if (hudWindow && !hudWindow.isDestroyed())
+        hudWindow.webContents.send("hud:cue", cue);
+    })
+    .catch((error) => {
+      const safe = toCoreError(error);
+      console.error(`[live:cue-navigation:${safe.code}] ${safe.message}`);
+    });
+}
+
+function clearHudCue(): void {
+  const assistId = suppressCurrentHudAssist();
+  if (assistId && liveTarget) {
+    requestLiveCore("assist.cancel", {
+      project_id: liveTarget.projectId,
+      session_id: liveTarget.sessionId,
+      assist_id: assistId,
+    });
   }
-  manualShortcutsRegistered = false;
+  if (currentHudCueId && liveTarget) {
+    requestLiveCore("cue.dismiss", {
+      project_id: liveTarget.projectId,
+      session_id: liveTarget.sessionId,
+      cue_id: currentHudCueId,
+    });
+  }
+  currentHudCueId = null;
+  if (hudWindow && !hudWindow.isDestroyed())
+    hudWindow.webContents.send("hud:clear");
+}
+
+function suppressCurrentHudAssist(): string | null {
+  const assistId = currentHudAssistId;
+  if (!assistId) return null;
+  ignoredHudAssistIds.add(assistId);
+  while (ignoredHudAssistIds.size > 32) {
+    const oldest = ignoredHudAssistIds.values().next().value;
+    if (typeof oldest !== "string") break;
+    ignoredHudAssistIds.delete(oldest);
+  }
+  currentHudAssistId = null;
+  return assistId;
+}
+
+function shortcutBindingsForRun(): ShortcutBinding[] {
+  return [
+    {
+      accelerator: hudSettings.shortcuts.previous_slide,
+      action: () => requestTrackedSlide("presentation.previous_slide"),
+    },
+    {
+      accelerator: hudSettings.shortcuts.next_slide,
+      action: () => requestTrackedSlide("presentation.next_slide"),
+    },
+  ];
+}
+
+function shortcutBindingsForLive(): ShortcutBinding[] {
+  const shortcuts = hudSettings.shortcuts;
+  return [
+    { accelerator: shortcuts.push_to_assist, action: requestLiveAssist },
+    {
+      accelerator: shortcuts.show_hide,
+      action: () => (hudWindow?.isVisible() ? hideHud() : showHud()),
+    },
+    {
+      accelerator: shortcuts.expand_collapse,
+      action: () => setHudExpanded(!hudExpanded),
+    },
+    {
+      accelerator: shortcuts.previous_cue,
+      action: () => navigateHudCue("previous"),
+    },
+    { accelerator: shortcuts.next_cue, action: () => navigateHudCue("next") },
+    { accelerator: shortcuts.clear, action: clearHudCue },
+    {
+      accelerator: shortcuts.previous_slide,
+      action: () => requestLiveSlide("presentation.previous_slide"),
+    },
+    {
+      accelerator: shortcuts.next_slide,
+      action: () => requestLiveSlide("presentation.next_slide"),
+    },
+  ];
+}
+
+function enableLiveShortcuts(target: LiveTarget): {
+  registered: boolean;
+  error_code?: string;
+} {
+  liveTarget = target;
+  const result = hudRegistry?.activate("live", shortcutBindingsForLive()) ?? {
+    registered: false,
+    error_code: "SHORTCUT_REGISTRATION_FAILED",
+  };
+  liveShortcutsRegistered =
+    hudRegistry?.isOwnerRegistered("live") ?? result.registered;
+  sendHudStatus();
+  return result;
+}
+
+function disableLiveShortcuts(): void {
+  liveTarget = null;
+  hudRegistry?.deactivate("live");
+  liveShortcutsRegistered = false;
+  sendHudStatus();
+}
+
+function retainHudEmergencyShortcut(): void {
+  if (!liveTarget) return;
+  hudRegistry?.activate("live", [
+    {
+      accelerator: hudSettings.shortcuts.show_hide,
+      action: () => (hudWindow?.isVisible() ? hideHud() : showHud()),
+    },
+  ]);
+  // The complete Live set is unavailable, but this direct Electron action
+  // keeps the HUD hideable without a core request.
+  liveShortcutsRegistered = false;
+  sendHudStatus();
+}
+
+export function disableManualRunShortcuts(): void {
+  const result = hudRegistry?.deactivate("run");
   manualRunTarget = null;
+  if (liveTarget && result?.registered === false)
+    liveShortcutsRegistered = false;
 }
 
 export function enableManualRunShortcuts(target: ManualRunTarget): {
@@ -187,40 +645,19 @@ export function enableManualRunShortcuts(target: ManualRunTarget): {
   next_shortcut: string;
   error_code?: string;
 } {
-  disableManualRunShortcuts();
-  try {
-    const previousRegistered = globalShortcut.register(
-      MANUAL_PREVIOUS_SHORTCUT,
-      () => requestTrackedSlide("presentation.previous_slide"),
-    );
-    const nextRegistered = globalShortcut.register(MANUAL_NEXT_SHORTCUT, () =>
-      requestTrackedSlide("presentation.next_slide"),
-    );
-    if (!previousRegistered || !nextRegistered) {
-      disableManualRunShortcuts();
-      return {
-        registered: false,
-        previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
-        next_shortcut: MANUAL_NEXT_SHORTCUT,
-        error_code: "SHORTCUT_REGISTRATION_FAILED",
-      };
-    }
-    manualRunTarget = target;
-    manualShortcutsRegistered = true;
-    return {
-      registered: true,
-      previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
-      next_shortcut: MANUAL_NEXT_SHORTCUT,
-    };
-  } catch {
-    disableManualRunShortcuts();
-    return {
-      registered: false,
-      previous_shortcut: MANUAL_PREVIOUS_SHORTCUT,
-      next_shortcut: MANUAL_NEXT_SHORTCUT,
-      error_code: "SHORTCUT_REGISTRATION_FAILED",
-    };
-  }
+  const previousTarget = manualRunTarget;
+  manualRunTarget = target;
+  const result = hudRegistry?.activate("run", shortcutBindingsForRun()) ?? {
+    registered: false,
+    error_code: "SHORTCUT_REGISTRATION_FAILED",
+  };
+  if (!result.registered) manualRunTarget = previousTarget;
+  return {
+    registered: result.registered,
+    previous_shortcut: hudSettings.shortcuts.previous_slide,
+    next_shortcut: hudSettings.shortcuts.next_slide,
+    ...(result.error_code ? { error_code: result.error_code } : {}),
+  };
 }
 
 async function bootstrapCore(): Promise<void> {
@@ -260,7 +697,136 @@ function assertTrustedRendererSender(
   }
 }
 
-function registerIpc(rendererPolicy: RendererValidationOptions): void {
+function assertTrustedHudFrame(
+  event: IpcMainInvokeEvent,
+  hudPolicy: HudValidationOptions,
+): void {
+  if (
+    !isTrustedHudSender(event.senderFrame, event.sender.mainFrame, hudPolicy)
+  ) {
+    throw new Error(
+      "HUD IPC request rejected from an untrusted renderer frame.",
+    );
+  }
+}
+
+function validateHudSettingsUpdate(value: unknown): JsonObject {
+  if (!isJsonObject(value)) throw new Error("HUD settings must be an object.");
+  const result: JsonObject = {};
+  if ("display_id" in value) {
+    if (value.display_id !== null && typeof value.display_id !== "string") {
+      throw new Error("HUD display_id must be a string or null.");
+    }
+    result.display_id = value.display_id;
+  }
+  for (const key of ["width", "font_size", "top_offset"] as const) {
+    if (key in value) {
+      if (typeof value[key] !== "number" || !Number.isFinite(value[key])) {
+        throw new Error(`HUD ${key} must be a finite number.`);
+      }
+      result[key] = value[key];
+    }
+  }
+  if ("shortcuts" in value) {
+    if (!isJsonObject(value.shortcuts)) {
+      throw new Error("HUD shortcuts must be an object.");
+    }
+    const shortcuts: JsonObject = {};
+    for (const key of [
+      "push_to_assist",
+      "show_hide",
+      "expand_collapse",
+      "previous_cue",
+      "next_cue",
+      "clear",
+      "previous_slide",
+      "next_slide",
+    ] as const) {
+      if (key in value.shortcuts) {
+        if (typeof value.shortcuts[key] !== "string") {
+          throw new Error(`HUD shortcut ${key} must be a string.`);
+        }
+        shortcuts[key] = value.shortcuts[key];
+      }
+    }
+    result.shortcuts = shortcuts;
+  }
+  return result;
+}
+
+function validateHudCueRequest(value: unknown): JsonObject {
+  if (!isJsonObject(value)) throw new Error("A HUD cue request is required.");
+  for (const key of ["project_id", "session_id", "cue_id"] as const) {
+    if (
+      typeof value[key] !== "string" ||
+      value[key].length === 0 ||
+      value[key].length > 80
+    ) {
+      throw new Error("The HUD cue request is invalid.");
+    }
+  }
+  return {
+    project_id: value.project_id,
+    session_id: value.session_id,
+    cue_id: value.cue_id,
+  };
+}
+
+function mergedHudSettings(
+  current: HudSettings,
+  update: JsonObject,
+): HudSettings {
+  const shortcuts = isJsonObject(update.shortcuts) ? update.shortcuts : {};
+  return normalizeHudSettings({
+    ...current,
+    ...update,
+    shortcuts: { ...current.shortcuts, ...shortcuts },
+  });
+}
+
+function restoreHudSettings(settings: HudSettings): void {
+  hudSettings = settings;
+  repositionHud();
+  if (liveTarget) {
+    if (hudCoreState === "unavailable") retainHudEmergencyShortcut();
+    else enableLiveShortcuts(liveTarget);
+  }
+  if (manualRunTarget) enableManualRunShortcuts(manualRunTarget);
+}
+
+function hydrateHudCue(): void {
+  const target = liveTarget;
+  if (!target || !coreClient) return;
+  void coreClient
+    .request("cue.list", {
+      project_id: target.projectId,
+      session_id: target.sessionId,
+      limit: 50,
+    })
+    .then((result: unknown) => {
+      if (!isJsonObject(result) || !Array.isArray(result.cues)) return;
+      const cues = result.cues.filter(isJsonObject);
+      const last = cues[0];
+      if (!last) return;
+      if (typeof last.id === "string") {
+        currentHudCueId = last.id;
+        currentHudAssistId =
+          typeof last.assist_id === "string" ? last.assist_id : null;
+        hudCueOrder = cues
+          .map((cue) => (typeof cue.id === "string" ? cue.id : null))
+          .filter((id): id is string => id !== null)
+          .reverse();
+      }
+      if (hudWindow && !hudWindow.isDestroyed())
+        hudWindow.webContents.send("hud:cue", last);
+    })
+    .catch(() => undefined);
+}
+
+function registerIpc(
+  rendererPolicy: RendererValidationOptions,
+  hudPolicy: HudValidationOptions,
+): void {
   ipcMain.handle("core:get-status", (event) => {
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(() => requireClient().getStatus());
@@ -349,10 +915,160 @@ function registerIpc(rendererPolicy: RendererValidationOptions): void {
       return { disabled: true as const };
     });
   });
+  ipcMain.handle("hud:get-settings", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(async () => {
+      const result = await requireClient().request<{ settings: HudSettings }>(
+        "hud.settings.get",
+      );
+      hudSettings = normalizeHudSettings(result.settings);
+      repositionHud();
+      return hudSettings;
+    });
+  });
+  ipcMain.handle("hud:get-status", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => currentHudStatus());
+  });
+  ipcMain.handle("hud:update-settings", (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(async () => {
+      const previous = hudSettings;
+      const update = validateHudSettingsUpdate(value);
+      const hasShortcutUpdate = Object.prototype.hasOwnProperty.call(
+        update,
+        "shortcuts",
+      );
+      const next = mergedHudSettings(previous, update);
+
+      // OS registration is part of the settings transaction. Preflight the
+      // candidate set before persisting it so a conflict cannot leave the
+      // app metadata pointing at an unusable shortcut mapping.
+      if (hasShortcutUpdate) {
+        hudSettings = next;
+        const liveResult =
+          liveTarget && hudCoreState !== "unavailable"
+            ? enableLiveShortcuts(liveTarget)
+            : { registered: true };
+        const runResult = manualRunTarget
+          ? enableManualRunShortcuts(manualRunTarget)
+          : { registered: true };
+        if (!liveResult.registered || !runResult.registered) {
+          restoreHudSettings(previous);
+          throw new CoreClientError({
+            code: "SHORTCUT_REGISTRATION_FAILED",
+            message:
+              "The shortcut mapping could not be registered; previous settings were restored.",
+            retryable: true,
+            details: {},
+          });
+        }
+      }
+
+      try {
+        const result = await requireClient().request<{ settings: HudSettings }>(
+          "hud.settings.update",
+          { settings: update },
+        );
+        hudSettings = normalizeHudSettings(result.settings);
+        repositionHud();
+        return hudSettings;
+      } catch (error) {
+        if (hasShortcutUpdate) restoreHudSettings(previous);
+        throw error;
+      }
+    });
+  });
+  ipcMain.handle("hud:get-displays", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => ({ displays: allHudDisplays() }));
+  });
+  ipcMain.handle("hud:show", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => {
+      showHud();
+      return { visible: true as const };
+    });
+  });
+  ipcMain.handle("hud:hide", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => {
+      hideHud();
+      return { visible: false as const };
+    });
+  });
+  ipcMain.handle("hud:ready", (event) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(() => {
+      sendHudStatus();
+      hydrateHudCue();
+      return { ready: true as const };
+    });
+  });
+  ipcMain.handle("hud:set-expanded", (event, value: unknown) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(() => {
+      if (!isJsonObject(value) || typeof value.expanded !== "boolean") {
+        throw new Error("HUD expanded state is invalid.");
+      }
+      setHudExpanded(value.expanded);
+      return { expanded: value.expanded };
+    });
+  });
+  ipcMain.handle("hud:push-to-assist", (event) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(() => {
+      requestLiveAssistWithTrigger("button");
+      return { requested: true as const };
+    });
+  });
+  ipcMain.handle("hud:cue-expand-sources", (event, value: unknown) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(() =>
+      requireClient().request(
+        "cue.expand_sources",
+        validateHudCueRequest(value),
+        30_000,
+      ),
+    );
+  });
+  ipcMain.handle("hud:cue-dismiss", (event, value: unknown) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(async () => {
+      const request = validateHudCueRequest(value);
+      const assistId =
+        currentHudCueId === request.cue_id ? suppressCurrentHudAssist() : null;
+      if (assistId && liveTarget) {
+        await requireClient()
+          .request("assist.cancel", {
+            project_id: liveTarget.projectId,
+            session_id: liveTarget.sessionId,
+            assist_id: assistId,
+          })
+          .catch(() => undefined);
+      }
+      return requireClient().request("cue.dismiss", request, 30_000);
+    });
+  });
+  ipcMain.handle("hud:cue-navigate", (event, value: unknown) => {
+    assertTrustedHudFrame(event, hudPolicy);
+    return invokeResult(() => {
+      if (
+        !isJsonObject(value) ||
+        (value.direction !== "previous" && value.direction !== "next")
+      ) {
+        throw new Error("HUD cue direction is invalid.");
+      }
+      navigateHudCue(value.direction);
+      return { requested: true as const };
+    });
+  });
 }
 
 async function stopCore(): Promise<void> {
   disableManualRunShortcuts();
+  disableLiveShortcuts();
+  if (hudWindow && !hudWindow.isDestroyed()) hudWindow.close();
   if (!coreClient) return;
   await coreClient.shutdown();
 }
@@ -363,16 +1079,23 @@ void app.whenReady().then(() => {
     allowDevelopmentRenderer:
       !app.isPackaged && process.env.PRESENTER_COPILOT_DEV_MODE === "1",
   };
-  registerIpc(rendererPolicy);
+  const hudPolicy: HudValidationOptions = {
+    ...rendererPolicy,
+    bundledHudPath: path.join(__dirname, "../renderer/hud/index.html"),
+    allowDevelopmentHud: rendererPolicy.allowDevelopmentRenderer,
+  };
+  currentHudPolicy = hudPolicy;
+  hudRegistry = new GlobalShortcutRegistry(globalShortcut);
+  registerIpc(rendererPolicy, hudPolicy);
   const command = createSidecarCommand();
   coreClient = new CoreProcessClient(command);
   coreClient.onStatus((nextStatus) => {
-    if (
-      nextStatus.state === "unavailable" ||
-      nextStatus.state === "stopping" ||
-      nextStatus.state === "stopped"
-    ) {
+    if (nextStatus.state === "stopping" || nextStatus.state === "stopped") {
       disableManualRunShortcuts();
+      disableLiveShortcuts();
+    } else if (nextStatus.state === "unavailable") {
+      disableManualRunShortcuts();
+      retainHudEmergencyShortcut();
     }
     sendStatus(nextStatus);
   });
@@ -383,6 +1106,7 @@ void app.whenReady().then(() => {
     console.error(`[core:${error.code}] ${error.message}`);
   });
   mainWindow = createWindow(rendererPolicy);
+  hudWindow = createHudWindow(hudPolicy);
   void bootstrapCore();
 
   app.on("activate", () => {

@@ -39,6 +39,13 @@ export const CORE_METHODS = [
   "session.get",
   "session.list",
   "session.delete",
+  "assist.request",
+  "assist.cancel",
+  "cue.list",
+  "cue.dismiss",
+  "cue.expand_sources",
+  "hud.settings.get",
+  "hud.settings.update",
   "asr.list_devices",
   "asr.configure",
   "asr.prepare_model",
@@ -109,11 +116,17 @@ export const CORE_EVENTS = [
   "run.debrief_progress",
   "provider.status_changed",
   "privacy.remote_context_manifest",
+  "assist.started",
+  "assist.retrieval_ready",
+  "assist.reasoning_started",
+  "cue.partial",
+  "cue.ready",
+  "cue.error",
 ] as const;
 
 export type CoreEvent = (typeof CORE_EVENTS)[number];
 // Keep forward compatibility for additive sidecar events while documenting
-// the M0-M6 event contract above.
+// the current milestone event contract above.
 export type EventName = CoreEvent | (string & {});
 
 export const RENDERER_CORE_METHODS = [
@@ -150,6 +163,13 @@ export const RENDERER_CORE_METHODS = [
   "session.get",
   "session.list",
   "session.delete",
+  "assist.request",
+  "assist.cancel",
+  "cue.list",
+  "cue.dismiss",
+  "cue.expand_sources",
+  "hud.settings.get",
+  "hud.settings.update",
   "asr.list_devices",
   "asr.configure",
   "asr.prepare_model",
@@ -711,6 +731,135 @@ export interface Session {
   utterances: number;
   pending_candidates: number;
   provider_runs: number;
+  cues: number;
+}
+
+export type CueType =
+  "fact" | "structure" | "reminder" | "source_pointer" | "warning";
+export type CueRoute =
+  "retrieval_only" | "local_reasoning" | "remote_reasoning";
+
+export interface CueEvidenceRef {
+  evidence_id: string;
+  source_type: string;
+  source_id: string;
+  source_unit_id: string | null;
+  knowledge_item_id: string | null;
+  label: string;
+  rank: number;
+  available: boolean;
+}
+
+export interface Cue {
+  id: string;
+  project_id: string;
+  session_id: string;
+  assist_id: string;
+  cue_type: CueType;
+  text: string;
+  lines: string[];
+  state: "partial" | "final";
+  route: CueRoute;
+  provider_run_id: string | null;
+  created_at: string;
+  displayed_at: string | null;
+  dismissed_at: string | null;
+  evidence: CueEvidenceRef[];
+}
+
+export interface CueSourceProjection {
+  evidence_id: string;
+  label: string;
+  source_name: string | null;
+  pointer: {
+    source_type: string;
+    source_id: string;
+    source_unit_id: string | null;
+    knowledge_item_id: string | null;
+  };
+  excerpt: string | null;
+  available: boolean;
+  rank: number;
+}
+
+export interface AssistRequestResult {
+  assist_id: string;
+  project_id: string;
+  session_id: string;
+  status: "started";
+  question_origin: "typed" | "live_partial" | "live_window" | "live_final";
+}
+
+export type HudSettingsUpdate = Partial<
+  Pick<HudSettings, "display_id" | "width" | "font_size" | "top_offset">
+> & {
+  shortcuts?: Partial<HudSettings["shortcuts"]>;
+};
+
+export interface CueListResult {
+  project_id: string;
+  session_id: string;
+  cues: Cue[];
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
+}
+
+export interface CueExpandSourcesResult {
+  project_id: string;
+  session_id: string;
+  cue: Cue;
+  sources: CueSourceProjection[];
+}
+
+export interface HudDisplay {
+  id: string;
+  workArea: { x: number; y: number; width: number; height: number };
+  scaleFactor: number;
+  primary: boolean;
+}
+
+export interface HudSettings {
+  display_id: string | null;
+  width: number;
+  font_size: number;
+  top_offset: number;
+  shortcuts: {
+    push_to_assist: string;
+    show_hide: string;
+    expand_collapse: string;
+    previous_cue: string;
+    next_cue: string;
+    clear: string;
+    previous_slide: string;
+    next_slide: string;
+  };
+}
+
+export interface HudStatus {
+  visible: boolean;
+  expanded: boolean;
+  core_state: CoreClientState;
+  font_size: number;
+  capture_protection: "enabled" | "unsupported" | "error";
+  capture_protection_message: string;
+  shortcuts_registered: boolean;
+}
+
+export interface PresenterCopilotHudApi {
+  ready(): Promise<InvokeResult<{ ready: true }>>;
+  onEvent(listener: (event: EventEnvelope) => void): () => void;
+  onStatus(listener: (status: HudStatus) => void): () => void;
+  onCue(listener: (cue: JsonObject) => void): () => void;
+  onClear(listener: () => void): () => void;
+  setExpanded(expanded: boolean): Promise<InvokeResult<{ expanded: boolean }>>;
+  pushToAssist(): Promise<InvokeResult<{ requested: true }>>;
+  expandSources(
+    request: JsonObject,
+  ): Promise<InvokeResult<CueExpandSourcesResult>>;
+  dismiss(request: JsonObject): Promise<InvokeResult<JsonObject>>;
+  navigate(direction: "previous" | "next"): Promise<InvokeResult<JsonObject>>;
 }
 
 export interface AudioDevice {
@@ -994,6 +1143,16 @@ export interface PresenterCopilotApi {
     ): Promise<InvokeResult<ManualShortcutResult>>;
     disableManualRun(): Promise<InvokeResult<{ disabled: true }>>;
   };
+  hud: {
+    getStatus(): Promise<InvokeResult<HudStatus>>;
+    getSettings(): Promise<InvokeResult<HudSettings>>;
+    updateSettings(
+      settings: HudSettingsUpdate,
+    ): Promise<InvokeResult<HudSettings>>;
+    getDisplays(): Promise<InvokeResult<{ displays: HudDisplay[] }>>;
+    show(): Promise<InvokeResult<{ visible: true }>>;
+    hide(): Promise<InvokeResult<{ visible: false }>>;
+  };
 }
 
 export function isCoreMethod(value: unknown): value is CoreMethod {
@@ -1047,5 +1206,6 @@ export function isHealthResult(value: unknown): value is HealthResult {
 declare global {
   interface Window {
     presenterCopilot: PresenterCopilotApi;
+    presenterCopilotHud: PresenterCopilotHudApi;
   }
 }

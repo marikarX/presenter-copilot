@@ -1,0 +1,172 @@
+:root {
+  color: #f5f8ff;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+.hud-shell {
+  width: 100%;
+  padding: 10px;
+}
+
+.hud-card {
+  width: 100%;
+  padding: 14px 18px;
+  border: 1px solid rgba(180, 208, 255, 0.3);
+  border-radius: 16px;
+  background: rgba(10, 18, 34, 0.92);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(14px);
+}
+
+.hud-collapsed .hud-card {
+  min-height: 76px;
+}
+
+.hud-topline,
+.hud-actions,
+.hud-source-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-topline {
+  justify-content: space-between;
+  min-height: 20px;
+  color: #9ab1d8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.hud-route {
+  margin-left: auto;
+  color: #6ed8a7;
+  font-size: 10px;
+}
+
+.hud-lines {
+  margin-top: 8px;
+  font-size: var(--hud-font-size, clamp(16px, 2.4vw, 24px));
+  line-height: 1.23;
+}
+
+.hud-lines p {
+  margin: 0;
+}
+
+.hud-lines p + p {
+  margin-top: 3px;
+}
+
+.hud-placeholder {
+  color: #9aaac4;
+  font-size: 0.84em;
+}
+
+.hud-expanded-content {
+  margin-top: 16px;
+  border-top: 1px solid rgba(180, 208, 255, 0.15);
+  padding-top: 14px;
+}
+
+.hud-actions {
+  flex-wrap: wrap;
+}
+
+.hud-primary,
+.hud-secondary,
+.hud-icon-button {
+  border: 1px solid rgba(180, 208, 255, 0.3);
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: #f5f8ff;
+  cursor: pointer;
+}
+
+.hud-primary {
+  background: #3972da;
+}
+
+.hud-secondary,
+.hud-icon-button {
+  background: rgba(47, 66, 98, 0.72);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.hud-sources {
+  display: grid;
+  gap: 8px;
+  max-height: 190px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.hud-source {
+  border-left: 3px solid #6ed8a7;
+  padding: 7px 9px;
+  background: rgba(4, 11, 23, 0.7);
+}
+
+.hud-source-heading {
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.hud-source-heading span,
+.hud-source small,
+.hud-protection,
+.hud-note {
+  color: #9aaac4;
+  font-size: 11px;
+}
+
+.hud-source p {
+  margin: 5px 0 0;
+  color: #d9e3f4;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hud-protection,
+.hud-note {
+  margin: 12px 0 0;
+}
+
+.hud-note {
+  color: #7f91ae;
+}
+
+.hud-error {
+  margin: 8px 0 0;
+  color: #ffaca3;
+  font-size: 12px;
+}

@@ -335,14 +335,11 @@ ASR partial/final ---------------------------+
   |                                          |
   +--------------------+---------------------+
                        v
-               Question/assist trigger
-                /                  \
-        push-to-assist          auto detect
-          (required)           (experimental)
-                \                  /
-                 +--------+-------+
-                          v
-                    RetrievalService
+                Explicit assist trigger
+                           |
+                    push-to-assist
+                           v
+                     RetrievalService
                           |
                +----------+----------+
                |                     |
@@ -356,7 +353,9 @@ ASR partial/final ---------------------------+
                       HUD event
 ```
 
-Push-to-assist captures the recent transcript window plus current question/selection and is the reliability fallback.
+M7 push-to-assist is the only live trigger. It captures an optional explicit
+question or a bounded recent transcript window plus the current slide; core
+does not segment audience questions automatically.
 
 ## 6. HUD architecture
 
@@ -366,7 +365,7 @@ Use a dedicated Electron `BrowserWindow`:
 - frameless;
 - always on top;
 - top-center anchored relative to selected display;
-- draggable/repositionable;
+- calibrated through bounded display, width, font-size, and top-offset settings;
 - keyboard-interactive only when expanded/configuring;
 - click-through option in presentation mode;
 - content protection enabled where supported;
@@ -385,7 +384,10 @@ EXPANDED_SOURCE
 ERROR
 ```
 
-The HUD must never block the main presentation if the core sidecar crashes. It should fail closed to `IDLE/ERROR` and remain hideable.
+The HUD must never block the main presentation if the core sidecar crashes. It
+should fail closed to `IDLE/ERROR` and remain hideable. The collapsed window is
+click-through; expanded mode is keyboard/mouse interactive. Content protection
+is best-effort and its API state is visible in the HUD.
 
 ## 7. Storage
 

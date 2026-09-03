@@ -212,6 +212,14 @@ For live fact cues:
 - low-confidence or conflicting evidence should produce a warning/ambiguity cue rather than a confident number;
 - expanded provenance must be available.
 
+M7 Live Assist keeps microphone capture, continuous ASR processing, and the
+recent transcript window in the local core. Live retrieval always uses
+`usage=live`. A remote provider receives only the bounded question/context
+packet; private Live-enabled KnowledgeItems may be used by a local provider but
+are excluded from remote context. Live microphone finals remain
+unattributed (`unknown_audience`) and no voice or identity inference is added.
+There is no automatic question segmentation.
+
 ## 11. Capture protection
 
 HUD uses OS/Electron content-protection features where supported.
@@ -222,6 +230,12 @@ Rules:
 - show status if capture protection is unavailable;
 - user can manually hide HUD before sharing;
 - capture protection is defense-in-depth, not a legal/privacy guarantee.
+
+The HUD is a separate isolated Electron window with a minimal preload. The
+collapsed surface is click-through and can be hidden through a main-process
+shortcut even when the core/provider is unavailable. The HUD displays the
+actual Electron content-protection API state and does not claim invisible or
+undetectable capture behavior.
 
 ## 12. Logging
 

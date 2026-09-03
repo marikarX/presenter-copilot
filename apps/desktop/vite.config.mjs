@@ -20,7 +20,7 @@ const devCspPlugin = {
 };
 
 export default defineConfig({
-  root: path.join(configDirectory, "src", "renderer"),
+  root: path.join(configDirectory, "src"),
   publicDir: path.join(configDirectory, "src", "renderer", "public"),
   base: "./",
   plugins: [react(), devCspPlugin],
@@ -32,5 +32,11 @@ export default defineConfig({
   build: {
     outDir: path.join(configDirectory, "dist", "renderer"),
     emptyOutDir: true,
+    rollupOptions: {
+      input: [
+        path.join(configDirectory, "src", "index.html"),
+        path.join(configDirectory, "src", "hud", "index.html"),
+      ],
+    },
   },
 });

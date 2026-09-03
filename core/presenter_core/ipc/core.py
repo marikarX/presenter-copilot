@@ -22,6 +22,8 @@ from presenter_core.challenge.service import ChallengeService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.knowledge.service import KnowledgeService
+from presenter_core.live.service import AssistService
+from presenter_core.live.settings import HudSettingsService
 from presenter_core.presentation.adapters import PresentationAdapter
 from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import ProjectService
@@ -102,12 +104,12 @@ class CoreService:
             self._storage,
             style_context=self._speaker_profile.build_style_context,
             app_cleanup=session_app_cleanup,
-            active_run_cleanup=self._cleanup_active_run_for_delete,
+            active_run_cleanup=self._cleanup_active_session_for_delete,
             active_run_owner=self._active_asr_owner,
         )
         self._presentation = SlideStateService(
             self._storage,
-            self._sessions.validate_active_run,
+            self._sessions.validate_active_presentation_session,
             event_sink=self._emit_service_event,
             powerpoint_adapter=presentation_adapter,
         )
@@ -130,7 +132,7 @@ class CoreService:
         self._asr = ASRService(
             audio_input=audio_input,
             adapters=configured_asr_adapters,
-            session_validator=self._sessions.validate_active_run,
+            session_validator=self._sessions.validate_active_asr_session,
             persist_final=self._run.persist_final_utterance,
             slide_snapshot=self._presentation.current_slide,
             event_sink=self._emit_service_event,
@@ -175,6 +177,18 @@ class CoreService:
             self._storage,
             before_delete=self._hybrid_retrieval.evict_project,
         )
+        self._assist = AssistService(
+            self._storage,
+            self._sessions,
+            self._asr,
+            self._presentation,
+            self._hybrid_retrieval,
+            self._providers,
+            self._context_builder,
+            event_sink=self._emit_service_event,
+            clock=self._clock,
+        )
+        self._hud_settings = HudSettingsService(self._storage)
 
     @property
     def shutdown_requested(self) -> bool:
@@ -230,6 +244,7 @@ class CoreService:
             return True
         try:
             self._run.stop_active_runs(status="aborted")
+            self._assist.stop_active_sessions(status="aborted")
         except CoreDomainError as error:
             # Leave every service and database open.  The sidecar may exit
             # after the bounded request, but recoverable active-session state
@@ -394,6 +409,7 @@ class CoreService:
             )
         if method == "project.delete":
             self._run.stop_project_runs(params)
+            self._assist.stop_project_sessions(params)
             return make_response(request_id, result=self._projects.delete(params))
         if method == "source.import":
             result = self._ingestion.import_source(params)
@@ -469,15 +485,37 @@ class CoreService:
                     except Exception:
                         pass
                     raise
+            elif session["mode"] == "live_assist":
+                try:
+                    self._presentation.start_live(session["project_id"], session["id"])
+                except Exception:
+                    try:
+                        self._sessions.stop(
+                            {
+                                "project_id": session["project_id"],
+                                "session_id": session["id"],
+                                "status": "error",
+                            }
+                        )
+                    except Exception:
+                        pass
+                    raise
             self._emit_event("session.started", session)
             return make_response(request_id, result=result)
         if method == "session.stop":
             session = self._sessions.get(
                 {"project_id": params.get("project_id"), "session_id": params.get("session_id")}
             )["session"]
-            result = (
-                self._run.stop(params) if session["mode"] == "run" else self._sessions.stop(params)
-            )
+            if session["mode"] == "run":
+                result = self._run.stop(params)
+            elif session["mode"] == "live_assist":
+                result = self._assist.stop_session(
+                    str(session["project_id"]),
+                    str(session["id"]),
+                    status=params.get("status", "completed"),
+                )
+            else:
+                result = self._sessions.stop(params)
             self._emit_event("session.stopped", result["session"])
             return make_response(request_id, result=result)
         if method == "session.get":
@@ -486,6 +524,20 @@ class CoreService:
             return make_response(request_id, result=self._sessions.list(params))
         if method == "session.delete":
             return make_response(request_id, result=self._sessions.delete(params))
+        if method == "assist.request":
+            return make_response(request_id, result=self._assist.request(params))
+        if method == "assist.cancel":
+            return make_response(request_id, result=self._assist.cancel(params))
+        if method == "cue.list":
+            return make_response(request_id, result=self._assist.cues.list(params))
+        if method == "cue.dismiss":
+            return make_response(request_id, result=self._assist.cues.dismiss(params))
+        if method == "cue.expand_sources":
+            return make_response(request_id, result=self._assist.cues.expand_sources(params))
+        if method == "hud.settings.get":
+            return make_response(request_id, result=self._hud_settings.get(params))
+        if method == "hud.settings.update":
+            return make_response(request_id, result=self._hud_settings.update(params))
         if method == "asr.list_devices":
             return make_response(request_id, result=self._asr.list_devices(params))
         if method == "asr.configure":
@@ -592,9 +644,20 @@ class CoreService:
         # callback only after composition is complete.
         return self._asr.active_owner()
 
-    def _cleanup_active_run_for_delete(self, project_id: str, session_id: str) -> None:
-        result = self._run.stop(
-            {"project_id": project_id, "session_id": session_id, "status": "aborted"}
+    def _cleanup_active_session_for_delete(self, project_id: str, session_id: str) -> None:
+        with self._storage.project_database(project_id) as connection:
+            row = connection.execute(
+                "SELECT mode FROM sessions WHERE id = ? AND project_id = ?",
+                (session_id, project_id),
+            ).fetchone()
+        if row is None:
+            return
+        result = (
+            self._run.stop(
+                {"project_id": project_id, "session_id": session_id, "status": "aborted"}
+            )
+            if row["mode"] == "run"
+            else self._assist.stop_session(project_id, session_id, status="aborted")
         )
         cleanup_code = result.get("cleanup_error_code")
         if isinstance(cleanup_code, str):
@@ -608,15 +671,18 @@ class CoreService:
     def _before_source_delete(self, connection: Any, document_id: str) -> None:
         self._audience.before_source_delete(connection, document_id)
         self._challenge.before_source_delete(connection, document_id)
+        self._assist.cues.before_source_delete(connection, document_id)
 
     def _after_source_reindex(
         self, connection: Any, document_id: str, previous_unit_ids: set[str]
     ) -> None:
         self._audience.after_source_reindex(connection, document_id, previous_unit_ids)
         self._challenge.after_source_reindex(connection, document_id, previous_unit_ids)
+        self._assist.cues.after_source_reindex(connection, document_id, previous_unit_ids)
 
     def _before_knowledge_delete(self, connection: Any, knowledge_item_id: str) -> None:
         self._challenge.before_knowledge_delete(connection, knowledge_item_id)
+        self._assist.cues.before_knowledge_delete(connection, knowledge_item_id)
 
     def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
         """Refresh an active index after a knowledge deletion without undoing the delete."""

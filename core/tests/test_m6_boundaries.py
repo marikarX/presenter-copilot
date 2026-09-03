@@ -403,13 +403,23 @@ def test_asr_requires_active_run_and_invalid_device_never_owns_capture(tmp_path:
             )
             == "ASR_SESSION_INVALID"
         )
+        live_id = str(
+            call(core, "session.start", {"project_id": project_id, "mode": "live_assist"})[
+                "session"
+            ]["id"]
+        )
         assert (
-            error_code(
+            call(
                 core,
-                "session.start",
-                {"project_id": project_id, "mode": "live_assist"},
-            )
-            == "MODE_NOT_IMPLEMENTED"
+                "session.get",
+                {"project_id": project_id, "session_id": live_id},
+            )["session"]["mode"]
+            == "live_assist"
+        )
+        call(
+            core,
+            "session.stop",
+            {"project_id": project_id, "session_id": live_id, "status": "completed"},
         )
         run_id = str(
             call(core, "session.start", {"project_id": project_id, "mode": "run"})["session"]["id"]
