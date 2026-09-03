@@ -3,13 +3,18 @@ from __future__ import annotations
 import threading
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
 from presenter_core.asr.adapters import DeterministicFakeASRAdapter
-from presenter_core.asr.audio import ASR_FRAME_SAMPLES, DeterministicFakeAudioInput
+from presenter_core.asr.audio import (
+    ASR_FRAME_SAMPLES,
+    DeterministicFakeAudioInput,
+    SoundDeviceAudioInput,
+)
 from presenter_core.ipc.core import CoreService
 from presenter_core.presentation.adapters import (
     FakePowerPointFacade,
@@ -80,6 +85,34 @@ def import_presentation(core: CoreService, project_id: str) -> None:
             "path": str(FIXTURE_ROOT / "deck" / "presentation.pptx"),
         },
     )
+
+
+def test_sounddevice_input_pair_marks_real_default_device() -> None:
+    class InputOutputPair:
+        def __getitem__(self, index: int) -> int:
+            return (1, 4)[index]
+
+    fake_sounddevice = SimpleNamespace(
+        query_devices=lambda: [
+            {
+                "name": "first input",
+                "hostapi": 0,
+                "max_input_channels": 1,
+                "default_samplerate": 44_100,
+            },
+            {
+                "name": "actual default input",
+                "hostapi": 0,
+                "max_input_channels": 1,
+                "default_samplerate": 44_100,
+            },
+        ],
+        query_hostapis=lambda: [{"name": "fixture host"}],
+        default=SimpleNamespace(device=InputOutputPair()),
+    )
+
+    devices = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice).list_devices()
+    assert [device.is_default for device in devices] == [False, True]
 
 
 def test_asr_requires_active_run_and_invalid_device_never_owns_capture(tmp_path: Path) -> None:

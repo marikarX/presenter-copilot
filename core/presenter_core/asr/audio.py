@@ -51,13 +51,15 @@ class SoundDeviceAudioInput:
             raw_devices = sounddevice.query_devices()
             host_apis = sounddevice.query_hostapis()
             default_device = sounddevice.default.device
-            default_input = (
-                int(default_device[0])
-                if isinstance(default_device, (tuple, list)) and default_device
-                else int(default_device)
-                if isinstance(default_device, (int, float))
-                else None
-            )
+            try:
+                # sounddevice exposes this as an _InputOutputPair rather than
+                # a built-in tuple on the real backend.
+                default_input = int(default_device[0])
+            except (IndexError, TypeError, ValueError, AttributeError):
+                try:
+                    default_input = int(default_device)
+                except (TypeError, ValueError):
+                    default_input = None
         except Exception as exc:
             raise CoreDomainError(
                 "ASR_DEVICE_UNAVAILABLE",
