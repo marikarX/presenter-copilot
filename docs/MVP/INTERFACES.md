@@ -402,8 +402,11 @@ Run uses the ordinary `session.start`, `session.stop`, `session.get`,
 `mode=run` is the only M6 microphone consumer; `live_assist` remains
 `MODE_NOT_IMPLEMENTED`.
 
-`asr.list_devices` returns only bounded device metadata. `asr.configure` accepts
-the core-approved `adapter_id`, `model_id`, English `language`, and selected
+`asr.list_devices` returns only bounded device metadata. A sounddevice
+`device_id` is a stable opaque identity for the selected backend endpoint, not
+the current PortAudio enumeration index; the core resolves it to the current
+backend index immediately before opening capture. `asr.configure` accepts the
+core-approved `adapter_id`, `model_id`, English `language`, and selected
 `device_id`; it rejects changes while capture/model preparation is active.
 `asr.prepare_model` is an explicit setup operation for the approved local
 model. `asr.start` requires an active Run session and never downloads. A second

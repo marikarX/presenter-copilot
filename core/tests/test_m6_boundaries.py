@@ -149,7 +149,8 @@ def test_sounddevice_stream_lifecycle_matches_pinned_backend_api() -> None:
     )
     audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
 
-    audio.open("0", lambda _frame: None)
+    device_id = audio.list_devices()[0].device_id
+    audio.open(device_id, lambda _frame: None)
     stream = audio._stream
     assert isinstance(stream, FakeStream)
     audio.start()
@@ -188,7 +189,8 @@ def test_sounddevice_normalizes_native_stereo_blocks_to_bounded_asr_frames() -> 
     received: list[np.ndarray[Any, Any]] = []
     audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
 
-    audio.open("0", lambda frame: received.append(frame))
+    device_id = audio.list_devices()[0].device_id
+    audio.open(device_id, lambda frame: received.append(frame))
     stream = audio._stream
     assert isinstance(stream, FakeStream)
     assert stream.kwargs["samplerate"] == 44_100.0
@@ -203,6 +205,71 @@ def test_sounddevice_normalizes_native_stereo_blocks_to_bounded_asr_frames() -> 
     assert received[0].dtype == np.float32
     assert received[0].shape == (ASR_FRAME_SAMPLES,)
     assert float(np.mean(received[0])) == pytest.approx(0.2, abs=1e-5)
+
+
+def test_sounddevice_selection_survives_bluetooth_device_reordering() -> None:
+    include_bluetooth = False
+    stream_kwargs: dict[str, Any] = {}
+
+    class FakeStream:
+        def __init__(self, **kwargs: Any) -> None:
+            stream_kwargs.update(kwargs)
+
+        def close(self) -> None:
+            return None
+
+    def query_devices() -> list[dict[str, Any]]:
+        devices = [
+            {
+                "name": "SteelSeries Sonar - Microphone",
+                "hostapi": 0,
+                "max_input_channels": 2,
+                "default_samplerate": 44_100,
+            }
+        ]
+        if include_bluetooth:
+            devices.append(
+                {
+                    "name": "Pixel Buds microphone",
+                    "hostapi": 0,
+                    "max_input_channels": 1,
+                    "default_samplerate": 44_100,
+                }
+            )
+        devices.append(
+            {
+                "name": "Microphone (Arctis 7P+)",
+                "hostapi": 0,
+                "max_input_channels": 1,
+                "default_samplerate": 44_100,
+            }
+        )
+        return devices
+
+    fake_sounddevice = SimpleNamespace(
+        query_devices=query_devices,
+        query_hostapis=lambda: [{"name": "MME"}],
+        default=SimpleNamespace(device=(0, 0)),
+        InputStream=FakeStream,
+    )
+    audio = SoundDeviceAudioInput(sounddevice_module=fake_sounddevice)
+
+    initial_arctis = next(
+        device
+        for device in audio.list_devices()
+        if device.display_name == "Microphone (Arctis 7P+)"
+    )
+    include_bluetooth = True
+    current_arctis = next(
+        device
+        for device in audio.list_devices()
+        if device.display_name == "Microphone (Arctis 7P+)"
+    )
+
+    assert current_arctis.device_id == initial_arctis.device_id
+    audio.open(initial_arctis.device_id, lambda _frame: None)
+    assert stream_kwargs["device"] == 2
+    audio.close()
 
 
 def test_asr_status_surfaces_silent_capture_without_exposing_pcm(tmp_path: Path) -> None:
@@ -572,6 +639,41 @@ def test_powerpoint_match_mismatch_and_midrun_fallback_preserve_manual_run(
         assert rows[1][0] == 5
         assert slide_event_index >= 0
         assert durable_slide_events == [True, True, True]
+    finally:
+        core.close()
+
+
+def test_manual_set_slide_accepts_slide_ordinal_and_persists_manual_source(
+    tmp_path: Path,
+) -> None:
+    core = make_core(tmp_path / "data")
+    try:
+        project_id = str(call(core, "project.create", {"name": "Manual tracking"})["project"]["id"])
+        import_presentation(core, project_id)
+        session_id = str(
+            call(core, "session.start", {"project_id": project_id, "mode": "run"})["session"]["id"]
+        )
+
+        result = call(
+            core,
+            "presentation.set_slide",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "slide_ordinal": 3,
+            },
+        )
+
+        assert result["mode"] == "manual"
+        assert result["current_slide"] == 3
+        with core._storage.project_database(project_id) as connection:
+            row = connection.execute(
+                "SELECT slide_ordinal, source FROM slide_state_events "
+                "WHERE session_id = ? ORDER BY timestamp_ms DESC, id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        assert row is not None
+        assert (row["slide_ordinal"], row["source"]) == (3, "manual")
     finally:
         core.close()
 

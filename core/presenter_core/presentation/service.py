@@ -477,7 +477,12 @@ class SlideStateService:
     @classmethod
     def _slide_request(cls, params: dict[str, Any]) -> tuple[str, str, int]:
         reject_unknown_fields(params, {"project_id", "session_id", "slide_ordinal"})
-        project_id, session_id = cls._navigation_request(params)
+        # `_navigation_request` intentionally accepts only the two fields used
+        # by next/previous/status.  A set-slide request has one additional
+        # field, so validate the shared identifiers directly instead of routing
+        # the full dict through the narrower helper.
+        project_id = cls._project_id(params.get("project_id"))
+        session_id = cls._session_id(params.get("session_id"))
         value = params.get("slide_ordinal")
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise invalid_request(

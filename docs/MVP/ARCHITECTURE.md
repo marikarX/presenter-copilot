@@ -54,10 +54,13 @@ the active utterance is decoded. The Electron main process owns only the
 minimum `{ project_id, session_id }` target required to route manual Run slide
 shortcuts back through canonical presentation IPC.
 
-The sounddevice adapter opens a selected device at its native default rate and
-bounded channel count, normalizes each block to the core's 16 kHz mono PCM, and
-then performs only a bounded copy and non-blocking enqueue at the service
-boundary. The ingestion/VAD worker never waits for a full-prefix partial
+The sounddevice adapter exposes an opaque endpoint identity rather than a raw
+PortAudio enumeration index; this keeps a selected microphone from silently
+changing when Windows adds or removes a Bluetooth endpoint. Run start pins the
+device shown by the renderer before opening capture. The adapter opens that
+selected device at its native default rate and bounded channel count, normalizes
+each block to the core's 16 kHz mono PCM, and then performs only a bounded copy
+and non-blocking enqueue at the service boundary. The ingestion/VAD worker never waits for a full-prefix partial
 decode. The serialized decoder has one replaceable partial request and a
 bounded queue for durable finals; a final request always runs before an
 optional partial, and final audio is never dropped to preserve a partial

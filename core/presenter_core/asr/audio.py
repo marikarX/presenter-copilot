@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import threading
 from collections.abc import Iterable
+from hashlib import sha256
 from typing import Any, cast
 
 import numpy as np
@@ -48,6 +49,11 @@ class SoundDeviceAudioInput:
         self._stream: Any | None = None
         self._callback: AudioCallback | None = None
         self._stream_sample_rate = float(sample_rate)
+        # PortAudio device indexes are enumeration-order values.  Bluetooth
+        # devices can insert/remove entries, so never expose those indexes as
+        # the renderer's persisted selection.  This map is refreshed together
+        # with the device list and is used only at the backend boundary.
+        self._backend_device_indices: dict[str, int] = {}
         self._lock = threading.RLock()
 
     def list_devices(self) -> list[AudioDevice]:
@@ -73,34 +79,48 @@ class SoundDeviceAudioInput:
             ) from exc
 
         devices: list[AudioDevice] = []
+        backend_device_indices: dict[str, int] = {}
+        duplicate_ids: dict[str, int] = {}
         for index, raw in enumerate(raw_devices):
             try:
                 input_channels = max(0, int(raw.get("max_input_channels", 0)))
                 if input_channels < ASR_CHANNELS:
                     continue
                 host_api_index = int(raw.get("hostapi", -1))
-                host_name = (
-                    host_apis[host_api_index].get("name", "unknown")
-                    if 0 <= host_api_index < len(host_apis)
-                    else "unknown"
+                host_name = _safe_text(
+                    (
+                        host_apis[host_api_index].get("name", "unknown")
+                        if 0 <= host_api_index < len(host_apis)
+                        else "unknown"
+                    ),
+                    fallback="unknown",
                 )
                 sample_rate = float(raw.get("default_samplerate", self._sample_rate))
                 if not math.isfinite(sample_rate) or sample_rate <= 0:
                     sample_rate = float(self._sample_rate)
+                display_name = _safe_text(raw.get("name"), fallback=f"Input device {index}")
+                device_id = self._stable_device_id(
+                    display_name=display_name,
+                    host_api=host_name,
+                    duplicate_ids=duplicate_ids,
+                )
                 devices.append(
                     AudioDevice(
-                        device_id=str(index),
-                        display_name=_safe_text(raw.get("name"), fallback=f"Input device {index}"),
-                        host_api=_safe_text(host_name, fallback="unknown"),
+                        device_id=device_id,
+                        display_name=display_name,
+                        host_api=host_name,
                         max_input_channels=min(input_channels, 64),
                         default_sample_rate=round(sample_rate, 3),
                         is_default=index == default_input,
                     )
                 )
+                backend_device_indices[device_id] = index
             except (TypeError, ValueError, AttributeError):
                 continue
             if len(devices) >= MAX_AUDIO_DEVICES:
                 break
+        with self._lock:
+            self._backend_device_indices = backend_device_indices
         return devices
 
     def open(self, device_id: str | None, callback: AudioCallback) -> None:
@@ -115,12 +135,15 @@ class SoundDeviceAudioInput:
             stream: Any | None = None
             last_error: Exception | None = None
             try:
+                backend_index = self._backend_device_indices.get(selected.device_id)
+                if backend_index is None:
+                    raise RuntimeError("selected input device mapping expired")
                 for stream_rate, blocksize, channels in self._stream_attempts(selected):
                     try:
                         stream = sounddevice.InputStream(
                             samplerate=stream_rate,
                             blocksize=blocksize,
-                            device=int(selected.device_id),
+                            device=backend_index,
                             channels=channels,
                             dtype="float32",
                             callback=self._on_stream_callback,
@@ -258,6 +281,22 @@ class SoundDeviceAudioInput:
             positions = np.linspace(0.0, float(mono.size - 1), target_size)
             mono = np.interp(positions, np.arange(mono.size), mono).astype(np.float32, copy=False)
         return mono[:MAX_AUDIO_FRAME_SAMPLES].astype(np.float32, copy=True)
+
+    @staticmethod
+    def _stable_device_id(
+        *,
+        display_name: str,
+        host_api: str,
+        duplicate_ids: dict[str, int],
+    ) -> str:
+        # Sample rate and channel count are mutable endpoint settings; keep
+        # them out of the identity so an OS profile change does not silently
+        # discard the user's selected microphone.
+        identity = "|".join((display_name, host_api))
+        base = "sounddevice-" + sha256(identity.encode("utf-8")).hexdigest()[:20]
+        duplicate_index = duplicate_ids.get(base, 0)
+        duplicate_ids[base] = duplicate_index + 1
+        return base if duplicate_index == 0 else f"{base}-{duplicate_index}"
 
     def _max_source_samples(self) -> int:
         return max(

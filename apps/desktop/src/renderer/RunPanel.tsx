@@ -390,6 +390,17 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
     setProgress("run · starting local capture");
     let startedSession: Session | null = null;
     try {
+      // Pin the device currently shown in the selector before opening a Run.
+      // Windows/ Bluetooth changes can alter the PortAudio default between
+      // panel load and Start; silently following that new default can route
+      // capture to a different endpoint than the user selected.
+      const configured = await requestCore<ASRConfigureResult>(
+        "asr.configure",
+        {
+          device_id: selectedDeviceId || null,
+        },
+      );
+      setAsrStatus(configured.status);
       const started = await requestCore<SessionResult>("session.start", {
         project_id: project.id,
         mode: "run",
@@ -465,6 +476,7 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
     modelReady,
     project.id,
     refreshRunData,
+    selectedDeviceId,
     trackingPreference,
   ]);
 
@@ -622,7 +634,8 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
               ) : null}
               {devices.map((device) => (
                 <option key={device.device_id} value={device.device_id}>
-                  {device.display_name}
+                  {device.display_name} · {device.host_api} ·{" "}
+                  {device.default_sample_rate} Hz
                   {device.is_default ? " · default" : ""}
                 </option>
               ))}
@@ -638,9 +651,10 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
             <select
               aria-label="Presentation tracking"
               value={trackingPreference}
-              onChange={(event) =>
-                setTrackingPreference(event.target.value as "auto" | "manual")
-              }
+              onChange={(event) => {
+                setMessage(null);
+                setTrackingPreference(event.target.value as "auto" | "manual");
+              }}
               disabled={busy !== null}
             >
               <option value="auto">Detect matching PowerPoint</option>
