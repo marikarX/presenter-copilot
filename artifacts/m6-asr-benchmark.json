@@ -1,0 +1,42 @@
+{
+  "adapter_id": "faster-whisper",
+  "benchmark": "m6-local-asr-v1",
+  "confidence_reported": false,
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "execution": {
+    "compute_type": "int8",
+    "device": "cpu"
+  },
+  "final_real_time_factor": 0.1065,
+  "finalization_ms": {
+    "first_ms": 330.01,
+    "max_ms": 334.692,
+    "p50_ms": 331.072,
+    "p95_ms": 334.33
+  },
+  "first_partial_after_onset_ms": {
+    "first_ms": 655.728,
+    "max_ms": 655.728,
+    "p50_ms": 650.418,
+    "p95_ms": 655.197
+  },
+  "fixture_duration_seconds": 7.135,
+  "fixture_id": "synthetic-asr-speech-v1",
+  "git_sha": "8536a1b6a325639eca79e02918add7e36e30ca7d",
+  "iterations": 3,
+  "local_files_only": true,
+  "model_id": "Systran/faster-whisper-base.en",
+  "model_load_ms": 424.595,
+  "network_allowed_by_this_command": false,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "provider_called": false,
+  "python": "3.13.5",
+  "sample_count": 3,
+  "status": "passed",
+  "target_pass": false,
+  "targets": {
+    "final_p50_ms": 900.0,
+    "first_partial_p50_ms": 500.0
+  },
+  "utterance_duration_seconds": 3.1
+}
