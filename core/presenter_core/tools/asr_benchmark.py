@@ -126,6 +126,9 @@ def main(argv: list[str] | None = None) -> int:
             "first_partial_p50_ms": 500.0,
             "final_p50_ms": 900.0,
         },
+        "local_files_only": True,
+        "network_allowed_by_this_command": False,
+        "provider_called": False,
     }
     adapter: FasterWhisperASRAdapter | None = None
     try:
@@ -176,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "status": "passed",
                 "model_load_ms": round(load_ms, 3),
+                "sample_count": base_report["iterations"],
                 "first_partial_after_onset_ms": summary(partial_times),
                 "finalization_ms": summary(final_times),
                 "utterance_duration_seconds": round(utterance_duration_seconds, 3),
