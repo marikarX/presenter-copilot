@@ -29,6 +29,44 @@ The MVP is a Windows desktop application with two local processes:
 
 No localhost HTTP server is required for normal desktop operation. The Electron main process owns sidecar lifecycle and communicates through stdin/stdout. This reduces local attack surface and port conflicts.
 
+### M6 Run pipeline
+
+```text
+Windows microphone
+       |
+       v
+Python AudioInputAdapter -> bounded in-memory PCM queue
+       |
+       v
+fast ingestion/VAD worker -> serialized local ASR decode worker
+       |                         |                    |
+       |                         |                    +--> ephemeral asr.partial
+       |                         +--> bounded final queue (finals first)
+       v
+RunService: persist final Utterance + slide snapshot -> asr.final
+       |
+       +--> SlideStateService timeline / manual markers / local debrief
+```
+
+The Python core owns microphone capture. Raw PCM never enters the renderer or
+NDJSON stdio transport, is not written to SQLite/files, and is discarded after
+the active utterance is decoded. The Electron main process owns only the
+minimum `{ project_id, session_id }` target required to route manual Run slide
+shortcuts back through canonical presentation IPC.
+
+The sounddevice adapter exposes an opaque endpoint identity rather than a raw
+PortAudio enumeration index; this keeps a selected microphone from silently
+changing when Windows adds or removes a Bluetooth endpoint. Run start pins the
+device shown by the renderer before opening capture. The adapter opens that
+selected device at its native default rate and bounded channel count, normalizes
+each block to the core's 16 kHz mono PCM, and then performs only a bounded copy
+and non-blocking enqueue at the service boundary. The ingestion/VAD worker never waits for a full-prefix partial
+decode. The serialized decoder has one replaceable partial request and a
+bounded queue for durable finals; a final request always runs before an
+optional partial, and final audio is never dropped to preserve a partial
+update. Input overflow or another status indicating dropped microphone data
+stops acceptance and reports `ASR_BACKPRESSURE`.
+
 ## 2. Technology baseline
 
 ### Desktop
@@ -51,6 +89,8 @@ No localhost HTTP server is required for normal desktop operation. The Electron 
 - NumPy/in-process vector search for MVP corpus sizes;
 - replaceable embedding adapter;
 - `faster-whisper` as initial local ASR reference adapter;
+- `sounddevice` for the Windows microphone reference input;
+- `pywin32` for optional read-only PowerPoint feature detection on Windows;
 - parsers behind file-type adapters;
 - provider adapters behind one reasoning interface.
 
@@ -139,6 +179,24 @@ Owns:
 - model loading/status;
 - adapter abstraction.
 
+M6 uses `Systran/faster-whisper-base.en` through a local-files-only runtime.
+The approved model is prepared explicitly into the app-level `models/asr`
+cache; `asr.start` never downloads. The service owns one bounded frame queue,
+one fast ingestion/VAD worker, one serialized decode worker, one active
+microphone capture, and deterministic stop/shutdown cleanup. Optional partial
+recognition is coalesced to one pending snapshot; final requests have a
+bounded lossless queue and priority over partials. Teach and Challenge do not
+consume this microphone path in M6.
+
+Run shutdown is fail-closed. It stops accepting frames and physical capture,
+drains/finalizes the active segment, persists the final `Utterance`, emits
+`asr.final`, terminates both workers, and only then releases audio/model
+resources. The presentation watcher and session transition follow that
+boundary; a failed join, unresolved final, or release failure leaves the Run
+owner in retryable `stopping` state and prevents a new capture or deletion.
+Normal core shutdown uses the same Run cleanup path with `aborted` status and
+preserves an active session when the bounded cleanup budget cannot complete.
+
 ### SlideStateService
 
 Priority order:
@@ -148,6 +206,11 @@ Priority order:
 3. future screen inference adapter.
 
 The application must remain functional if PowerPoint integration fails.
+
+`RunService` composes session lifecycle, final-transcript persistence, bounded
+pagination, manual markers, and the deterministic retrieval-backed debrief.
+Its debrief is local and provider-free; unchanged completed state is reused by
+an algorithm/timeline/transcript fingerprint.
 
 ### RetrievalService
 
@@ -331,6 +394,8 @@ Per-user app root, for example under Windows Local AppData:
 ```text
 PresenterCopilot/
   app.db
+  models/
+    asr/              # shared approved local ASR model cache
   projects/
     <project-id>/
       project.db
@@ -344,6 +409,7 @@ PresenterCopilot/
 Project-local databases/files make deletion/export easier and reduce accidental cross-project retrieval. M4
 adds its AudienceProfile, transcript mapping, candidate, observation, and
 evidence tables to `project.db` only; there is no global Audience Model table.
+The shared ASR model cache is app-level and survives project/session deletion.
 
 ### Source snapshots
 
@@ -399,6 +465,9 @@ Under Selected Context Cloud, only this packet may be sent remotely.
 ## 10. Failure/degradation behavior
 
 - ASR unavailable -> typed input remains usable; live voice assist disabled with clear status.
+- ASR input loss, backpressure, blocked final decode, or failed worker join ->
+  retain the Run owner in retryable stopping state; do not close a live model,
+  mark the session terminal, or delete its project/session rows.
 - PowerPoint adapter fails -> manual slide control.
 - embedding model unavailable -> lexical retrieval fallback where possible.
 - remote provider unavailable/quota -> retrieval-only/local path.

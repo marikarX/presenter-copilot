@@ -141,8 +141,8 @@ Challenge produces project-specific questions for two synthetic audience profile
 M5 implementation status for this branch: typed Challenge setup, bounded
 project-local AudienceProfile selection, canonical Project Brain grounding,
 advisory evaluation, retry/follow-up history, explicit preferred-answer
-promotion, recovery, and the E2E-04 synthetic acceptance gate. M6 voice/ASR and
-Run-mode work remain out of scope.
+promotion, recovery, and the E2E-04 synthetic acceptance gate. Challenge
+remains typed-first; M6 does not wire ASR into Teach or Challenge.
 
 ## Milestone 6 — Local ASR and Run mode
 
@@ -160,9 +160,19 @@ Run-mode work remain out of scope.
 - PowerPoint adapter behind feature detection;
 - post-run debrief.
 
+M6 implementation status for this branch: Python-owned local capture with
+`sounddevice`, deterministic energy VAD, pinned `faster-whisper` and fixture
+adapters, explicit model preparation, bounded partial/final events, durable
+Run transcript/timeline/markers, main-owned manual slide shortcuts, read-only
+PowerPoint matching/fallback, restart-safe state, deletion cleanup, and a
+deterministic retrieval-backed debrief.
+
 ### Exit
 
-A user can rehearse a full synthetic deck by voice, change slides, stop, and view a persisted transcript/debrief after restart.
+A user can rehearse a full synthetic deck by voice, change slides, stop, and
+view a persisted transcript/debrief after restart. CI uses injected audio/ASR
+and presentation fakes; real local ASR uses the explicit model bootstrap and
+checked-in synthetic speech fixture.
 
 ## Milestone 7 — Live HUD and push-to-assist
 

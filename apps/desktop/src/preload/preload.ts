@@ -7,6 +7,7 @@ import type {
   JsonObject,
   ImportSourceResult,
   InvokeResult,
+  ManualShortcutResult,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -50,6 +51,22 @@ const api: PresenterCopilotApi = {
         project_id: projectId,
         kind,
       }) as Promise<InvokeResult<ImportSourceResult>>;
+    },
+  },
+  shortcuts: {
+    enableManualRun(
+      projectId: string,
+      sessionId: string,
+    ): Promise<InvokeResult<ManualShortcutResult>> {
+      return ipcRenderer.invoke("run:enable-manual-shortcuts", {
+        project_id: projectId,
+        session_id: sessionId,
+      }) as Promise<InvokeResult<ManualShortcutResult>>;
+    },
+    disableManualRun(): Promise<InvokeResult<{ disabled: true }>> {
+      return ipcRenderer.invoke("run:disable-manual-shortcuts") as Promise<
+        InvokeResult<{ disabled: true }>
+      >;
     },
   },
 };

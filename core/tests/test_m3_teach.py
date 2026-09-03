@@ -1803,9 +1803,9 @@ def test_migrations_advance_both_scopes_without_losing_rows(tmp_path: Path) -> N
         connection.commit()
     migrated = connect_project_database(project_path)
     try:
-        assert PROJECT_SCHEMA_VERSION == 5
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 5
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 5
+        assert PROJECT_SCHEMA_VERSION == 6
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 6
         assert (
             migrated.execute(
                 "SELECT COUNT(*) FROM embedding_generations WHERE is_active = 1"

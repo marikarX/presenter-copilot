@@ -158,18 +158,18 @@ conferencing integration is part of this milestone.
 
 ### P0
 
-- [ ] J01 ASR adapter interface.
-- [ ] J02 `faster-whisper` reference adapter.
-- [ ] J03 Microphone enumeration/selection.
-- [ ] J04 Model download/load/status UX.
-- [ ] J05 VAD/partial/final event flow.
-- [ ] J06 ASR latency benchmark harness.
-- [ ] J07 Run session UI and timer.
-- [ ] J08 Session transcript persistence.
-- [ ] J09 Manual slide next/previous global shortcuts.
-- [ ] J10 SlideStateEvent timeline.
-- [ ] J11 Windows PowerPoint current-slide adapter with fallback.
-- [ ] J12 Post-run debrief.
+- [x] J01 ASR adapter interface.
+- [x] J02 `faster-whisper` reference adapter.
+- [x] J03 Microphone enumeration/selection.
+- [x] J04 Model download/load/status UX.
+- [x] J05 VAD/partial/final event flow.
+- [x] J06 ASR latency benchmark harness.
+- [x] J07 Run session UI and timer.
+- [x] J08 Session transcript persistence.
+- [x] J09 Manual slide next/previous global shortcuts.
+- [x] J10 SlideStateEvent timeline.
+- [x] J11 Windows PowerPoint current-slide adapter with fallback.
+- [x] J12 Post-run debrief.
 
 ## Epic K — Live HUD
 

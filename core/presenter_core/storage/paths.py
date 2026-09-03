@@ -196,6 +196,42 @@ class AppPaths:
             )
         return paths.embeddings
 
+    def asr_model_cache_directory(self, *, create: bool = False) -> Path:
+        """Return the shared app-level ASR model cache, never a project path."""
+        models_root = self.root / "models"
+        asr_root = models_root / "asr"
+        # Validate existing path components before creating anything. In
+        # particular, never follow a user-controlled models symlink while the
+        # explicit model bootstrap command is creating its cache.
+        if models_root.is_symlink() or (models_root.exists() and not models_root.is_dir()):
+            raise CoreDomainError(
+                "ASR_MODEL_CACHE_UNSAFE",
+                "The local ASR model cache is not a safe application directory.",
+            )
+        if asr_root.is_symlink() or (asr_root.exists() and not asr_root.is_dir()):
+            raise CoreDomainError(
+                "ASR_MODEL_CACHE_UNSAFE",
+                "The local ASR model cache is not a safe application directory.",
+            )
+        if create:
+            models_root.mkdir(parents=True, exist_ok=True)
+            asr_root.mkdir(exist_ok=True)
+        if models_root.is_symlink() or asr_root.is_symlink() or not asr_root.is_dir():
+            raise CoreDomainError(
+                "ASR_MODEL_CACHE_UNSAFE",
+                "The local ASR model cache is not a safe application directory.",
+            )
+        resolved_root = self.root.resolve()
+        resolved_asr = asr_root.resolve()
+        if resolved_asr.parent != resolved_root / "models" or not resolved_asr.is_relative_to(
+            resolved_root
+        ):
+            raise CoreDomainError(
+                "ASR_MODEL_CACHE_UNSAFE",
+                "The local ASR model cache is not a safe application directory.",
+            )
+        return asr_root
+
     def embedding_matrix_path(
         self,
         project_id: str,

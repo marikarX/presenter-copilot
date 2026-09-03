@@ -540,6 +540,11 @@ class IngestionService:
             with self._storage.project_database(project_id) as connection:
                 self._insert_rows(connection, unit_rows, chunk_rows)
                 self._reconcile_transcript(connection, document_id, parsed_units, kind=kind)
+                if kind == "presentation":
+                    connection.execute(
+                        "UPDATE project SET current_presentation_id = ? WHERE id = ?",
+                        (document_id, project_id),
+                    )
                 connection.execute(
                     """
                     UPDATE documents

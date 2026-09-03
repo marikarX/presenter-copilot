@@ -104,7 +104,17 @@ mode to `local_only` immediately prevents subsequent remote content calls; the
 session's stored mode is not an authority override. Challenge question and
 evaluation requests use the same local/remote router and selected-context
 manifest path as the rest of the product. Challenge history is local project
-state; it is not uploaded as a corpus.
+state; it is not uploaded as a corpus. M6 Run ASR is local regardless of the
+project privacy mode: the Python core owns capture, no provider receives
+microphone data, and the deterministic post-run debrief does not call a
+provider. The explicit `asr.prepare_model` operation is separate setup and is
+the only M6 operation permitted to download approved model assets.
+
+Run debrief is rehearsal retrieval: the core sends `usage=rehearsal` and may
+set `allow_private=true`, while retrieval still enforces each KnowledgeItem's
+independent `use_rehearsal` flag. Raw PCM and partial text remain transient;
+only the final local `Utterance`, slide/timeline state, markers, and bounded
+debrief are durable.
 
 ### Selected Context Cloud
 
@@ -245,6 +255,22 @@ profile notes as user-supplied content and includes only active profiles and
 active, evidence-valid observations; pending, rejected, stale, unresolved, and
 evidence-less source-derived rows are excluded.
 
+M6 ASR/Run logs and events contain only safe device/model metadata, bounded
+transcript text where the Run event contract requires it, timestamps, IDs,
+statuses, and error codes. Raw PCM, PortAudio objects, model objects, COM
+objects, complete prompts, and filesystem paths are excluded. Partial text is
+ephemeral; only final utterances, slide state, markers, and the bounded local
+debrief are stored.
+
+The ASR capture callback never blocks on transcription. A dropped-input status
+or full bounded frame queue is surfaced as `ASR_BACKPRESSURE`; the Run does not
+continue with an implicitly incomplete final. During shutdown, an outstanding
+worker or final retains capture ownership in retryable stopping state. The core
+does not close a live model, mark the session terminal, generate a debrief, or
+delete the session/project until that owner has been safely released. If the
+application budget expires, the sidecar may exit under the no-orphan policy,
+but the active session remains recoverable on restart.
+
 User-requested diagnostic export must be previewable/redactable before sharing.
 
 ## 13. Deletion
@@ -262,8 +288,9 @@ P0 must support:
 
 Automated tests verify filesystem and DB removal.
 
-Deleting an individual session cascades its session, utterances, provider runs,
-and pending Teach candidates. Confirmed project KnowledgeItems survive through
+Deleting an individual session cascades its session, final Run utterances,
+slide state events, Run markers, Run debrief, provider runs, and pending Teach
+candidates. Confirmed project KnowledgeItems survive through
 durable UserStatement snapshots; their old session and utterance IDs are
 detached. Approved global SpeakerEvidence also detaches a deleted session ID.
 Because app and project SQLite databases cannot share a transaction, deletion
@@ -272,6 +299,12 @@ performs project detachment and session deletion transactionally. App cleanup
 failure leaves all project rows unchanged. A project-side failure after app
 cleanup leaves the session and project rows intact and returns a retryable
 error; retrying is safe.
+
+Run-owned ASR cleanup is an earlier deletion gate. `session.delete` and
+`project.delete` first require successful bounded capture/final/worker cleanup,
+including a stale or prematurely terminal Run row whose live ASR owner still
+matches. A blocked final therefore cannot be hidden by a terminal status or
+cause model/audio handles to be released underneath a live worker.
 
 ## 14. UX disclosures
 

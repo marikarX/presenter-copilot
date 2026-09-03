@@ -138,9 +138,9 @@ def test_m1_project_database_migrates_to_m2_and_preserves_content(tmp_path: Path
 
     migrated = connect_project_database(database_path)
     try:
-        assert PROJECT_SCHEMA_VERSION == 5
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 5
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 5
+        assert PROJECT_SCHEMA_VERSION == 6
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 6
         assert migrated.execute("SELECT text FROM chunks").fetchone()[0] == "preserved"
         assert migrated.execute("SELECT COUNT(*) FROM embedding_generations").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM embedding_vectors").fetchone()[0] == 0

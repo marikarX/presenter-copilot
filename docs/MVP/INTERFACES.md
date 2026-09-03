@@ -81,6 +81,11 @@ core.shutdown
 
 `core.hello` returns protocol version, core version, available adapters/capabilities, and migration status.
 
+`core.shutdown` first runs the canonical cleanup for every active Run with
+`status=aborted`. It returns `cleanup_pending=true` and a safe error code when
+the bounded ASR cleanup cannot finish; in that case the active session remains
+recoverable and no resource is closed underneath a live worker.
+
 ### Projects
 
 ```text
@@ -218,13 +223,18 @@ project session partially.
 
 `session.stop` completes an active Teach session from `ready_for_prompt` or
 `awaiting_user`. It remains blocked while a user answer or provisional
-provider candidate is pending.
+provider candidate is pending. For an active Run, the IPC handler delegates to
+the Run lifecycle: ASR cleanup must succeed before the presentation watcher,
+session row, or completed debrief can change. `session.delete` and
+`project.delete` likewise fail closed while the selected Run still owns
+unresolved capture/model resources.
 
 ### ASR
 
 ```text
 asr.list_devices
 asr.configure
+asr.prepare_model
 asr.start
 asr.stop
 asr.status
@@ -251,7 +261,8 @@ teach.confirm_knowledge_item
 teach.reject_knowledge_item
 ```
 
-Voice input arrives through ASR utterances rather than a separate audio upload method.
+M6 voice input arrives through Run ASR utterances rather than a separate audio
+upload method. Teach and Challenge remain typed-first in this milestone.
 
 Core owns the Teach state machine:
 
@@ -380,7 +391,59 @@ secrets, complete prompts, or hidden model reasoning.
 ```text
 run.mark_event
 run.generate_debrief
+run.get_state
+run.list_transcript
+run.list_timeline
+run.get_debrief
 ```
+
+Run uses the ordinary `session.start`, `session.stop`, `session.get`,
+`session.list`, and `session.delete` lifecycle. `session.start` with
+`mode=run` is the only M6 microphone consumer; `live_assist` remains
+`MODE_NOT_IMPLEMENTED`.
+
+`asr.list_devices` returns only bounded device metadata. A sounddevice
+`device_id` is a stable opaque identity for the selected backend endpoint, not
+the current PortAudio enumeration index; the core resolves it to the current
+backend index immediately before opening capture. `asr.configure` accepts the
+core-approved `adapter_id`, `model_id`, English `language`, and selected
+`device_id`; it rejects changes while capture/model preparation is active.
+`asr.prepare_model` is an explicit setup operation for the approved local
+model. `asr.start` requires an active Run session and never downloads. A second
+capture returns `ASR_ALREADY_RUNNING`; a missing model returns
+`ASR_MODEL_UNAVAILABLE`. `asr.stop` is idempotent only for the matching active
+Run session and performs bounded cleanup. It reports success only after the
+ingestion and serialized decoder workers have terminated, any active final has
+been persisted or deterministically found empty, and audio/model resources
+have been released. A failed join or final remains in retryable `stopping`
+state; a later stop retries the retained final without permitting another
+capture. `ASR_BACKPRESSURE` reports input overflow or another capture condition
+that means microphone audio was dropped.
+
+The callback-to-decode path is bounded and lossless for finals: ingestion/VAD
+does not call the ASR adapter, one optional partial request is replaceable, and
+final requests have priority over partial work. Raw PCM remains internal to
+the core.
+
+`asr.status` returns `adapter_id`, `model_id`, `model_status`, safe device
+metadata, `capture_state`, nullable `session_id`, `language`, configuration,
+`input_signal_state`, bounded `input_frames_received`, capabilities, and a
+nullable safe error code. `input_signal_state` is only `unknown`, `silent`, or
+`detected`; it is a coarse capture diagnostic, not a speech/transcript result.
+It never returns raw PCM, model paths, COM objects, stack traces, or secrets.
+
+`run.list_transcript` returns final utterances only, ordered by start time and
+bounded by `limit`/`offset`. `run.list_timeline` returns bounded slide events
+and manual markers. `run.get_state` is a bounded recovery projection, and
+`run.get_debrief` returns the persisted local debrief without regenerating it.
+Run debrief retrieval uses `usage=rehearsal` and may use `allow_private=true`;
+the independent `use_rehearsal` flag still excludes disabled KnowledgeItems.
+For exact numeric/factual claims, only eligible `fact_safe` evidence with the
+same canonical normalized value is supporting evidence. Missing support yields
+`needs_evidence_review`, conflicting eligible evidence yields
+`conflict_review`, and non-fact-safe or mismatched hits are retained only as
+non-supporting review context; the user statement is never labeled false by
+absence of support.
 
 ### Retrieval / assist
 
@@ -461,11 +524,23 @@ privacy.remote_context_manifest
   "start_ms": 12340,
   "end_ms": 14820,
   "is_final": true,
-  "confidence": 0.93
+  "slide_ordinal": 12
 }
 ```
 
-Do not assume confidence is available from every ASR adapter.
+`confidence` may be included only when an adapter supplies a defensible value;
+the M6 faster-whisper adapter leaves it absent. Partial payloads are
+ephemeral. Final persistence commits the `Utterance` before `asr.final` is
+emitted, and the same `utterance_id` is used for all partial/final updates.
+Timestamps are monotonic and session-relative. No raw audio appears in any
+event.
+
+`asr.final` is emitted only after the durable `Utterance` commit. The
+`slide_ordinal` is the start-slide snapshot, not a PowerPoint custom-show
+position. The read-only PowerPoint facade obtains it from
+`SlideShowWindow.View.Slide.SlideIndex` and uses `SlideShowWindow.Presentation`
+for basename and slide-count matching; unavailable or mismatched COM state
+falls back to manual tracking.
 
 ## 6. Evidence contract
 

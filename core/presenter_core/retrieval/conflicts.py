@@ -48,9 +48,17 @@ class ExtractedFactValue:
 
 
 def detect_conflicts(
-    query: str, evidence_items: Iterable[Mapping[str, Any]]
+    query: str,
+    evidence_items: Iterable[Mapping[str, Any]],
+    *,
+    require_query_number_match: bool = True,
 ) -> list[dict[str, Any]]:
-    """Return only high-signal incompatible values sharing query context."""
+    """Return only high-signal incompatible values sharing query context.
+
+    The default preserves the M2/M5 retrieval contract.  Run debrief can opt
+    into context-only conflict detection because its claim text is the
+    authoritative query and may not contain every value found in evidence.
+    """
     query_tokens = set(lexical_normalize(query).split())
     query_number_tokens = {token for token in query_tokens if any(c.isdigit() for c in token)}
     context_tokens = query_tokens.difference(_STOP_WORDS).difference(query_number_tokens)
@@ -77,7 +85,11 @@ def detect_conflicts(
         if not context_tokens.intersection(body_tokens):
             continue
         extracted = extract_fact_values(text)
-        if query_number_tokens and not _contains_query_number(text, query_number_tokens):
+        if (
+            require_query_number_match
+            and query_number_tokens
+            and not _contains_query_number(text, query_number_tokens)
+        ):
             continue
         labels_by_evidence[evidence_id] = label
         for value in extracted:
