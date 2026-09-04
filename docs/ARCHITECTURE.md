@@ -13,7 +13,8 @@ The architecture should optimize for:
 - source-grounded answers;
 - preservation of the presenter's own communication style;
 - audience-specific rehearsal grounded in authorized evidence;
-- a lightweight desktop experience rather than a cloud-first meeting bot.
+- a lightweight desktop experience rather than a cloud-first meeting bot;
+- future renderer-independent audience simulation without coupling core reasoning to a 3D/XR stack.
 
 ## Context model
 
@@ -282,6 +283,14 @@ Uninterrupted rehearsal with transcript/slide timeline and post-run debrief.
 
 Private source-grounded cueing during mock/real presentation.
 
+### Immersive Rehearsal — post-MVP
+
+Immersive Rehearsal adds an Audience Simulation Engine around Run/Challenge semantics. The simulation engine owns canonical participant state and emits typed reaction/question events; desktop, 3D, and XR renderers visualize those events but do not own project evidence, audience reasoning, provider access, or privacy policy.
+
+The first target is a lightweight behavioral desktop simulation. Photorealistic rendering and XR are later renderer implementations, gated on demonstrated user value.
+
+See [`docs/IMMERSIVE/ARCHITECTURE.md`](IMMERSIVE/ARCHITECTURE.md).
+
 ## Data storage
 
 Prototype storage is local, inspectable, and deletable.
@@ -300,6 +309,8 @@ Logical stores include:
 
 Project-local separation is preferred because deletion/export and privacy boundaries become simpler.
 
+Future immersive runs may additionally persist versioned scenario definitions, seeds, semantic simulation events, question provenance, and debrief markers. They should not persist animation frames, raw camera frames, or high-frequency XR telemetry by default.
+
 ## Privacy modes
 
 - **Local Only** — no content-processing network calls.
@@ -307,6 +318,8 @@ Project-local separation is preferred because deletion/export and privacy bounda
 - **Full Context Cloud** — explicit opt-in.
 
 Every remote provider call should have a context manifest recording what source classes/IDs were sent without logging the full confidential prompt by default.
+
+Immersive rendering does not weaken these boundaries. A renderer should receive only the bounded scene/reaction/question data required for display and should not receive provider credentials or unrestricted Project Brain content.
 
 ## Mobile direction
 
@@ -329,3 +342,6 @@ Standalone mobile rehearsal comes only after desktop value is validated.
 5. Best way to quantify style preservation without turning it into an opaque personality score.
 6. How much Audience Model context improves rehearsal before it becomes noisy/overfit.
 7. When the simple in-process vector index should be replaced for larger projects.
+8. Which desktop rendering stack provides the best behavioral-simulation prototype without competing with ASR/reasoning latency.
+9. Which semantic simulation event contract remains stable across desktop, high-fidelity 3D, and XR renderers.
+10. Whether local presenter gaze-region estimation produces enough rehearsal value to justify its privacy and hardware complexity.
