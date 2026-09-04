@@ -14,6 +14,11 @@ export interface RendererValidationOptions {
   readonly allowDevelopmentRenderer: boolean;
 }
 
+export interface HudValidationOptions extends RendererValidationOptions {
+  readonly bundledHudPath: string;
+  readonly allowDevelopmentHud: boolean;
+}
+
 export interface RendererLoadOptions {
   readonly bundledRendererPath: string;
   readonly developmentUrl?: string;
@@ -35,6 +40,23 @@ export function isExpectedDevelopmentUrl(value: string): boolean {
   return (
     parsed.origin === DEV_RENDERER_ORIGIN &&
     parsed.pathname === "/" &&
+    parsed.search === "" &&
+    parsed.hash === "" &&
+    parsed.username === "" &&
+    parsed.password === ""
+  );
+}
+
+export function isExpectedDevelopmentHudUrl(value: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    parsed.origin === DEV_RENDERER_ORIGIN &&
+    parsed.pathname === "/hud/index.html" &&
     parsed.search === "" &&
     parsed.hash === "" &&
     parsed.username === "" &&
@@ -87,6 +109,32 @@ export function isTrustedRendererSender(
 ): boolean {
   if (!senderFrame || !sameFrame(senderFrame, mainFrame)) return false;
   return isTrustedRendererUrl(senderFrame.url, options);
+}
+
+export function isTrustedHudSender(
+  senderFrame: RendererFrameReference | null,
+  mainFrame: RendererFrameReference,
+  options: HudValidationOptions,
+): boolean {
+  if (!senderFrame || !sameFrame(senderFrame, mainFrame)) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(senderFrame.url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === "file:") {
+    if (parsed.hostname !== "" || parsed.search !== "" || parsed.hash !== "")
+      return false;
+    try {
+      return samePath(fileURLToPath(parsed), options.bundledHudPath);
+    } catch {
+      return false;
+    }
+  }
+  return (
+    options.allowDevelopmentHud && isExpectedDevelopmentHudUrl(senderFrame.url)
+  );
 }
 
 function sameFrame(

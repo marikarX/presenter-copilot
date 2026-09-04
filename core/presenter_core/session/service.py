@@ -54,12 +54,6 @@ class SessionService:
         mode = params.get("mode", "teach")
         if not isinstance(mode, str) or mode not in SESSION_MODES:
             raise invalid_request("mode is not supported.", field="mode")
-        if mode not in {"teach", "challenge", "run"}:
-            raise CoreDomainError(
-                "MODE_NOT_IMPLEMENTED",
-                "Only Teach, Challenge, and Run sessions are implemented.",
-                details={"mode": mode},
-            )
         with self._storage.project_database(project_id) as connection:
             project = connection.execute(
                 "SELECT * FROM project WHERE id = ?", (project_id,)
@@ -170,6 +164,36 @@ class SessionService:
 
     def validate_active_run(self, project_id: str, session_id: str) -> dict[str, Any]:
         """Return the safe session projection required by Run-owned services."""
+        session = self.validate_active_presentation_session(project_id, session_id)
+        if session["mode"] != "run":
+            raise CoreDomainError(
+                "SESSION_MODE_INVALID",
+                "The selected session is not a Run session.",
+            )
+        return session
+
+    def validate_active_asr_session(self, project_id: str, session_id: str) -> dict[str, Any]:
+        """Return the safe session projection accepted by the shared ASR service."""
+        return self._validate_active_session(project_id, session_id, expected_mode=None)
+
+    def validate_active_live_assist(self, project_id: str, session_id: str) -> dict[str, Any]:
+        """Return the safe projection required by Live Assist-owned services."""
+        session = self._validate_active_session(project_id, session_id, expected_mode="live_assist")
+        return session
+
+    def validate_active_presentation_session(
+        self, project_id: str, session_id: str
+    ) -> dict[str, Any]:
+        """Return the safe projection shared by Run and Live presentation state."""
+        return self._validate_active_session(project_id, session_id, expected_mode=None)
+
+    def _validate_active_session(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        expected_mode: str | None,
+    ) -> dict[str, Any]:
         normalized_project_id = normalize_project_id(project_id)
         try:
             normalized_session_id = str(uuid.UUID(session_id))
@@ -177,15 +201,20 @@ class SessionService:
             raise CoreDomainError("SESSION_NOT_FOUND", "The session was not found.") from error
         with self._storage.project_database(normalized_project_id) as connection:
             row = self._session_row(connection, normalized_project_id, normalized_session_id)
-            if row["mode"] != "run":
+            if row["mode"] not in {"run", "live_assist"}:
                 raise CoreDomainError(
                     "SESSION_MODE_INVALID",
-                    "The selected session is not a Run session.",
+                    "The selected session does not own presentation state.",
+                )
+            if expected_mode is not None and row["mode"] != expected_mode:
+                raise CoreDomainError(
+                    "SESSION_MODE_INVALID",
+                    f"The selected session is not a {expected_mode} session.",
                 )
             if row["status"] != "active":
                 raise CoreDomainError(
                     "SESSION_NOT_ACTIVE",
-                    "The selected Run session is not active.",
+                    "The selected presentation session is not active.",
                 )
             return {
                 "id": row["id"],
@@ -219,7 +248,7 @@ class SessionService:
         owner = self._active_run_owner() if self._active_run_owner is not None else None
         active_run_cleanup = self._active_run_cleanup
         if active_run_cleanup is not None:
-            cleanup_run = row["mode"] == "run" and (
+            cleanup_run = row["mode"] in {"run", "live_assist"} and (
                 row["status"] == "active" or owner == (project_id, session_id)
             )
         else:
@@ -333,6 +362,7 @@ class SessionService:
     def _session_dict(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         counts = {
             "utterances": "SELECT COUNT(*) FROM utterances WHERE session_id = ?",
+            "cues": "SELECT COUNT(*) FROM cues WHERE session_id = ?",
             "pending_candidates": "SELECT COUNT(*) FROM teach_candidates "
             "WHERE session_id = ? AND status = 'pending'",
             "provider_runs": "SELECT COUNT(*) FROM provider_runs WHERE session_id = ?",

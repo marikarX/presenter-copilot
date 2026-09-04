@@ -195,6 +195,14 @@ checked-in synthetic speech fixture.
 
 During a mock presentation, push-to-assist on a known question produces a source-grounded cue in the HUD within performance target and can be hidden instantly.
 
+M7 implementation status for this branch: Live Assist is a real session mode
+that reuses the M6 local ASR and presentation-state services. The Python core
+owns bounded question assembly, live retrieval, cue persistence/provenance,
+provider routing, logical supersession, and failure fallback. Electron owns a
+dedicated isolated HUD window, main-process global shortcuts, top-center
+calibration, click-through collapsed mode, and visible best-effort capture
+protection status. Automatic question segmentation is intentionally deferred.
+
 ## Milestone 8 — Privacy routing and provider resilience
 
 ### Build

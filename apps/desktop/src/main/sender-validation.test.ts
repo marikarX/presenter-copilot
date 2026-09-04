@@ -5,10 +5,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEV_RENDERER_ORIGIN,
+  isExpectedDevelopmentHudUrl,
   isExpectedDevelopmentUrl,
+  isTrustedHudSender,
   isTrustedRendererSender,
   selectRendererLoadTarget,
   type RendererFrameReference,
+  type HudValidationOptions,
   type RendererValidationOptions,
 } from "./sender-validation";
 
@@ -16,6 +19,12 @@ const bundledRendererPath = path.resolve("dist", "renderer", "index.html");
 const policy: RendererValidationOptions = {
   bundledRendererPath,
   allowDevelopmentRenderer: true,
+};
+const bundledHudPath = path.resolve("dist", "renderer", "hud", "index.html");
+const hudPolicy: HudValidationOptions = {
+  ...policy,
+  bundledHudPath,
+  allowDevelopmentHud: true,
 };
 
 function frame(
@@ -106,6 +115,38 @@ describe("renderer sender validation", () => {
       expect(
         selectRendererLoadTarget({ bundledRendererPath, ...options }),
       ).toEqual({ type: "bundled", path: bundledRendererPath });
+    }
+  });
+
+  it("isolates HUD IPC to the exact HUD document and path", () => {
+    const mainFrame = frame(pathToFileURL(bundledHudPath).href);
+
+    expect(
+      isExpectedDevelopmentHudUrl(`${DEV_RENDERER_ORIGIN}/hud/index.html`),
+    ).toBe(true);
+    expect(isTrustedHudSender(mainFrame, mainFrame, hudPolicy)).toBe(true);
+    expect(
+      isTrustedHudSender(
+        frame(pathToFileURL(bundledRendererPath).href),
+        mainFrame,
+        hudPolicy,
+      ),
+    ).toBe(false);
+
+    for (const rejectedUrl of [
+      `${DEV_RENDERER_ORIGIN}/`,
+      `${DEV_RENDERER_ORIGIN}/hud/index.html?remote=true`,
+      "http://127.0.0.1:5173/hud/other.html",
+      "https://attacker.example/hud/index.html",
+    ]) {
+      expect(isExpectedDevelopmentHudUrl(rejectedUrl)).toBe(false);
+      expect(
+        isTrustedHudSender(
+          frame(rejectedUrl),
+          frame(`${DEV_RENDERER_ORIGIN}/hud/index.html`),
+          hudPolicy,
+        ),
+      ).toBe(false);
     }
   });
 });

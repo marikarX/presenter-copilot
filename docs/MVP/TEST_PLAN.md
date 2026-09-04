@@ -353,6 +353,25 @@ benchmark stores metadata/timings only and does not store transcript text.
 
 Start Live Assist -> push-to-assist known question -> retrieve fact -> HUD receives <=3-line cue -> expand provenance -> clear/hide cue.
 
+M7 deterministic coverage also verifies:
+
+- v6 -> v7 migration preserves prior rows and creates only `cues`/
+  `cue_evidence`, while `app.db` remains at version 2;
+- Live Assist reuses the local ASR owner, stores final audience speech as
+  `unknown_audience`, exposes only an ephemeral latest partial, and performs
+  no automatic question segmentation;
+- explicit typed/button/hotkey triggers, six-utterance/15-second/1,200-character
+  bounds, current-slide retrieval, empty-context rejection, and one-assist/one-cue
+  partial-to-final updates;
+- retrieval-only exact fact/source-pointer cues, <=3-line bounds, fact-safe
+  evidence, conflict warnings, preferred user wording, deletion availability,
+  session/project cascade deletion, and restart recovery;
+- provider evidence-ID containment, unsupported exact-fact rejection, local-only
+  provider bypass, remote private-knowledge exclusion, logical cancellation,
+  stale-result suppression, and degraded retrieval fallback;
+- isolated HUD sender validation, geometry, shortcut arbitration/rollback,
+  click-through/expanded state seams, and renderer-safe cue text handling.
+
 ### E2E-07 Restart/recovery
 
 Close app after completed sessions -> reopen -> project/session state intact.
@@ -509,6 +528,22 @@ acceptance, retrieval benchmark, explicit ASR prepare/acceptance/benchmark,
 and exact-head hosted Windows plus Trusted Local CI; record any unavailable
 hardware/model/PowerPoint or unobserved physical-speech result precisely. Do
 not merge and do not start M7.
+
+### M7 milestone gate
+
+Before opening the M7 review PR, verify the v6 -> v7 migration preserves all
+M0-M6 rows; the deterministic Live Assist/E2E-06 path produces a bounded
+source-grounded cue and expands/deletes provenance correctly; Live ASR uses the
+M6 local capture and shuts down/deletes fail-closed; retrieval-only fast path,
+provider routing/privacy, logical supersession, degraded fallback, HUD sender
+isolation, shortcut rollback, calibration, click-through behavior, and visible
+capture-protection status remain intact. Run `pnpm setup`, `pnpm check`,
+`pnpm build`, `pnpm test:embedding-real`, `pnpm benchmark:retrieval`,
+`pnpm test:asr-real`, `pnpm benchmark:cue`, and `git diff --check`; record
+unavailable model, hardware, compositor, physical-microphone, external-capture,
+and CI evidence precisely. Require hosted Windows and Trusted Local CI on the
+same exact final SHA. Do not merge and do not start M8. K14, E06, L01-L10, and
+all M8 work remain deferred.
 
 A pre-1.0 MVP release requires:
 

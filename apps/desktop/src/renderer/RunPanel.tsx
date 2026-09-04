@@ -17,6 +17,7 @@ import {
 
 type RunPanelProps = {
   project: ReadyProjectSummary;
+  blocked?: boolean;
   onActiveChange: (active: boolean) => void;
 };
 
@@ -100,7 +101,11 @@ function runEventSessionId(event: EventEnvelope): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export function RunPanel({ project, onActiveChange }: RunPanelProps) {
+export function RunPanel({
+  project,
+  blocked = false,
+  onActiveChange,
+}: RunPanelProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [asrStatus, setAsrStatus] = useState<ASRStatus | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
@@ -384,7 +389,7 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
   }, []);
 
   const startRun = useCallback(async () => {
-    if (!modelReady || devices.length === 0) return;
+    if (blocked || !modelReady || devices.length === 0) return;
     setBusy("start-run");
     setMessage(null);
     setProgress("run · starting local capture");
@@ -472,6 +477,7 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
       setBusy(null);
     }
   }, [
+    blocked,
     devices.length,
     modelReady,
     project.id,
@@ -699,7 +705,9 @@ export function RunPanel({ project, onActiveChange }: RunPanelProps) {
             type="button"
             className="primary-button"
             onClick={() => void startRun()}
-            disabled={busy !== null || !modelReady || devices.length === 0}
+            disabled={
+              busy !== null || blocked || !modelReady || devices.length === 0
+            }
           >
             {busy === "start-run" ? "Starting Run…" : "Start Run"}
           </button>

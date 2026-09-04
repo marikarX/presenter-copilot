@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 6
+PROJECT_SCHEMA_VERSION = 7
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -881,6 +881,56 @@ def _migrate_project_v6(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (6,))
 
 
+def _migrate_project_v7(connection: sqlite3.Connection) -> None:
+    """Add bounded Live Assist cue and evidence persistence."""
+    connection.execute(
+        """
+        CREATE TABLE cues (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            assist_id TEXT NOT NULL,
+            cue_type TEXT NOT NULL CHECK (
+                cue_type IN ('fact', 'structure', 'reminder', 'source_pointer', 'warning')
+            ),
+            text TEXT NOT NULL CHECK (length(text) > 0),
+            state TEXT NOT NULL CHECK (state IN ('partial', 'final')),
+            route TEXT NOT NULL CHECK (
+                route IN ('retrieval_only', 'local_reasoning', 'remote_reasoning')
+            ),
+            provider_run_id TEXT NULL REFERENCES provider_runs(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            displayed_at TEXT NULL,
+            dismissed_at TEXT NULL,
+            UNIQUE(session_id, assist_id)
+        )
+        """
+    )
+    connection.execute("CREATE INDEX cues_session_idx ON cues(session_id, created_at, id)")
+    connection.execute(
+        """
+        CREATE TABLE cue_evidence (
+            cue_id TEXT NOT NULL REFERENCES cues(id) ON DELETE CASCADE,
+            evidence_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            source_unit_id TEXT NULL,
+            knowledge_item_id TEXT NULL,
+            label_snapshot TEXT NOT NULL,
+            rank INTEGER NOT NULL CHECK (rank >= 0),
+            available INTEGER NOT NULL DEFAULT 1 CHECK (available IN (0, 1)),
+            PRIMARY KEY (cue_id, evidence_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX cue_evidence_source_idx
+        ON cue_evidence(source_type, source_id, source_unit_id)
+        """
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (7,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -912,6 +962,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (4, _migrate_project_v4),
             (5, _migrate_project_v5),
             (6, _migrate_project_v6),
+            (7, _migrate_project_v7),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

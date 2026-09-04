@@ -52,6 +52,13 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "session.get",
     "session.list",
     "session.delete",
+    "assist.request",
+    "assist.cancel",
+    "cue.list",
+    "cue.dismiss",
+    "cue.expand_sources",
+    "hud.settings.get",
+    "hud.settings.update",
     "asr.list_devices",
     "asr.configure",
     "asr.prepare_model",
@@ -119,6 +126,12 @@ SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
     "run.debrief_progress",
     "provider.status_changed",
     "privacy.remote_context_manifest",
+    "assist.started",
+    "assist.retrieval_ready",
+    "assist.reasoning_started",
+    "cue.partial",
+    "cue.ready",
+    "cue.error",
 )
 
 

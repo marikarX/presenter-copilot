@@ -728,3 +728,96 @@ Reason:
 The first voice rehearsal must remain useful and repeatable without a provider
 key, cloud transcript upload, or hidden promotion of rehearsal text into the
 Project Brain.
+
+## D-047 — Live Assist reuses the M6 local ASR and presentation services
+
+**Status:** Accepted for Milestone 7
+
+Live Assist uses the existing Python-owned ASR, VAD, utterance persistence, and
+presentation-state services. Live microphone speech is stored only as
+unattributed `unknown_audience` final utterances; no speaker identity or voice
+inference is added.
+
+Reason:
+
+Reusing the established local capture boundary avoids a second microphone path
+and keeps raw audio out of the renderer, NDJSON, and providers.
+
+## D-048 — Explicit push-to-assist owns live question assembly
+
+**Status:** Accepted for Milestone 7
+
+An explicit typed question takes precedence. Otherwise core combines a bounded
+recent window of final `unknown_audience` utterances, the latest ephemeral ASR
+partial, and the canonical current slide. Automatic question segmentation is
+deferred.
+
+Reason:
+
+An explicit action is predictable during a presentation and avoids silently
+turning continuous speech into assistance requests.
+
+## D-049 — One Assist owns one Cue row
+
+**Status:** Accepted for Milestone 7
+
+Retrieval creates the progressive `partial` cue and safe final output updates
+the same persisted row. Cue evidence is bounded and retains canonical source
+identifiers and label snapshots.
+
+Reason:
+
+Stable cue identity lets the HUD update in place without creating duplicate
+history or losing the provenance of the displayed result.
+
+## D-050 — The HUD is a dedicated main-owned window
+
+**Status:** Accepted for Milestone 7
+
+The HUD is a dedicated isolated Electron `BrowserWindow` with a minimal
+allowlisted preload, click-through collapsed mode, interactive expanded mode,
+and best-effort OS/Electron content protection.
+
+Reason:
+
+Separating the HUD from the main renderer keeps its control surface narrow and
+allows show/hide to remain available when the core or provider is unavailable.
+
+## D-051 — M7 cancellation is logical cancellation
+
+**Status:** Accepted for Milestone 7
+
+Assist supersession marks older work cancelled and suppresses stale results.
+Provider-native cancellation and a broader provider-resilience redesign remain
+deferred to M8.
+
+Reason:
+
+Logical cancellation is sufficient to protect cue identity and presentation
+state without expanding this milestone into adapter-specific cancellation APIs.
+
+## D-052 — Live retrieval uses live eligibility and remote exclusion
+
+**Status:** Accepted for Milestone 7
+
+Live retrieval always requests `usage=live`. Private live-enabled knowledge may
+participate in local reasoning, but it is excluded from remote provider
+context. Provider output must cite only the bounded evidence supplied by core.
+
+Reason:
+
+One usage flag and a core-owned privacy filter prevent rehearsal-only or
+private project material from crossing the remote context boundary.
+
+## D-053 — HUD preferences are app-scoped metadata
+
+**Status:** Accepted for Milestone 7
+
+Display selection, width, font size, top offset, and the eight remappable
+shortcut accelerators are stored in bounded `app_metadata` under a versioned
+HUD key. The project schema is not changed for device-specific UI preferences.
+
+Reason:
+
+HUD placement and keyboard choices follow the user's desktop setup rather than
+one presentation, while the bounded metadata path avoids a new migration.

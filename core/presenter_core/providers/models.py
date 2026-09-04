@@ -43,6 +43,11 @@ MAX_PROVIDER_FEEDBACK_CHARS = 600
 MAX_PROVIDER_MISSING_POINTS = 6
 MAX_PROVIDER_EVIDENCE_IDS = 8
 MAX_PROVIDER_OBSERVATION_IDS = 8
+MAX_LIVE_CUE_LINES = 3
+MAX_LIVE_CUE_CONTENT_LINES = 2
+MAX_LIVE_CUE_LINE_CHARS = 180
+MAX_LIVE_CUE_EVIDENCE_IDS = 8
+LIVE_CUE_TYPES = frozenset({"fact", "structure", "reminder", "source_pointer", "warning"})
 CHALLENGE_INTENSITIES = frozenset({"normal", "skeptical", "adversarial"})
 SOURCE_SUPPORT_STATUSES = frozenset(
     {"supported", "partially_supported", "unsupported", "conflicted"}
@@ -74,9 +79,21 @@ CHALLENGE_TASK_INSTRUCTIONS = {
     ),
 }
 
+LIVE_CUE_TASK_INSTRUCTION = (
+    "Use only the bounded context packet and supplied evidence. Produce a concise "
+    "live-presenter cue of no more than two short content lines; core owns the "
+    "source-pointer line. Never invent a fact, cite an evidence ID that was not supplied, "
+    "reveal hidden reasoning, or include private content not present in the approved "
+    "packet. Prefer a direct answer for a supported fact; otherwise give a structure, reminder, "
+    "or source pointer. If supplied conflict metadata indicates incompatible values, use cue_type "
+    "warning and state that the sources conflict rather than choosing a value."
+)
+
 
 def task_instruction_for(task_type: str) -> str | None:
-    """Return the core-owned trusted contract for a supported Challenge task."""
+    """Return the core-owned trusted contract for a supported task."""
+    if task_type == "live_cue":
+        return LIVE_CUE_TASK_INSTRUCTION
     return CHALLENGE_TASK_INSTRUCTIONS.get(task_type)
 
 
@@ -384,6 +401,33 @@ def challenge_evaluation_output_schema() -> dict[str, Any]:
     }
 
 
+def live_cue_output_schema() -> dict[str, Any]:
+    """Strict, line-bounded schema used by the Live Assist provider route."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "cue_type": {"type": "string", "enum": sorted(LIVE_CUE_TYPES)},
+            "lines": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_LIVE_CUE_CONTENT_LINES,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_LIVE_CUE_LINE_CHARS,
+                },
+            },
+            "evidence_ids": {
+                "type": "array",
+                "maxItems": MAX_LIVE_CUE_EVIDENCE_IDS,
+                "items": {"type": "string", "minLength": 1, "maxLength": 120},
+            },
+        },
+        "required": ["cue_type", "lines", "evidence_ids"],
+    }
+
+
 def output_schema_for(task_type: str) -> dict[str, Any]:
     if task_type == "teach_question":
         return question_output_schema()
@@ -393,6 +437,8 @@ def output_schema_for(task_type: str) -> dict[str, Any]:
         return challenge_question_output_schema()
     if task_type == "challenge_evaluation":
         return challenge_evaluation_output_schema()
+    if task_type == "live_cue":
+        return live_cue_output_schema()
     raise CoreDomainError(
         "PROVIDER_REQUEST_FAILED",
         "The reasoning task is not supported.",
@@ -465,10 +511,50 @@ def validate_provider_output(
         return _validate_challenge_question_output(value)
     if task_type == "challenge_evaluation":
         return _validate_challenge_evaluation_output(value, conflict_metadata=conflict_metadata)
+    if task_type == "live_cue":
+        return _validate_live_cue_output(value)
     raise ProviderError(
         "PROVIDER_REQUEST_FAILED",
         "The reasoning task is not supported.",
     )
+
+
+def _validate_live_cue_output(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"cue_type", "lines", "evidence_ids"}:
+        raise ProviderError(
+            "PROVIDER_MALFORMED_OUTPUT",
+            "The reasoning provider returned an unsupported Live Assist cue shape.",
+        )
+    cue_type = value.get("cue_type")
+    lines = value.get("lines")
+    evidence_ids = value.get("evidence_ids")
+    if not isinstance(cue_type, str) or cue_type not in LIVE_CUE_TYPES:
+        raise ProviderError("PROVIDER_MALFORMED_OUTPUT", "The Live Assist cue type is invalid.")
+    if (
+        not isinstance(lines, list)
+        or not 1 <= len(lines) <= MAX_LIVE_CUE_CONTENT_LINES
+        or any(
+            not isinstance(line, str)
+            or not line.strip()
+            or len(line.strip()) > MAX_LIVE_CUE_LINE_CHARS
+            or "\n" in line
+            or "\r" in line
+            for line in lines
+        )
+        or not _bounded_string_list(evidence_ids, MAX_LIVE_CUE_EVIDENCE_IDS, 120)
+    ):
+        raise ProviderError(
+            "PROVIDER_MALFORMED_OUTPUT", "The Live Assist cue exceeds its safe bounds."
+        )
+    if not isinstance(evidence_ids, list) or len(set(evidence_ids)) != len(evidence_ids):
+        raise ProviderError(
+            "PROVIDER_MALFORMED_OUTPUT", "The Live Assist cue contains duplicate evidence IDs."
+        )
+    return {
+        "cue_type": cue_type,
+        "lines": [line.strip() for line in lines],
+        "evidence_ids": list(evidence_ids),
+    }
 
 
 def _validate_challenge_question_output(value: Any) -> dict[str, Any]:

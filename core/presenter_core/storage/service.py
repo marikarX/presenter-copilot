@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -140,3 +141,44 @@ class StorageManager:
             cursor = self._app.execute("DELETE FROM projects WHERE id = ?", (normalized_id,))
             self._app.commit()
             return cursor.rowcount == 1
+
+    def get_app_metadata(self, key: str) -> Any | None:
+        """Read one bounded JSON value from the existing app metadata table."""
+        if not isinstance(key, str) or not key or len(key) > 120:
+            raise CoreDomainError("APP_METADATA_INVALID", "The app metadata key is invalid.")
+        with self._app_lock:
+            row = self._app.execute(
+                "SELECT value FROM app_metadata WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(str(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise CoreDomainError(
+                "APP_METADATA_INVALID",
+                "The app metadata value is malformed.",
+                details={"key": key},
+            ) from error
+
+    def set_app_metadata(self, key: str, value: Any) -> None:
+        """Atomically replace one bounded JSON value in app scope."""
+        if not isinstance(key, str) or not key or len(key) > 120:
+            raise CoreDomainError("APP_METADATA_INVALID", "The app metadata key is invalid.")
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError) as error:
+            raise CoreDomainError(
+                "APP_METADATA_INVALID", "The app metadata value is not JSON serializable."
+            ) from error
+        if len(encoded) > 32_000:
+            raise CoreDomainError(
+                "APP_METADATA_INVALID", "The app metadata value exceeds the safe bound."
+            )
+        with self._app_lock:
+            self._app.execute(
+                "INSERT INTO app_metadata(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, encoded),
+            )
+            self._app.commit()

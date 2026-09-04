@@ -27,6 +27,7 @@
     "test:asr-real": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_acceptance",
     "test:provider-real": "uv run --directory core --project . --locked python -m presenter_core.tools.provider_acceptance",
     "benchmark:retrieval": "uv run --directory core --project . --locked python -m presenter_core.tools.retrieval_benchmark",
+    "benchmark:cue": "uv run --directory core --project . --locked python -m presenter_core.tools.cue_benchmark",
     "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark"
   }
 }

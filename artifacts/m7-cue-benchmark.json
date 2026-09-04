@@ -1,0 +1,35 @@
+{
+  "cpu_model": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "embedding_adapter": "deterministic-test-v1",
+  "first_useful_definition": "first final retrieval_only cue.ready event",
+  "implementation_sha": "0109376c4b483c6e50b7067ec7fdf82f97691268",
+  "machine": "AMD64",
+  "os": "Windows-11-10.0.26200-SP0",
+  "progressive_partial": {
+    "max_ms": 20.492,
+    "p50_ms": 14.832,
+    "p95_ms": 18.177
+  },
+  "python_version": "3.13.5",
+  "sample_count": 20,
+  "target_p50_ms": 1200.0,
+  "target_p95_ms": 2500.0,
+  "target_pass": true,
+  "timestamp": "2026-09-03T23:15:00.281466+00:00",
+  "trigger": "hotkey",
+  "trigger_to_first_useful_cue": {
+    "max_ms": 29.013,
+    "p50_ms": 22.736,
+    "p95_ms": 27.259
+  },
+  "trigger_to_ready": {
+    "max_ms": 29.013,
+    "p50_ms": 22.736,
+    "p95_ms": 27.259
+  },
+  "trigger_to_retrieval_ready": {
+    "max_ms": 10.802,
+    "p50_ms": 7.352,
+    "p95_ms": 8.552
+  }
+}

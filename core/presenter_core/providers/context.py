@@ -54,6 +54,8 @@ class ProviderContextBuilder:
         current_slide: int | None = None,
         provider_id: str = "openai",
         allow_private: bool = False,
+        include_private_in_provider: bool | None = None,
+        retrieval_usage: str | None = None,
         retrieval_query: str | None = None,
         slide_start: int | None = None,
         slide_end: int | None = None,
@@ -62,6 +64,8 @@ class ProviderContextBuilder:
         prior_question_context: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
         additional_grounding_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     ) -> tuple[ReasoningRequest, dict[str, Any]]:
+        if include_private_in_provider is None:
+            include_private_in_provider = task_type != "live_cue"
         query = (
             retrieval_query
             or user_input
@@ -72,7 +76,7 @@ class ProviderContextBuilder:
             "project_id": project_id,
             "query": query[:500],
             "limit": MAX_DOCUMENT_EVIDENCE + MAX_USER_KNOWLEDGE,
-            "usage": "rehearsal",
+            "usage": retrieval_usage or ("live" if task_type == "live_cue" else "rehearsal"),
             "allow_private": allow_private,
         }
         if current_slide is not None:
@@ -91,7 +95,9 @@ class ProviderContextBuilder:
             bounded = dict(evidence)
             bounded["text"] = str(evidence["text"])[:MAX_EXCERPT_CHARS]
             if evidence.get("source_type") == "user_statement":
-                if evidence.get("private") is True and not allow_private:
+                if evidence.get("private") is True and (
+                    not allow_private or not include_private_in_provider
+                ):
                     continue
                 if len(user_knowledge) < MAX_USER_KNOWLEDGE:
                     user_knowledge.append(
@@ -124,7 +130,9 @@ class ProviderContextBuilder:
             bounded["text"] = str(item["text"])[:MAX_EXCERPT_CHARS]
             additional_grounding_ids.add(evidence_id)
             if bounded.get("source_type") == "user_statement":
-                if bounded.get("private") is True and not allow_private:
+                if bounded.get("private") is True and (
+                    not allow_private or not include_private_in_provider
+                ):
                     continue
                 additional_user_knowledge.append(bounded)
             else:
@@ -157,9 +165,11 @@ class ProviderContextBuilder:
                 bounded_audience = [
                     dict(profile) for profile in profiles if isinstance(profile, dict)
                 ]
-        bounded_prior = [dict(item) for item in prior_question_context if isinstance(item, dict)][
-            :3
-        ]
+        # The live path already uses the locally assembled question as its
+        # bounded query.  Never duplicate the recent transcript window in a
+        # live provider packet, even if a caller supplies one accidentally.
+        prior_context = () if task_type == "live_cue" else prior_question_context
+        bounded_prior = [dict(item) for item in prior_context if isinstance(item, dict)][:3]
 
         conflicts = [
             item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)
