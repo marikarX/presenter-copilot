@@ -22,7 +22,9 @@ Potentially sensitive data includes:
 - unreleased product details;
 - architecture diagrams;
 - prior rehearsal history;
-- generated answer suggestions.
+- generated answer suggestions;
+- future immersive scenario definitions and participant mappings;
+- future camera/XR-derived presenter-coaching signals.
 
 ## Privacy modes
 
@@ -49,6 +51,8 @@ This should be the recommended hybrid mode.
 ### Full-context cloud
 
 A user may deliberately permit broader remote context for higher-quality reasoning. The UI must make the boundary explicit and should never silently upgrade from a more restrictive privacy mode.
+
+Full-context permission does not automatically authorize upload of raw camera frames, raw XR telemetry, room scans, or biometric-like sensor streams. Any such future capability requires explicit product design and disclosure.
 
 ## Authentication
 
@@ -85,6 +89,24 @@ Default behavior should be:
 - permit transcript-only sessions;
 - make retention/deletion controls obvious.
 
+## Immersive rehearsal
+
+Future immersive rehearsal must preserve the same local-first model.
+
+Default rules:
+
+- synthetic or role-based audience identities;
+- real-person names, when legitimately present in an Audience Model, remain project-local context and must be labeled as simulated approximations;
+- no photorealistic recreation of real people by default;
+- no persistent face recognition or voiceprints;
+- no emotion recognition or sensitive-trait inference;
+- camera/XR signals, if introduced, should be processed locally and ephemerally where practical;
+- persist derived coaching events rather than raw high-frequency sensor streams;
+- renderer processes receive only bounded scene/reaction/question data required for display;
+- cloud rendering, if ever introduced, is a new data boundary requiring separate review.
+
+See [`docs/IMMERSIVE/PRIVACY_SAFETY.md`](IMMERSIVE/PRIVACY_SAFETY.md).
+
 ## Session storage
 
 Users should be able to:
@@ -93,11 +115,14 @@ Users should be able to:
 - delete all project history;
 - rebuild the local index;
 - remove source documents;
-- inspect which provider/backend was used.
+- inspect which provider/backend was used;
+- delete future immersive scenarios, runs, and derived simulation state.
 
 ## Source provenance
 
 Generated answers should retain enough metadata to identify which source excerpts contributed to the answer. This improves both trust and deletion correctness.
+
+Simulated audience behavior should likewise retain enough provenance to distinguish source-backed concerns, user-authored scenario assumptions, deterministic simulation rules, and model-generated interpretations.
 
 ## Enterprise direction
 
@@ -112,7 +137,8 @@ Potential future enterprise requirements:
 - audit logging;
 - SSO/device policy;
 - disable recording;
-- admin-defined document-sharing rules.
+- admin-defined document-sharing rules;
+- policy controls for immersive scenarios and sensor usage.
 
 These should not be required for the first individual prototype.
 
@@ -127,3 +153,5 @@ Preferred language should distinguish clearly between:
 - Full Context Cloud.
 
 The application should make the current mode visible during both rehearsal and live presentation use.
+
+Immersive debriefs must not present simulated audience state as a psychological measurement or a prediction of exactly how a named real person will react.
