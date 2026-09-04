@@ -831,8 +831,11 @@ core-owned execution service. The service rereads the current project privacy
 mode and remote acknowledgement immediately before a remote call, validates
 the final serialized payload, derives the metadata-only context manifest from
 that payload, persists/emits the manifest before invocation, and keeps the
-provider call outside SQLite transactions. Local Only is a final fail-closed
-remote guard; it never silently falls through to another remote provider.
+provider call outside SQLite transactions. It also maps the actual payload to
+a core-owned per-task context-class allowlist and rejects any non-empty
+disallowed class before `ProviderRun` creation. Local Only is a final
+fail-closed remote guard; it never silently falls through to another remote
+provider.
 
 Reason:
 
@@ -858,3 +861,20 @@ Transient provider behavior must not become hidden privacy routing, stale Live
 guidance, partial Challenge data, or a renderer-visible secret/error leak.
 Explicit typed degradation preserves user control while keeping local
 functionality available.
+
+## D-056 — Task latency is request-scoped; SDK clients are stable
+
+**Status:** Accepted for Milestone 8
+
+The OpenAI adapter constructs one cached SDK client per provider instance using
+the provider's configured default timeout and reuses it across health checks
+and task requests. The core-owned task latency budget is passed to each
+`responses.create` call as the operation timeout. Provider shutdown explicitly
+closes the cached client when the SDK exposes a close method.
+
+Reason:
+
+Task budgets differ by operation, especially for Live Assist. Making that
+budget part of client identity churns connection pools and can discard clients
+without closing them. Request-scoped timeout preserves the latency contract
+without coupling transport lifecycle to task policy.

@@ -172,15 +172,26 @@ class ProviderContextBuilder:
                 bounded_audience = [
                     dict(profile) for profile in profiles if isinstance(profile, dict)
                 ]
-        # The live path already uses the locally assembled question as its
-        # bounded query.  Never duplicate the recent transcript window in a
-        # live provider packet, even if a caller supplies one accidentally.
-        prior_context = () if task_type == "live_cue" else prior_question_context
-        bounded_prior = [dict(item) for item in prior_context if isinstance(item, dict)][:3]
+        prior_context: list[dict[str, Any]] | tuple[dict[str, Any], ...]
+        if task_type not in CHALLENGE_TASK_TYPES:
+            # Audience profiles, challenge intensity, and prior-question
+            # context are only useful to Challenge.  Prune them here and let
+            # the execution boundary enforce the same policy for malformed
+            # requests that bypass this builder.
+            bounded_audience = []
+            challenge_intensity = None
+            prior_context = ()
+        else:
+            prior_context = prior_question_context
+        bounded_prior: list[dict[str, Any]] = [
+            dict(item) for item in prior_context if isinstance(item, dict)
+        ][:3]
 
-        conflicts = [
-            item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)
-        ]
+        conflicts = (
+            []
+            if task_type in {"teach_question", "teach_candidate"}
+            else [item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)]
+        )
         conflicts = conflicts[:3]
         if current_slide is None:
             slide_summary = None

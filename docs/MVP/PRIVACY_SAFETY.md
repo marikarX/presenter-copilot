@@ -370,7 +370,17 @@ The service derives the metadata-only privacy manifest from the actual final
 serialized payload. It validates manifest/entity parity and fails closed on a
 private marker, credential/raw-media field, stale privacy policy, or malformed
 packet. The manifest is committed to `ProviderRun` and emitted before the
-provider call; the provider call never runs inside a SQLite transaction.
+provider call; the provider call never runs inside a SQLite transaction. It
+also enforces a core-owned per-task context-class allowlist at that last-mile
+boundary. Teach question generation cannot disclose audience context,
+challenge intensity, conflicts, or prior-question context; Teach candidate
+generation adds only its current prompt and user explanation. Challenge
+question/follow-up/evaluation receive only their operation-specific selected
+evidence, accepted audience, conflict, intensity, bounded prior, question, and
+typed-answer classes. Live cue generation receives its current question and
+selected evidence/conflicts/style context but no audience, challenge, or prior
+context. Any non-empty disallowed class is rejected before a `ProviderRun` is
+created, even if a caller bypasses the context builder.
 
 Provider health is process-local and renderer-safe. It exposes only
 `ready`, `unconfigured`, `auth_failed`, `quota_exhausted`, `rate_limited`, and

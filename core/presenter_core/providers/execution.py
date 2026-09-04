@@ -31,6 +31,7 @@ from .context import (
     MAX_USER_KNOWLEDGE,
 )
 from .models import (
+    TASK_CONTEXT_CLASS_ALLOWLIST,
     ProviderError,
     ReasoningProvider,
     ReasoningRequest,
@@ -105,6 +106,34 @@ _CONTEXT_LIST_KEYS = (
     "approved_audience_context",
     "prior_question_context",
 )
+_PAYLOAD_CONTEXT_CLASSES = {
+    "current_slide_summary": "current_slide_summary",
+    "question": "question",
+    "user_input": "current_user_input",
+    "untrusted_retrieved_evidence": "document_excerpt",
+    "approved_user_knowledge": "user_knowledge",
+    "approved_speaker_style_evidence": "speaker_evidence",
+    "conflict_metadata": "conflict_metadata",
+    "approved_audience_context": "audience_context",
+    "challenge_intensity": "challenge_intensity",
+    "prior_question_context": "prior_question_context",
+    "style_policy": "style_policy",
+}
+_STYLE_CONTEXT_KEYS = frozenset(
+    {
+        "policy",
+        "custom_guidance",
+        "preferred_answer_seconds",
+        "project_preferred_explanations",
+        "approved_speaker_evidence",
+        "rejected_patterns",
+    }
+)
+_STYLE_CONTEXT_CLASSES = {
+    "project_preferred_explanations": "user_knowledge",
+    "approved_speaker_evidence": "speaker_evidence",
+    "rejected_patterns": "rejected_patterns",
+}
 
 
 @dataclass(frozen=True)
@@ -189,8 +218,8 @@ class ProviderExecutionService:
             )
 
         payload = request.to_payload()
-        self._validate_payload(request, payload, provider)
         manifest = derive_context_manifest(request, provider_id=provider.id, payload=payload)
+        self._validate_payload(request, payload, provider, manifest)
         self._validate_claimed_manifest(request.context_manifest, manifest)
 
         run_id = str(uuid.uuid4())
@@ -518,6 +547,7 @@ class ProviderExecutionService:
         request: ReasoningRequest,
         payload: dict[str, Any],
         provider: ReasoningProvider,
+        manifest: dict[str, Any],
     ) -> None:
         if set(payload) != _PAYLOAD_KEYS:
             raise ProviderError(
@@ -568,6 +598,21 @@ class ProviderExecutionService:
                 "PROVIDER_REQUEST_FAILED",
                 "The reasoning payload style context was malformed.",
             )
+        style_context = payload["style_context"]
+        if not set(style_context).issubset(_STYLE_CONTEXT_KEYS):
+            raise ProviderError(
+                "PROVIDER_REQUEST_FAILED",
+                "The reasoning payload style context contained an unknown field.",
+            )
+        try:
+            for field in _STYLE_CONTEXT_CLASSES:
+                if field in style_context:
+                    self._strict_dict_list(style_context[field], f"style_context.{field}")
+        except ValueError as error:
+            raise ProviderError(
+                "PROVIDER_REQUEST_FAILED",
+                "The reasoning payload style context records were malformed.",
+            ) from error
         try:
             context_lists = {
                 key: self._strict_dict_list(payload[key], key) for key in _CONTEXT_LIST_KEYS
@@ -630,6 +675,64 @@ class ProviderExecutionService:
                 "PROVIDER_REQUEST_FAILED",
                 "The serialized reasoning payload privacy mode did not match the request.",
             )
+        self._validate_task_context_policy(request, payload, manifest, style_context)
+
+    def _validate_task_context_policy(
+        self,
+        request: ReasoningRequest,
+        payload: dict[str, Any],
+        manifest: dict[str, Any],
+        style_context: Mapping[str, Any],
+    ) -> None:
+        allowed_classes = TASK_CONTEXT_CLASS_ALLOWLIST.get(request.task_type)
+        if allowed_classes is None:
+            raise ProviderError(
+                "PROVIDER_REQUEST_FAILED",
+                "The reasoning task has no core-owned context policy.",
+            )
+
+        classes_sent = manifest.get("classes_sent", [])
+        if not isinstance(classes_sent, list):
+            raise ProviderError(
+                "PROVIDER_REQUEST_FAILED",
+                "The derived reasoning context manifest was malformed.",
+            )
+        disallowed_classes = sorted(
+            {str(context_class) for context_class in classes_sent} - allowed_classes
+        )
+        if disallowed_classes:
+            self._raise_context_class_blocked(request, disallowed_classes[0])
+
+        for field, context_class in _PAYLOAD_CONTEXT_CLASSES.items():
+            if (
+                self._has_disclosed_value(payload.get(field))
+                and context_class not in allowed_classes
+            ):
+                self._raise_context_class_blocked(request, context_class)
+        for field, context_class in _STYLE_CONTEXT_CLASSES.items():
+            if (
+                self._has_disclosed_value(style_context.get(field))
+                and context_class not in allowed_classes
+            ):
+                self._raise_context_class_blocked(request, context_class)
+
+    @staticmethod
+    def _raise_context_class_blocked(request: ReasoningRequest, context_class: str) -> None:
+        raise ProviderExecutionError(
+            "PRIVACY_CONTEXT_CLASS_BLOCKED",
+            "The reasoning task was not permitted to disclose this context class.",
+            details={"task_type": request.task_type, "context_class": context_class},
+        )
+
+    @staticmethod
+    def _has_disclosed_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (Mapping, list, tuple, set)):
+            return bool(value)
+        return True
 
     @staticmethod
     def _contains_forbidden_key(key: Any, value: Any) -> bool:

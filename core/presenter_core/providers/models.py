@@ -92,6 +92,63 @@ LIVE_CUE_TASK_INSTRUCTION = (
     "warning and state that the sources conflict rather than choosing a value."
 )
 
+# These are disclosure classes, not transport fields.  The execution boundary
+# maps the serialized packet to these classes immediately before an adapter is
+# called.  Keep this policy core-owned so adapters cannot widen it accidentally.
+_COMMON_CONTEXT_CLASSES = frozenset(
+    {
+        "application_policy",
+        "current_slide_summary",
+        "document_excerpt",
+        "question_grounding",
+        "speaker_evidence",
+        "style_context",
+        "style_policy",
+        "task_instruction",
+        "user_knowledge",
+    }
+)
+TASK_CONTEXT_CLASS_ALLOWLIST: dict[str, frozenset[str]] = {
+    "teach_question": _COMMON_CONTEXT_CLASSES | frozenset({"rejected_patterns"}),
+    "teach_candidate": _COMMON_CONTEXT_CLASSES
+    | frozenset({"current_user_input", "question", "rejected_patterns"}),
+    "challenge_question": _COMMON_CONTEXT_CLASSES
+    | frozenset(
+        {
+            "audience_context",
+            "challenge_intensity",
+            "conflict_metadata",
+            "prior_question_context",
+            "rejected_patterns",
+        }
+    ),
+    "challenge_follow_up": _COMMON_CONTEXT_CLASSES
+    | frozenset(
+        {
+            "audience_context",
+            "challenge_intensity",
+            "conflict_metadata",
+            "prior_question_context",
+            "question",
+            "rejected_patterns",
+        }
+    ),
+    "challenge_evaluation": _COMMON_CONTEXT_CLASSES
+    | frozenset(
+        {
+            "audience_context",
+            "challenge_intensity",
+            "conflict_metadata",
+            "current_user_input",
+            "prior_question_context",
+            "question",
+            "rejected_patterns",
+        }
+    ),
+    "live_cue": _COMMON_CONTEXT_CLASSES
+    | frozenset({"conflict_metadata", "question", "rejected_patterns"}),
+}
+
 
 def task_instruction_for(task_type: str) -> str | None:
     """Return the core-owned trusted contract for a supported task."""

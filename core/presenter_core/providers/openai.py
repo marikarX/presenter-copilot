@@ -1,10 +1,11 @@
-"""Official OpenAI Responses API adapter for bounded Teach and Challenge tasks."""
+"""Official OpenAI Responses API adapter for bounded reasoning tasks."""
 
 from __future__ import annotations
 
 import json
 import os
 from collections.abc import Callable, Mapping
+from threading import Lock
 from time import monotonic
 from typing import Any
 
@@ -41,7 +42,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
         self._timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
         self._client_factory = client_factory
         self._client: Any | None = None
-        self._client_timeout_seconds: float | None = None
+        self._client_lock = Lock()
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -90,7 +91,9 @@ class OpenAIReasoningProvider(ReasoningProvider):
 
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
         effective_timeout = self._effective_timeout_seconds(request)
-        client = self._load_client(timeout_seconds=effective_timeout)
+        # Keep the SDK client and its connection pool stable.  The operation
+        # budget belongs on this request, not in cached-client identity.
+        client = self._load_client()
         schema_name = {
             "teach_question": "teach_question",
             "teach_candidate": "teach_candidate",
@@ -168,46 +171,47 @@ class OpenAIReasoningProvider(ReasoningProvider):
         )
 
     def close(self) -> None:
-        self._client = None
-        self._client_timeout_seconds = None
+        with self._client_lock:
+            client = self._client
+            self._client = None
+        if client is not None:
+            close = getattr(client, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    # Provider shutdown must not turn into a user-visible
+                    # failure or leak SDK exception details.
+                    pass
 
-    def _load_client(self, *, timeout_seconds: float | None = None) -> Any:
+    def _load_client(self) -> Any:
         if not self._api_key:
             raise ProviderError("PROVIDER_UNCONFIGURED", "OpenAI credentials are not configured.")
-        effective_timeout = (
-            self._timeout_seconds if timeout_seconds is None else float(timeout_seconds)
-        )
-        if (
-            self._client is not None
-            and self._client_timeout_seconds is not None
-            and self._client_timeout_seconds == effective_timeout
-        ):
-            return self._client
-        self._client = None
-        self._client_timeout_seconds = None
-        try:
-            if self._client_factory is not None:
-                self._client = self._client_factory(
-                    api_key=self._api_key,
-                    timeout=effective_timeout,
-                    max_retries=0,
-                )
-            else:
-                from openai import OpenAI
+        with self._client_lock:
+            if self._client is not None:
+                return self._client
+            try:
+                if self._client_factory is not None:
+                    self._client = self._client_factory(
+                        api_key=self._api_key,
+                        timeout=self._timeout_seconds,
+                        max_retries=0,
+                    )
+                else:
+                    from openai import OpenAI
 
-                self._client = OpenAI(
-                    api_key=self._api_key,
-                    timeout=effective_timeout,
-                    max_retries=0,
-                )
-            self._client_timeout_seconds = effective_timeout
-        except Exception as error:
-            raise ProviderError(
-                "PROVIDER_UNAVAILABLE",
-                "The OpenAI SDK is unavailable.",
-                retryable=True,
-            ) from error
-        return self._client
+                    self._client = OpenAI(
+                        api_key=self._api_key,
+                        timeout=self._timeout_seconds,
+                        max_retries=0,
+                    )
+            except Exception as error:
+                raise ProviderError(
+                    "PROVIDER_UNAVAILABLE",
+                    "The OpenAI SDK is unavailable.",
+                    retryable=True,
+                ) from error
+            return self._client
 
     def _effective_timeout_seconds(self, request: ReasoningRequest) -> float:
         """Keep the adapter timeout inside the core-owned request budget."""

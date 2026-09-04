@@ -167,8 +167,16 @@ A deterministic fake provider is required for CI. M8 adds the shared
 core-owned execution boundary used by Teach, Challenge, and Live Assist. Its
 contract tests cover final privacy re-read, payload/manifest parity, provider
 run lifecycle, bounded timeout, logical cancellation, safe health transitions,
-and task-specific failure mapping. Provider calls must occur outside SQLite
-transactions; late output after timeout or cancellation is discarded.
+task-specific failure mapping, and the explicit per-task context-class
+allowlist across all six remote task families. The selected-context integration
+test inspects both captured provider payloads and metadata manifests; a
+disallowed class must fail before provider invocation or `ProviderRun` creation.
+Provider calls must occur outside SQLite transactions; late output after
+timeout or cancellation is discarded.
+
+The OpenAI adapter test also verifies that health plus requests with different
+latency budgets reuse one SDK client, while each `responses.create` call gets
+its own bounded timeout, and that provider shutdown closes the cached client.
 
 ## 6. ASR tests
 

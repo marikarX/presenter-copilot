@@ -27,6 +27,70 @@ from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
 
 FIXTURE_ROOT = Path(__file__).parents[2] / "samples" / "synthetic-deck"
 
+_COMMON_REMOTE_CONTEXT_CLASSES = {
+    "application_policy",
+    "current_slide_summary",
+    "document_excerpt",
+    "question_grounding",
+    "speaker_evidence",
+    "style_context",
+    "style_policy",
+    "task_instruction",
+    "user_knowledge",
+}
+_REMOTE_TASK_CONTEXT_ALLOWLIST = {
+    "teach_question": _COMMON_REMOTE_CONTEXT_CLASSES | {"rejected_patterns"},
+    "teach_candidate": _COMMON_REMOTE_CONTEXT_CLASSES
+    | {"current_user_input", "question", "rejected_patterns"},
+    "challenge_question": _COMMON_REMOTE_CONTEXT_CLASSES
+    | {
+        "audience_context",
+        "challenge_intensity",
+        "conflict_metadata",
+        "prior_question_context",
+        "rejected_patterns",
+    },
+    "challenge_follow_up": _COMMON_REMOTE_CONTEXT_CLASSES
+    | {
+        "audience_context",
+        "challenge_intensity",
+        "conflict_metadata",
+        "prior_question_context",
+        "question",
+        "rejected_patterns",
+    },
+    "challenge_evaluation": _COMMON_REMOTE_CONTEXT_CLASSES
+    | {
+        "audience_context",
+        "challenge_intensity",
+        "conflict_metadata",
+        "current_user_input",
+        "prior_question_context",
+        "question",
+        "rejected_patterns",
+    },
+    "live_cue": _COMMON_REMOTE_CONTEXT_CLASSES
+    | {"conflict_metadata", "question", "rejected_patterns"},
+}
+_PAYLOAD_CONTEXT_CLASSES = {
+    "current_slide_summary": "current_slide_summary",
+    "question": "question",
+    "user_input": "current_user_input",
+    "untrusted_retrieved_evidence": "document_excerpt",
+    "approved_user_knowledge": "user_knowledge",
+    "approved_speaker_style_evidence": "speaker_evidence",
+    "conflict_metadata": "conflict_metadata",
+    "approved_audience_context": "audience_context",
+    "challenge_intensity": "challenge_intensity",
+    "prior_question_context": "prior_question_context",
+    "style_policy": "style_policy",
+}
+_STYLE_CONTEXT_CLASSES = {
+    "project_preferred_explanations": "user_knowledge",
+    "approved_speaker_evidence": "speaker_evidence",
+    "rejected_patterns": "rejected_patterns",
+}
+
 
 def _message(method: str, params: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -52,6 +116,31 @@ def _error(core: CoreService, method: str, params: dict[str, Any]) -> dict[str, 
     error = response["error"]
     assert isinstance(error, dict)
     return error
+
+
+def _has_disclosed_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return True
+
+
+def _payload_context_classes(request: ReasoningRequest, payload: dict[str, Any]) -> set[str]:
+    classes = {"application_policy", "style_context"}
+    if request.task_instruction:
+        classes.add("task_instruction")
+    for field, context_class in _PAYLOAD_CONTEXT_CLASSES.items():
+        if _has_disclosed_value(payload.get(field)):
+            classes.add(context_class)
+    style_context = payload.get("style_context")
+    if isinstance(style_context, dict):
+        for field, context_class in _STYLE_CONTEXT_CLASSES.items():
+            if _has_disclosed_value(style_context.get(field)):
+                classes.add(context_class)
+    return classes
 
 
 def _project(core: CoreService, privacy_mode: str) -> str:
@@ -327,13 +416,24 @@ def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(tmp_pat
         assert core._assist.wait_for_idle(5.0)  # type: ignore[attr-defined]
         assert live["assist_id"]
 
-        assert {item["task_type"] for item in provider.observations} >= {
+        expected_task_types = {
             "teach_question",
             "teach_candidate",
             "challenge_question",
+            "challenge_follow_up",
             "challenge_evaluation",
             "live_cue",
         }
+        assert {item["task_type"] for item in provider.observations} == expected_task_types
+        assert len(provider.requests) == len(provider.request_objects) == len(expected_task_types)
+        for request, payload in zip(provider.request_objects, provider.requests, strict=True):
+            allowed_classes = _REMOTE_TASK_CONTEXT_ALLOWLIST[request.task_type]
+            disclosed_classes = _payload_context_classes(request, payload)
+            assert disclosed_classes <= allowed_classes
+            observation = next(
+                item for item in provider.observations if item["task_type"] == request.task_type
+            )
+            assert set(observation["manifest"]["classes_sent"]) <= allowed_classes
         for observation in provider.observations:
             assert observation["status"] == "started"
             assert observation["manifest"] == observation["request_manifest"]
@@ -370,10 +470,13 @@ def _direct_question_request(
     latency_budget_ms: int = 1_000,
     context_manifest: dict[str, Any] | None = None,
     preferred_user_explanations: tuple[dict[str, Any], ...] = (),
+    audience_context: tuple[dict[str, Any], ...] = (),
+    challenge_intensity: str | None = None,
+    prior_question_context: tuple[dict[str, Any], ...] = (),
 ) -> ReasoningRequest:
     return ReasoningRequest(
         task_type="teach_question",
-        question="Which decision needs clarification?",
+        question=None,
         user_input=None,
         current_slide_summary=None,
         evidence=(),
@@ -387,6 +490,9 @@ def _direct_question_request(
         latency_budget_ms=latency_budget_ms,
         application_policy=APPLICATION_POLICY,
         context_manifest=context_manifest or {},
+        audience_context=audience_context,
+        challenge_intensity=challenge_intensity,
+        prior_question_context=prior_question_context,
     )
 
 
@@ -402,6 +508,57 @@ def test_m8_manifest_is_derived_from_the_actual_final_payload() -> None:
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
     assert "actual-evidence" not in json.dumps(manifest)
+
+
+@pytest.mark.parametrize(
+    ("context_class", "request_kwargs"),
+    [
+        (
+            "audience_context",
+            {
+                "audience_context": (
+                    {"id": "audience-1", "observations": [{"id": "observation-1"}]},
+                )
+            },
+        ),
+        ("challenge_intensity", {"challenge_intensity": "skeptical"}),
+        (
+            "prior_question_context",
+            {"prior_question_context": ({"question_id": "prior-1", "text": "Earlier"},)},
+        ),
+    ],
+)
+def test_m8_task_context_policy_blocks_misrouted_teach_context(
+    tmp_path: Path,
+    context_class: str,
+    request_kwargs: dict[str, Any],
+) -> None:
+    provider = DeterministicFakeReasoningProvider(locality="remote")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+        reasoning_provider=provider,
+    )
+    try:
+        project_id = _project(core, "selected_context_cloud")
+        _call(core, "project.acknowledge_remote_reasoning", {"project_id": project_id})
+        with pytest.raises(ProviderError) as blocked:
+            core._provider_execution.execute(  # type: ignore[attr-defined]
+                project_id=project_id,
+                session_id=None,
+                provider=provider,
+                request=_direct_question_request(
+                    privacy_mode="selected_context_cloud", **request_kwargs
+                ),
+            )
+        assert blocked.value.code == "PRIVACY_CONTEXT_CLASS_BLOCKED"
+        assert blocked.value.details["task_type"] == "teach_question"
+        assert blocked.value.details["context_class"] == context_class
+        assert provider.call_count == 0
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            assert connection.execute("SELECT COUNT(*) FROM provider_runs").fetchone()[0] == 0
+    finally:
+        core.close()
 
 
 def test_m8_final_guard_rejects_misrouted_remote_and_private_context(tmp_path: Path) -> None:

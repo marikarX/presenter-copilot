@@ -691,6 +691,20 @@ finalizes `ProviderRun` exactly once, and performs no SQLite transaction over
 provider I/O. Logical cancellation is distinct from transport cancellation;
 the OpenAI adapter truthfully advertises transport cancellation as unsupported.
 
+The boundary also applies the core-owned `TASK_CONTEXT_CLASS_ALLOWLIST` to the
+actual serialized payload immediately before execution. `teach_question` may
+send selected project evidence and approved style/user context but not
+question, audience, challenge-intensity, conflict, or prior-question context;
+`teach_candidate` additionally permits the current prompt and user
+explanation. Challenge question/follow-up/evaluation may use only their
+operation-specific combination of selected evidence, accepted audience
+context, challenge intensity, conflict metadata, bounded prior context, parent
+question, and typed answer. `live_cue` permits the current locally assembled
+question and selected evidence/conflicts/style context, but never audience,
+challenge-intensity, or prior-question context. A non-empty disallowed class is
+rejected before `ProviderRun` creation, including when a caller bypasses the
+context builder.
+
 ## 10. Retrieval interface
 
 ```text
@@ -743,6 +757,11 @@ and emitted as `privacy.remote_context_manifest` before invocation. It contains
 metadata and IDs only, not the prompt, source excerpts, response, or secrets.
 `full_context_cloud` still uses the same conservative selected-context packet
 in M8; full-corpus upload is deferred.
+
+`classes_sent` is derived from the exact payload and is checked against the
+same per-task allowlist before the run starts. This makes the manifest an
+audit of an already-authorized disclosure rather than a justification for an
+otherwise over-broad request.
 
 M4 audience observation extraction does not invoke the reasoning router or
 any provider under any project privacy mode. Transcript text stays local;
