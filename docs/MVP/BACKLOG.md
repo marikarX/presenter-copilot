@@ -2,6 +2,10 @@
 
 This is the initial issue-sized engineering backlog. `P0` blocks the MVP release. `P1` is important but may move after first external usability. `P2` is explicitly post-MVP.
 
+The final first-MVP release-closure decision is recorded in
+[`RELEASE_BASELINE.md`](RELEASE_BASELINE.md). Where older backlog/gate wording
+conflicts with that dated baseline, the release baseline controls.
+
 ## Epic A — Scaffold and protocol
 
 ### P0
@@ -77,7 +81,12 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 ### P1
 
 - [ ] E09 Local OpenAI-compatible/local-model adapter.
-- [ ] E10 Official Codex adapter behind feature flag if still appropriate.
+- [ ] E10 Investigate and implement ChatGPT-authenticated inference through an
+      officially supported OpenAI/ChatGPT or Codex mechanism where available.
+      This is inference entitlement, not identity-only sign-in; do not scrape or
+      reuse undocumented ChatGPT/Codex tokens. Preserve the existing provider
+      privacy boundary and keep API-key fallback until an official path is
+      validated.
 
 ## Epic F — Speaker Profile and style preservation
 
@@ -192,6 +201,8 @@ conferencing integration is part of this milestone.
 ### P1
 
 - [ ] K14 Experimental automatic question segmentation.
+- [ ] K15 Re-test physical HUD interaction after the planned sleek UI/UX redesign.
+- [ ] K16 Independently validate external screen-capture exclusion on target conferencing/capture tools.
 
 ## Epic L — Privacy and secret handling
 
@@ -213,20 +224,29 @@ conferencing integration is part of this milestone.
 ### P0
 
 - [x] M01 Bundle Python sidecar for Windows release build.
-- [ ] M02 Clean-machine installation test.
+- [x] M02 Clean-machine installation test.
 - [x] M03 Model bootstrap/download path.
 - [x] M04 Crash/restart recovery flow.
 - [x] M05 Diagnostic export with user preview/redaction.
-- [ ] M06 Release benchmark on CPU-only Windows machine.
-- [ ] M07 Release benchmark on RTX reference machine when available.
 - [x] M08 Run all deterministic E2E acceptance scenarios from `TEST_PLAN.md`.
 - [x] M09 Update README with real setup/run commands after scaffold lands.
 - [x] M10 Produce first pre-1.0 release notes.
 
-M02, M06, and M07 remain evidence gates: the repository contains a
-read-only/manual clean-machine checklist and an aggregate benchmark reporter,
-but those gates are not marked verified without a fresh clean-profile install
-or real model runs on the named hardware.
+M02 passed during the 2026-09-04 final acceptance campaign. The release gate
+for the first MVP is defined by `RELEASE_BASELINE.md`.
+
+### P1 — deferred validation / technical debt
+
+- [ ] M06 Release benchmark on CPU-only Windows machine.
+- [ ] M07 Release benchmark on RTX reference machine; repair/validate the local
+      CUDA 12/cuBLAS runtime first.
+- [ ] M11 Run authorized real-provider acceptance when a user-owned credential
+      is available.
+- [ ] M12 Run the five-presenter/deck qualitative usability study.
+
+M06, M07, M11, and M12 remain useful validation evidence but do not block the
+first MVP merge/release under the dated release baseline. They must remain
+truthfully open until executed.
 
 ## Epic N — Post-MVP mobile companion
 
