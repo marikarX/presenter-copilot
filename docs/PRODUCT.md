@@ -81,6 +81,14 @@ Uninterrupted presentation rehearsal with slide/transcript tracking and a post-r
 
 Private webcam-adjacent HUD surfaces short source-grounded facts, answer structures, and reminders during a mock or real presentation.
 
+### Immersive Rehearsal — post-MVP
+
+A renderer-independent audience simulation layer surrounds a Run/Challenge-style session with visible audience behavior, interruptions, questions, spatial pressure, and scenario-specific debriefing.
+
+The first validation target is a lightweight desktop audience, not XR or photorealism. Synthetic/role-based participants are the default. Higher-fidelity 3D and headset clients are later rendering options over the same simulation contract.
+
+See [`docs/IMMERSIVE/`](IMMERSIVE/README.md).
+
 ## Style policies
 
 Mode and style are independent.
@@ -122,6 +130,7 @@ Initial focus should be people for whom a presentation has material economic or 
 - Ask realistic audience questions.
 - Challenge vague, incomplete, overlong, or evasive answers.
 - Repeat weak questions until the response improves.
+- In later immersive scenarios, expose the presenter to visible attention shifts, interruptions, time pressure, and spatial audience dynamics without presenting simulated behavior as a prediction of real people's internal states.
 
 ### During the real presentation
 
@@ -159,6 +168,8 @@ Key P0 capabilities:
 - full presentation-authoring suite;
 - AI-generated decks as a primary feature;
 - avatar presenters;
+- immersive/photorealistic audience rendering;
+- XR rehearsal;
 - LMS replacement;
 - video editing;
 - stealth or undetectability claims;
@@ -180,7 +191,8 @@ Potential differentiation comes from accumulated context and workflow:
 - rehearsal-to-live continuity;
 - source-grounded preferred-answer memory;
 - local-first privacy and latency;
-- longitudinal learning from actual questions and prior responses.
+- longitudinal learning from actual questions and prior responses;
+- eventually, renderer-independent audience simulation driven by that accumulated context rather than generic animated avatars.
 
 ## Success criteria for prototype
 
