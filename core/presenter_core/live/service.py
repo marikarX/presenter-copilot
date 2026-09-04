@@ -8,7 +8,6 @@ never receives audio, provider credentials, or a generic HUD-to-core channel.
 from __future__ import annotations
 
 import builtins
-import json
 import re
 import sqlite3
 import threading
@@ -38,11 +37,10 @@ from presenter_core.limits import (
 from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import utc_now
 from presenter_core.providers.context import ProviderContextBuilder
+from presenter_core.providers.execution import ProviderExecutionService
 from presenter_core.providers.models import (
     LIVE_CUE_TYPES,
     ProviderError,
-    ReasoningProvider,
-    validate_provider_output,
 )
 from presenter_core.providers.router import ReasoningRoute, ReasoningRouter
 from presenter_core.providers.service import ProviderService
@@ -665,6 +663,7 @@ class AssistService:
         *,
         event_sink: EventSink | None = None,
         clock: Callable[[], float] = monotonic,
+        provider_execution: ProviderExecutionService | None = None,
     ) -> None:
         self._storage = storage
         self._sessions = sessions
@@ -676,6 +675,11 @@ class AssistService:
         self._event_sink = event_sink
         self._clock = clock
         self._router = ReasoningRouter()
+        self._provider_execution = provider_execution or ProviderExecutionService(
+            storage,
+            providers,
+            event_sink=event_sink,
+        )
         self._cue = CueService(storage, sessions)
         self._lock = threading.RLock()
         self._states: dict[str, _AssistState] = {}
@@ -955,8 +959,7 @@ class AssistService:
             )
 
             project = self._project_row(state.project_id)
-            provider = self._providers.current_provider()
-            health = provider.health()
+            provider, health = self._providers.current_provider_and_health()
             decision = self._router.decide(
                 task_type="live_cue",
                 privacy_mode=str(project["privacy_mode"]),
@@ -982,6 +985,12 @@ class AssistService:
                     self._cue_event(fallback, state, started, retrieval_ms, degraded=True),
                 )
                 return
+            if provider is None:
+                raise CoreDomainError(
+                    "ASSIST_PROVIDER_UNAVAILABLE",
+                    "No reasoning provider is available for Live Assist.",
+                    retryable=True,
+                )
 
             reasoning_started = self._clock()
             safe_for_provider = evidence[:MAX_CUE_EVIDENCE]
@@ -1000,27 +1009,34 @@ class AssistService:
                 additional_grounding_evidence=safe_for_provider,
             )
             self._ensure_current(state)
-            self._emit(
-                "assist.reasoning_started",
-                {
-                    "assist_id": state.assist_id,
-                    "session_id": state.session_id,
-                    "provider_id": provider.id,
-                    "route": decision.route.value,
-                    "latency_ms": max(0, int((self._clock() - started) * 1000)),
-                    "context_manifest": self._bounded_manifest(manifest),
-                },
+
+            def before_provider(run_id: str, actual_manifest: dict[str, Any]) -> None:
+                self._emit(
+                    "assist.reasoning_started",
+                    {
+                        "assist_id": state.assist_id,
+                        "session_id": state.session_id,
+                        "provider_id": provider.id,
+                        "route": decision.route.value,
+                        "latency_ms": max(0, int((self._clock() - started) * 1000)),
+                        "provider_run_id": run_id,
+                        "context_manifest": self._bounded_manifest(actual_manifest),
+                    },
+                )
+
+            execution = self._provider_execution.execute(
+                project_id=state.project_id,
+                session_id=state.session_id,
+                provider=provider,
+                request=request,
+                cancellation_check=lambda: not self._is_current(state),
+                output_validator=lambda output: self._validate_live_output_for_execution(
+                    output, request, state.project_id
+                ),
+                before_provider=before_provider,
             )
-            provider_run_id = self._start_provider_run(
-                state, provider, str(project["privacy_mode"]), manifest
-            )
-            result = self._generate_provider(
-                state,
-                provider,
-                request,
-                provider_run_id,
-                conflicts,
-            )
+            provider_run_id = execution.provider_run_id
+            result = execution.result
             self._ensure_current(state)
             output = result.output
             output_ids = set(str(item) for item in output.get("evidence_ids", []))
@@ -1076,6 +1092,8 @@ class AssistService:
         except _AssistCancelled:
             return
         except ProviderError as error:
+            if error.code == "PROVIDER_CANCELLED":
+                return
             self._emit_error(
                 state,
                 CoreDomainError(
@@ -1344,123 +1362,43 @@ class AssistService:
             evidence=evidence,
         )
 
-    def _generate_provider(
+    def _validate_live_output_for_execution(
         self,
-        state: _AssistState,
-        provider: ReasoningProvider,
+        output: dict[str, Any],
         request: Any,
-        provider_run_id: str,
-        conflicts: list[dict[str, Any]],
-    ) -> Any:
-        self._ensure_current(state)
-        provider_started = self._clock()
-        try:
-            result = provider.generate(request)
-            output = validate_provider_output(
-                "live_cue", result.output, conflict_metadata=tuple(conflicts)
-            )
-        except ProviderError as error:
-            self._finish_provider_run(
-                state.project_id,
-                provider_run_id,
-                status="error",
-                error=error,
-                started_monotonic=provider_started,
-            )
-            raise
-        except Exception as error:
-            mapped = ProviderError(
-                "ASSIST_PROVIDER_FAILED", "The Live Assist provider request failed.", retryable=True
-            )
-            self._finish_provider_run(
-                state.project_id,
-                provider_run_id,
-                status="error",
-                error=mapped,
-                started_monotonic=provider_started,
-            )
-            raise mapped from error
-        self._finish_provider_run(
-            state.project_id,
-            provider_run_id,
-            status="success",
-            result=result,
-            started_monotonic=provider_started,
-        )
-        return type("LiveProviderResult", (), {"output": output})()
-
-    def _start_provider_run(
-        self,
-        state: _AssistState,
-        provider: ReasoningProvider,
-        privacy_mode: str,
-        manifest: dict[str, Any],
-    ) -> str:
-        run_id = str(uuid.uuid4())
-        with self._storage.project_database(state.project_id) as connection:
-            self._ensure_current(state)
-            connection.execute(
-                """
-                INSERT INTO provider_runs (
-                    id, session_id, task_type, provider_id, privacy_mode,
-                    started_at, status, context_manifest_json
-                ) VALUES (?, ?, 'live_cue', ?, ?, ?, 'started', ?)
-                """,
-                (
-                    run_id,
-                    state.session_id,
-                    provider.id,
-                    privacy_mode,
-                    utc_now(),
-                    json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                ),
-            )
-            connection.commit()
-        if provider.locality == "remote":
-            self._emit(
-                "privacy.remote_context_manifest",
-                {
-                    **self._bounded_manifest(manifest),
-                    "provider_id": provider.id,
-                    "provider_run_id": run_id,
-                },
-            )
-        return run_id
-
-    def _finish_provider_run(
-        self,
         project_id: str,
-        run_id: str,
-        *,
-        status: str,
-        result: Any | None = None,
-        error: ProviderError | None = None,
-        started_monotonic: float | None = None,
-    ) -> None:
-        latency = (
-            max(0, int((self._clock() - started_monotonic) * 1000))
-            if started_monotonic is not None
-            else None
-        )
-        with self._storage.project_database(project_id) as connection:
-            connection.execute(
-                """
-                UPDATE provider_runs
-                SET ended_at = ?, status = ?, input_token_count = ?, output_token_count = ?,
-                    latency_ms = ?, error_code = ?
-                WHERE id = ?
-                """,
-                (
-                    utc_now(),
-                    status,
-                    getattr(result, "input_token_count", None) if result is not None else None,
-                    getattr(result, "output_token_count", None) if result is not None else None,
-                    latency,
-                    error.code if error is not None else None,
-                    run_id,
-                ),
+    ) -> dict[str, Any]:
+        """Run Live's canonical-evidence checks before ProviderRun success."""
+        output_ids = {str(item) for item in output.get("evidence_ids", [])}
+        supplied_ids = {
+            str(item.get("evidence_id"))
+            for item in request.grounding_evidence
+            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+        }
+        if not output_ids or not output_ids.issubset(supplied_ids):
+            raise ProviderError(
+                "ASSIST_OUTPUT_INVALID",
+                "The Live Assist provider cited evidence outside its bounded context.",
             )
-            connection.commit()
+        selected = [
+            item
+            for item in request.grounding_evidence
+            if isinstance(item, dict) and str(item.get("evidence_id")) in output_ids
+        ]
+        selected = [
+            item for item in self._cue.current_evidence(project_id, selected) if item["available"]
+        ]
+        if not selected:
+            raise ProviderError(
+                "ASSIST_OUTPUT_INVALID",
+                "The Live Assist provider did not cite supplied evidence.",
+            )
+        if self._has_unsupported_fact(output["lines"], selected):
+            raise ProviderError(
+                "ASSIST_OUTPUT_INVALID",
+                "The Live Assist provider introduced an unsupported exact fact.",
+            )
+        return output
 
     def _emit_error(self, state: _AssistState, error: CoreDomainError) -> None:
         if not self._is_current(state):
@@ -1635,6 +1573,9 @@ class AssistService:
             "source_ids",
             "knowledge_item_ids",
             "speaker_evidence_ids",
+            "audience_profile_ids",
+            "audience_observation_ids",
+            "prior_question_count",
             "raw_audio_sent",
             "full_document_sent",
             "full_corpus_sent",

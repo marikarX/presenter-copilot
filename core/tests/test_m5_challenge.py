@@ -14,6 +14,7 @@ from presenter_core.ipc.core import CoreService
 from presenter_core.providers import context as provider_context
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
 from presenter_core.providers.models import (
+    ProviderInvocation,
     ReasoningRequest,
     ReasoningResult,
     challenge_evaluation_output_schema,
@@ -1905,7 +1906,9 @@ def test_openai_challenge_tasks_use_separate_trusted_instructions() -> None:
                 },
             ),
         )
-        provider.generate(request)
+        provider.generate(
+            ProviderInvocation(request=request, serialized_input_text=request.serialized_input())
+        )
         invocation = calls[-1]
         trusted_text = " ".join(str(part["text"]) for part in invocation["input"][0]["content"])
         untrusted_text = str(invocation["input"][1]["content"][0]["text"])

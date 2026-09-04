@@ -28,6 +28,7 @@ from presenter_core.presentation.adapters import PresentationAdapter
 from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import ProjectService
 from presenter_core.providers.context import ProviderContextBuilder
+from presenter_core.providers.execution import ProviderExecutionService
 from presenter_core.providers.models import ReasoningProvider
 from presenter_core.providers.service import ProviderService
 from presenter_core.retrieval.embeddings import (
@@ -149,11 +150,20 @@ class CoreService:
             after_mapping_delete=self._hybrid_retrieval.invalidate_project_mappings,
             before_delete=self._before_knowledge_delete,
         )
-        self._providers = ProviderService(self._storage, reasoning_provider)
+        self._providers = ProviderService(
+            self._storage,
+            reasoning_provider,
+            event_sink=self._emit_service_event,
+        )
         self._context_builder = ProviderContextBuilder(
             self._storage,
             self._hybrid_retrieval,
             self._speaker_profile,
+        )
+        self._provider_execution = ProviderExecutionService(
+            self._storage,
+            self._providers,
+            event_sink=self._emit_service_event,
         )
         self._teach = TeachService(
             self._storage,
@@ -162,6 +172,7 @@ class CoreService:
             self._providers,
             self._context_builder,
             self._emit_service_event,
+            provider_execution=self._provider_execution,
         )
         self._challenge = ChallengeService(
             self._storage,
@@ -172,6 +183,7 @@ class CoreService:
             self._audience,
             self._emit_service_event,
             self._synchronize_semantic_index,
+            provider_execution=self._provider_execution,
         )
         self._projects = ProjectService(
             self._storage,
@@ -187,6 +199,7 @@ class CoreService:
             self._context_builder,
             event_sink=self._emit_service_event,
             clock=self._clock,
+            provider_execution=self._provider_execution,
         )
         self._hud_settings = HudSettingsService(self._storage)
 
@@ -620,12 +633,15 @@ class CoreService:
             return make_response(request_id, result=self._providers.list(params))
         if method == "provider.configure":
             result = self._providers.configure(params)
-            self._emit_event("provider.status_changed", result)
             return make_response(request_id, result=result)
         if method == "provider.test":
             return make_response(request_id, result=self._providers.test(params))
         if method == "provider.status":
             return make_response(request_id, result=self._providers.status(params))
+        if method == "privacy.list_context_manifests":
+            return make_response(
+                request_id, result=self._provider_execution.list_context_manifests(params)
+            )
 
         raise AssertionError(f"supported method has no handler: {method}")
 

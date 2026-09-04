@@ -483,12 +483,19 @@ provider.list
 provider.configure
 provider.test
 provider.status
+privacy.list_context_manifests
 ```
 
-M3's OpenAI reference adapter reads only `OPENAI_API_KEY` from the core
+M8's OpenAI reference adapter reads only `OPENAI_API_KEY` from the core
 process environment. `provider.configure` accepts safe metadata such as
 `enabled` and `model_id`; it rejects API keys, tokens, cookies, and other
 secret fields. The renderer never receives or submits a provider secret.
+Provider health is process-local and uses only `ready`, `unconfigured`,
+`auth_failed`, `quota_exhausted`, `rate_limited`, and `unavailable` states.
+`privacy.list_context_manifests` accepts `project_id`, optional `session_id`,
+and bounded `limit`/`offset`; its rows contain task/provider/privacy metadata,
+status, timing, safe error codes, and sanitized manifest fields only. It never
+returns prompts, excerpts, transcript text, responses, or credentials.
 
 ## 4. Required P0 events
 
@@ -674,11 +681,29 @@ instruction is included in request-size budgeting but its body is never
 persisted in a ProviderRun manifest. Providers receive no tools and do not
 receive a request to reveal chain-of-thought.
 
-M3 implements the `NONE`, `RETRIEVAL_ONLY`, `LOCAL_REASONING`, and
+M8 implements the `NONE`, `RETRIEVAL_ONLY`, `LOCAL_REASONING`, and
 `REMOTE_REASONING` route vocabulary for Teach. The deterministic fake provider
 is injectable for tests; the OpenAI adapter is remote-only and uses the official
 Responses API with strict task-specific JSON schemas, no tools, `store=false`,
-and a bounded timeout. Full cancellation/resilience remains deferred.
+and a per-request timeout no greater than `latency_budget_ms`. One shared
+execution boundary validates the actual payload and output, persists and
+finalizes `ProviderRun` exactly once, and performs no SQLite transaction over
+provider I/O. Logical cancellation is distinct from transport cancellation;
+the OpenAI adapter truthfully advertises transport cancellation as unsupported.
+
+The boundary also applies the core-owned `TASK_CONTEXT_CLASS_ALLOWLIST` to the
+actual serialized payload immediately before execution. `teach_question` may
+send selected project evidence and approved style/user context but not
+question, audience, challenge-intensity, conflict, or prior-question context;
+`teach_candidate` additionally permits the current prompt and user
+explanation. Challenge question/follow-up/evaluation may use only their
+operation-specific combination of selected evidence, accepted audience
+context, challenge intensity, conflict metadata, bounded prior context, parent
+question, and typed answer. `live_cue` permits the current locally assembled
+question and selected evidence/conflicts/style context, but never audience,
+challenge-intensity, or prior-question context. A non-empty disallowed class is
+rejected before `ProviderRun` creation, including when a caller bypasses the
+context builder.
 
 ## 10. Retrieval interface
 
@@ -727,16 +752,38 @@ Before every remote call, core emits/stores a manifest:
 }
 ```
 
-For M3, the manifest is persisted in `ProviderRun` before the remote request
+For M8, the manifest is persisted in `ProviderRun` before the remote request
 and emitted as `privacy.remote_context_manifest` before invocation. It contains
 metadata and IDs only, not the prompt, source excerpts, response, or secrets.
 `full_context_cloud` still uses the same conservative selected-context packet
-in M3; full-corpus upload is deferred.
+in M8; full-corpus upload is deferred.
+
+`classes_sent` is derived from the exact payload and is checked against the
+same per-task allowlist before the run starts. This makes the manifest an
+audit of an already-authorized disclosure rather than a justification for an
+otherwise over-broad request.
 
 M4 audience observation extraction does not invoke the reasoning router or
 any provider under any project privacy mode. Transcript text stays local;
 only a future, separately authorized M5 reasoning request may consume the
 reviewed AudienceContext.
+
+### Provider execution and privacy history
+
+Teach, Challenge, and Live Assist call one core-owned execution boundary with
+an assembled `ReasoningRequest`. The boundary rereads current project privacy
+and acknowledgement state, rejects a stale request or a remote Local Only
+attempt, validates that the payload contains only bounded selected context,
+and derives the manifest from the exact payload sent to the adapter. For a
+remote call it commits `ProviderRun(status=started, context_manifest_json)`
+and emits `privacy.remote_context_manifest` before invoking the provider. The
+provider is called outside SQLite transactions. Success, error, and logical
+cancellation each perform one guarded final transition.
+
+`privacy.list_context_manifests` returns bounded metadata history for project
+inspection. Manifest values are IDs, classes, counts, sizes, privacy flags,
+and explicit false raw-audio/full-document/full-corpus flags; no field is a
+prompt or content excerpt.
 
 ## 12. Versioning
 

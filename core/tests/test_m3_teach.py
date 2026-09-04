@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,6 +14,7 @@ from presenter_core.providers.context import MAX_TOTAL_CONTEXT_CHARS
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
 from presenter_core.providers.models import (
     ProviderError,
+    ProviderInvocation,
     ReasoningRequest,
     candidate_output_schema,
     question_output_schema,
@@ -1858,6 +1860,8 @@ def _question_request() -> ReasoningRequest:
 
 def test_provider_contracts_schema_timeout_and_no_storage_access() -> None:
     calls: list[dict[str, Any]] = []
+    client_creations: list[dict[str, Any]] = []
+    client_closes: list[bool] = []
 
     class Responses:
         def create(self, **kwargs: Any) -> SimpleNamespace:
@@ -1869,25 +1873,50 @@ def test_provider_contracts_schema_timeout_and_no_storage_access() -> None:
                 usage=SimpleNamespace(input_tokens=11, output_tokens=7),
             )
 
-    client = SimpleNamespace(responses=Responses())
+    client = SimpleNamespace(responses=Responses(), close=lambda: client_closes.append(True))
+
+    def client_factory(**kwargs: Any) -> SimpleNamespace:
+        client_creations.append(kwargs)
+        return client
+
     provider = OpenAIReasoningProvider(
         api_key="synthetic-test-key",
         model_id="gpt-5.6-luna",
         timeout_seconds=9,
-        client_factory=lambda **kwargs: client,
+        client_factory=client_factory,
     )
     assert provider.health().status == "ready"
-    result = provider.generate(_question_request())
+    request = _question_request()
+    invocation = ProviderInvocation(
+        request=request, serialized_input_text=request.serialized_input()
+    )
+    result = provider.generate(invocation)
     assert result.output["focus"] == "tradeoff"
     assert calls[0]["store"] is False
     assert calls[0]["tools"] == []
-    assert calls[0]["timeout"] == 9.0
+    assert calls[0]["timeout"] == 5.0
+    assert calls[0]["input"][1]["content"][0]["text"] == invocation.serialized_input()
+    assert calls[0]["input"][1]["content"][0]["text"] == json.dumps(
+        invocation.to_payload(), ensure_ascii=False, separators=(",", ":")
+    )
     assert calls[0]["text"]["format"]["strict"] is True
     assert calls[0]["text"]["format"]["type"] == "json_schema"
     payload = _question_request().to_payload()
     assert "output_schema" not in payload
     assert calls[0]["text"]["format"]["schema"] == _question_request().output_schema
     assert "synthetic-test-key" not in json.dumps(payload)
+
+    short_request = replace(request, latency_budget_ms=3_000)
+    short_invocation = ProviderInvocation(
+        request=short_request,
+        serialized_input_text=short_request.serialized_input(),
+    )
+    provider.generate(short_invocation)
+    assert calls[1]["timeout"] == 3.0
+    assert len(client_creations) == 1
+    assert client_creations[0]["timeout"] == 9.0
+    provider.close()
+    assert client_closes == [True]
 
     with pytest.raises(ProviderError):
         validate_provider_output("teach_candidate", {"kind": "fact"})

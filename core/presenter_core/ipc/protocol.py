@@ -102,6 +102,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "provider.configure",
     "provider.test",
     "provider.status",
+    "privacy.list_context_manifests",
 )
 SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
     "core.ready",

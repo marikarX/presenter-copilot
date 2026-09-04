@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from presenter_core.errors import CoreDomainError
@@ -10,7 +11,14 @@ from presenter_core.retrieval.service import HybridRetrievalService
 from presenter_core.speaker.service import SpeakerProfileService
 from presenter_core.storage.service import StorageManager
 
-from .models import ReasoningRequest, output_schema_for, task_instruction_for
+from .models import (
+    DEFAULT_REASONING_LATENCY_BUDGET_MS,
+    LIVE_REASONING_LATENCY_BUDGET_MS,
+    ReasoningRequest,
+    derive_context_manifest,
+    output_schema_for,
+    task_instruction_for,
+)
 
 MAX_DOCUMENT_EVIDENCE = 6
 MAX_USER_KNOWLEDGE = 3
@@ -63,6 +71,7 @@ class ProviderContextBuilder:
         challenge_intensity: str | None = None,
         prior_question_context: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
         additional_grounding_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+        latency_budget_ms: int | None = None,
     ) -> tuple[ReasoningRequest, dict[str, Any]]:
         if include_private_in_provider is None:
             include_private_in_provider = task_type != "live_cue"
@@ -119,7 +128,6 @@ class ProviderContextBuilder:
 
         additional_documents: list[dict[str, Any]] = []
         additional_user_knowledge: list[dict[str, Any]] = []
-        additional_grounding_ids: set[str] = set()
         for item in additional_grounding_evidence:
             if not isinstance(item, dict) or not isinstance(item.get("text"), str):
                 continue
@@ -128,7 +136,6 @@ class ProviderContextBuilder:
                 continue
             bounded = dict(item)
             bounded["text"] = str(item["text"])[:MAX_EXCERPT_CHARS]
-            additional_grounding_ids.add(evidence_id)
             if bounded.get("source_type") == "user_statement":
                 if bounded.get("private") is True and (
                     not allow_private or not include_private_in_provider
@@ -165,15 +172,26 @@ class ProviderContextBuilder:
                 bounded_audience = [
                     dict(profile) for profile in profiles if isinstance(profile, dict)
                 ]
-        # The live path already uses the locally assembled question as its
-        # bounded query.  Never duplicate the recent transcript window in a
-        # live provider packet, even if a caller supplies one accidentally.
-        prior_context = () if task_type == "live_cue" else prior_question_context
-        bounded_prior = [dict(item) for item in prior_context if isinstance(item, dict)][:3]
+        prior_context: list[dict[str, Any]] | tuple[dict[str, Any], ...]
+        if task_type not in CHALLENGE_TASK_TYPES:
+            # Audience profiles, challenge intensity, and prior-question
+            # context are only useful to Challenge.  Prune them here and let
+            # the execution boundary enforce the same policy for malformed
+            # requests that bypass this builder.
+            bounded_audience = []
+            challenge_intensity = None
+            prior_context = ()
+        else:
+            prior_context = prior_question_context
+        bounded_prior: list[dict[str, Any]] = [
+            dict(item) for item in prior_context if isinstance(item, dict)
+        ][:3]
 
-        conflicts = [
-            item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)
-        ]
+        conflicts = (
+            []
+            if task_type in {"teach_question", "teach_candidate"}
+            else [item for item in retrieval_result.get("conflicts", []) if isinstance(item, dict)]
+        )
         conflicts = conflicts[:3]
         if current_slide is None:
             slide_summary = None
@@ -217,26 +235,14 @@ class ProviderContextBuilder:
             prior_question_context=bounded_prior,
         )
         grounding_evidence = [*document_evidence, *user_knowledge]
-        sent_evidence_ids = {
-            str(item["evidence_id"])
-            for item in grounding_evidence
-            if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
-        }
-        manifest = self._manifest(
-            provider_id=provider_id,
-            privacy_mode=privacy_mode,
-            task_type=task_type,
-            document_evidence=document_evidence,
-            user_knowledge=user_knowledge,
-            speaker_evidence=speaker_evidence,
-            conflicts=conflicts,
-            style_context=style_context,
-            question=bounded_question,
-            user_input=bounded_user_input,
-            audience_context=bounded_audience,
-            prior_question_context=bounded_prior,
-            has_additional_grounding=bool(additional_grounding_ids & sent_evidence_ids),
-            task_instruction=task_instruction,
+        effective_latency_budget_ms = (
+            latency_budget_ms
+            if isinstance(latency_budget_ms, int) and latency_budget_ms > 0
+            else (
+                LIVE_REASONING_LATENCY_BUDGET_MS
+                if task_type == "live_cue"
+                else DEFAULT_REASONING_LATENCY_BUDGET_MS
+            )
         )
         request = ReasoningRequest(
             task_type=task_type,
@@ -251,15 +257,17 @@ class ProviderContextBuilder:
             style_policy=style_policy,
             privacy_mode=privacy_mode,
             output_schema=output_schema_for(task_type),
-            latency_budget_ms=20_000,
+            latency_budget_ms=effective_latency_budget_ms,
             application_policy=APPLICATION_POLICY,
-            context_manifest=manifest,
+            context_manifest={},
             task_instruction=task_instruction,
             audience_context=tuple(bounded_audience),
             challenge_intensity=challenge_intensity,
             prior_question_context=tuple(bounded_prior),
             grounding_evidence=tuple(grounding_evidence),
         )
+        manifest = derive_context_manifest(request, provider_id=provider_id)
+        request = replace(request, context_manifest=manifest)
         return request, manifest
 
     @staticmethod
@@ -280,97 +288,6 @@ class ProviderContextBuilder:
             if len(result) == maximum:
                 break
         return result
-
-    @staticmethod
-    def _manifest(
-        *,
-        provider_id: str,
-        privacy_mode: str,
-        task_type: str,
-        document_evidence: list[dict[str, Any]],
-        user_knowledge: list[dict[str, Any]],
-        speaker_evidence: list[dict[str, Any]],
-        conflicts: list[dict[str, Any]],
-        style_context: dict[str, Any],
-        question: str | None,
-        user_input: str | None,
-        audience_context: list[dict[str, Any]],
-        prior_question_context: list[dict[str, Any]],
-        task_instruction: str | None,
-        has_additional_grounding: bool = False,
-    ) -> dict[str, Any]:
-        classes = ["application_policy", "style_context"]
-        if task_instruction:
-            classes.append("task_instruction")
-        if question:
-            classes.append("question")
-        if user_input:
-            classes.append("current_user_input")
-        if document_evidence:
-            classes.append("document_excerpt")
-        if user_knowledge:
-            classes.append("user_knowledge")
-        if speaker_evidence:
-            classes.append("speaker_evidence")
-        if conflicts:
-            classes.append("conflict_metadata")
-        if style_context.get("rejected_patterns"):
-            classes.append("rejected_patterns")
-        if audience_context:
-            classes.append("audience_context")
-        if prior_question_context:
-            classes.append("prior_question_context")
-        if has_additional_grounding:
-            classes.append("question_grounding")
-        source_ids = sorted(
-            {
-                str(item["source_id"])
-                for item in document_evidence
-                if isinstance(item.get("source_id"), str)
-            }
-        )
-        knowledge_ids = sorted(
-            {
-                str(item["knowledge_item_id"])
-                for item in [
-                    *user_knowledge,
-                    *style_context.get("project_preferred_explanations", []),
-                ]
-                if isinstance(item, dict) and isinstance(item.get("knowledge_item_id"), str)
-            }
-        )
-        speaker_ids = sorted(
-            {str(item["id"]) for item in speaker_evidence if isinstance(item.get("id"), str)}
-        )
-        audience_profile_ids = sorted(
-            {str(item["id"]) for item in audience_context if isinstance(item.get("id"), str)}
-        )
-        audience_observation_ids = sorted(
-            {
-                str(observation["id"])
-                for profile in audience_context
-                for observation in profile.get("observations", [])
-                if isinstance(observation, dict) and isinstance(observation.get("id"), str)
-            }
-        )
-        return {
-            "provider_content_boundary": "selected_context",
-            "provider_id": provider_id,
-            "task_type": task_type,
-            "privacy_mode": privacy_mode,
-            "classes_sent": classes,
-            "source_ids": source_ids,
-            "knowledge_item_ids": knowledge_ids,
-            "speaker_evidence_ids": speaker_ids,
-            "audience_profile_ids": audience_profile_ids,
-            "audience_observation_ids": audience_observation_ids,
-            "prior_question_count": len(prior_question_context),
-            "raw_audio_sent": False,
-            "full_document_sent": False,
-            "full_corpus_sent": False,
-            "private_items_sent": any(bool(item.get("private")) for item in user_knowledge),
-            "bounded_context_chars": MAX_TOTAL_CONTEXT_CHARS,
-        }
 
     @staticmethod
     def _bound_packet(

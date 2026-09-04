@@ -70,7 +70,7 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 - [x] E03 Implement one real provider adapter using user-owned credentials.
 - [x] E04 Implement structured context builder.
 - [x] E05 Implement ReasoningRouter classes: NONE/RETRIEVAL/LOCAL/REMOTE.
-- [ ] E06 Implement provider cancellation/timeout/auth/quota errors.
+- [x] E06 Implement provider cancellation/timeout/auth/quota errors.
 - [x] E07 Implement provider health/status UI contract.
 - [x] E08 Implement prompt-injection isolation: retrieved text is untrusted data.
 
@@ -197,13 +197,13 @@ conferencing integration is part of this milestone.
 
 ### P0
 
-- [ ] L01 Implement Local Only hard routing invariant.
-- [ ] L02 Implement Selected Context Cloud minimum-context builder.
-- [ ] L03 Emit/store privacy context manifest before remote call.
+- [x] L01 Implement Local Only hard routing invariant.
+- [x] L02 Implement Selected Context Cloud minimum-context builder.
+- [x] L03 Emit/store privacy context manifest before remote call.
 - [ ] L04 Implement OS-backed provider secret storage.
-- [ ] L05 Prevent renderer access to raw secrets.
-- [ ] L06 Add local-only network isolation test.
-- [ ] L07 Add fake-provider payload inspection test.
+- [x] L05 Prevent renderer access to raw secrets.
+- [x] L06 Add local-only network isolation test.
+- [x] L07 Add fake-provider payload inspection test.
 - [ ] L08 Add local legal/authorization disclosure for transcript/recording inputs.
 - [ ] L09 Log redaction rules/tests.
 - [ ] L10 Verify deleted project is absent from caches/indexes.

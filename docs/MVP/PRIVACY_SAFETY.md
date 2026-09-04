@@ -91,7 +91,7 @@ embeddings        -> local only
 reasoning context -> local only
 ```
 
-For M3 Teach, a remote provider is impossible in this mode. A configured local
+For M8 Teach, Challenge, and Live Assist, a remote provider is impossible in this mode. A configured local
 provider may be used locally; otherwise the typed direct-save/retrieval-only
 path remains available. No provider/network request is allowed from the
 content-processing path. Update checks/optional external links must be
@@ -139,14 +139,14 @@ unresolved audience material is excluded.
 
 ### Full Context Cloud
 
-Explicit opt-in only. M3 deliberately uses the same conservative selected
+Explicit opt-in only. M8 deliberately uses the same conservative selected
 context packet even when this setting is selected; it does not implement
 full-corpus upload. UI must not switch to it automatically on provider error.
 
 ## 6. Secrets
 
 - use OS credential storage for provider secrets where possible;
-- M3's OpenAI adapter reads only `OPENAI_API_KEY` from the core process
+- M8's OpenAI adapter reads only `OPENAI_API_KEY` from the core process
   environment and persists only `credential_source = environment`;
 - never store API keys or OAuth refresh tokens in project DB/logs;
 - never expose secrets to renderer context;
@@ -248,7 +248,7 @@ Default logs may include:
 - model/provider IDs;
 - non-sensitive counts/sizes.
 
-M3 may also record ProviderRun task/provider IDs, bounded latency and token
+M8 may also record ProviderRun task/provider IDs, bounded latency and token
 counts, error codes, and the metadata-only context manifest.
 
 Default logs must not include:
@@ -330,7 +330,7 @@ Before remote reasoning is first enabled for a project:
 
 > Selected excerpts and the current question may be sent to your configured AI provider. Raw meeting audio remains local in this mode.
 
-The M3 Teach disclosure also states that private KnowledgeItems, raw audio, and
+The M8 provider disclosure also states that private KnowledgeItems, raw audio, and
 the full corpus are excluded. A project must record an explicit acknowledgement
 before a remote reasoning call; configuring provider metadata alone is not
 consent.
@@ -354,3 +354,47 @@ filesystem authority.
 - renderer tries to invoke non-allowlisted IPC method;
 - core crashes while HUD is visible;
 - content protection unavailable during screen share.
+
+## 16. M8 provider resilience boundary
+
+Teach, Challenge, and Live Assist use one core-owned provider execution
+service. It rereads the current project `privacy_mode` and remote
+acknowledgement immediately before a remote invocation. A `local_only` project
+rejects a remote provider at that final guard without calling the provider;
+the session does not silently fall back to another remote provider. Selected
+Context Cloud and Full Context Cloud both send only the operation-specific
+bounded context packet. Private KnowledgeItems, raw audio, full documents, and
+the full corpus never enter remote context.
+
+The service derives the metadata-only privacy manifest from the actual final
+serialized payload. It validates manifest/entity parity and fails closed on a
+private marker, credential/raw-media field, stale privacy policy, or malformed
+packet. The manifest is committed to `ProviderRun` and emitted before the
+provider call; the provider call never runs inside a SQLite transaction. It
+also enforces a core-owned per-task context-class allowlist at that last-mile
+boundary. Teach question generation cannot disclose audience context,
+challenge intensity, conflicts, or prior-question context; Teach candidate
+generation adds only its current prompt and user explanation. Challenge
+question/follow-up/evaluation receive only their operation-specific selected
+evidence, accepted audience, conflict, intensity, bounded prior, question, and
+typed-answer classes. Live cue generation receives its current question and
+selected evidence/conflicts/style context but no audience, challenge, or prior
+context. Any non-empty disallowed class is rejected before a `ProviderRun` is
+created, even if a caller bypasses the context builder.
+
+Provider health is process-local and renderer-safe. It exposes only
+`ready`, `unconfigured`, `auth_failed`, `quota_exhausted`, `rate_limited`, and
+`unavailable`, with stable error codes and retry guidance. Secrets remain in
+the core environment; configure/status/history APIs expose metadata only.
+
+Timeouts are bounded by the request latency budget. Logical cancellation and
+Live Assist supersession discard ineligible output and finalize the run as
+`cancelled`; provider-native transport cancellation is advertised only when
+the adapter implements it. A provider timeout/auth/quota/unavailability
+failure updates safe health state and uses the existing retrieval-only Live
+fallback or Teach direct-save path. Challenge reports a stable actionable
+unavailable error and creates no partial question/answer version.
+
+`privacy.list_context_manifests` exposes bounded run metadata and sanitized
+manifest history for project inspection. It never returns prompt text,
+transcript excerpts, provider responses, raw error bodies, or credentials.

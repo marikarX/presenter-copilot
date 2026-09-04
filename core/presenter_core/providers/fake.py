@@ -10,6 +10,7 @@ from .models import (
     ProviderCapabilities,
     ProviderError,
     ProviderHealth,
+    ProviderInvocation,
     ReasoningProvider,
     ReasoningRequest,
     ReasoningResult,
@@ -69,9 +70,10 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             configured=True,
         )
 
-    def generate(self, request: ReasoningRequest) -> ReasoningResult:
+    def generate(self, invocation: ProviderInvocation) -> ReasoningResult:
+        request = invocation.request
         self.call_count += 1
-        self.requests.append(request.to_payload())
+        self.requests.append(invocation.to_payload())
         self.request_objects.append(request)
         if self.failure_code is not None:
             raise ProviderError(

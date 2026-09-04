@@ -1,4 +1,4 @@
-"""Small, explicit M3 reasoning routing decisions."""
+"""Small, explicit provider reasoning routing decisions."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class RouteDecision:
 
 
 class ReasoningRouter:
-    """Decide whether a bounded Teach operation may invoke a provider."""
+    """Decide whether a bounded operation may invoke a provider."""
 
     def decide(
         self,
@@ -52,12 +52,19 @@ class ReasoningRouter:
                 "provider_task_unsupported",
                 None,
             )
-        if provider_health.status != "ready":
+        if provider_health.status != "ready" and not provider_health.retryable:
             return RouteDecision(
                 ReasoningRoute.RETRIEVAL_ONLY,
                 provider_health.error_code or "provider_unavailable",
                 None,
             )
+        if provider_health.status != "ready":
+            # A retryable runtime state remains visible through provider.status,
+            # but the next user operation is allowed to make the bounded retry
+            # that can restore ready state after a transient failure.
+            retry_reason = provider_health.error_code or "provider_retryable"
+        else:
+            retry_reason = ""
         if provider.locality == "local":
             return RouteDecision(ReasoningRoute.LOCAL_REASONING, "local_provider", provider.id)
         if privacy_mode == "local_only":
@@ -68,4 +75,8 @@ class ReasoningRouter:
                 "remote_reasoning_acknowledgement_required",
                 None,
             )
-        return RouteDecision(ReasoningRoute.REMOTE_REASONING, "acknowledged_remote", provider.id)
+        return RouteDecision(
+            ReasoningRoute.REMOTE_REASONING,
+            retry_reason or "acknowledged_remote",
+            provider.id,
+        )

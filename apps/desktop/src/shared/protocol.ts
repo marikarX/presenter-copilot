@@ -89,6 +89,7 @@ export const CORE_METHODS = [
   "provider.configure",
   "provider.test",
   "provider.status",
+  "privacy.list_context_manifests",
 ] as const;
 
 export type CoreMethod = (typeof CORE_METHODS)[number];
@@ -211,6 +212,7 @@ export const RENDERER_CORE_METHODS = [
   "provider.configure",
   "provider.test",
   "provider.status",
+  "privacy.list_context_manifests",
 ] as const;
 export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
 export type JsonObject = Record<string, unknown>;
@@ -1084,7 +1086,7 @@ export interface ProviderStatus {
     provider_id: string;
     locality: string;
     model_id: string;
-    status: string;
+    status: ProviderHealthStatus;
     configured: boolean;
     error_code: string | null;
     retryable: boolean;
@@ -1095,6 +1097,59 @@ export interface ProviderStatus {
     cancellation: boolean;
     task_types: string[];
   };
+}
+
+export type ProviderHealthStatus =
+  | "ready"
+  | "unconfigured"
+  | "auth_failed"
+  | "quota_exhausted"
+  | "rate_limited"
+  | "unavailable";
+
+export interface ContextManifest {
+  provider_content_boundary?: string;
+  provider_id?: string;
+  task_type?: string;
+  privacy_mode?: string;
+  classes_sent?: string[];
+  source_ids?: string[];
+  knowledge_item_ids?: string[];
+  speaker_evidence_ids?: string[];
+  audience_profile_ids?: string[];
+  audience_observation_ids?: string[];
+  prior_question_count?: number;
+  raw_audio_sent?: boolean;
+  full_document_sent?: boolean;
+  full_corpus_sent?: boolean;
+  private_items_sent?: boolean;
+  bounded_context_chars?: number;
+}
+
+export interface ContextManifestHistoryItem {
+  provider_run_id: string;
+  session_id: string | null;
+  task_type: string;
+  provider_id: string;
+  privacy_mode: string;
+  started_at: string;
+  ended_at: string | null;
+  status: "started" | "success" | "error" | "cancelled";
+  input_token_count: number | null;
+  output_token_count: number | null;
+  latency_ms: number | null;
+  error_code: string | null;
+  context_manifest: ContextManifest;
+}
+
+export interface PrivacyContextManifestResult {
+  project_id: string;
+  session_id: string | null;
+  manifests: ContextManifestHistoryItem[];
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
 }
 
 export interface HealthResult {
