@@ -833,9 +833,13 @@ the final serialized payload, derives the metadata-only context manifest from
 that payload, persists/emits the manifest before invocation, and keeps the
 provider call outside SQLite transactions. It also maps the actual payload to
 a core-owned per-task context-class allowlist and rejects any non-empty
-disallowed class before `ProviderRun` creation. Local Only is a final
-fail-closed remote guard; it never silently falls through to another remote
-provider.
+disallowed class before `ProviderRun` creation. After validation, it retains
+one canonical JSON serialization in an execution-owned `ProviderInvocation`;
+adapters consume that snapshot rather than materializing the mutable request
+again. If nested request state changes before invocation, execution fails
+closed and finalizes the started run without calling the provider. Local Only
+is a final fail-closed remote guard; it never silently falls through to
+another remote provider.
 
 Reason:
 

@@ -13,6 +13,7 @@ import re
 import threading
 import uuid
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any
@@ -33,6 +34,7 @@ from .context import (
 from .models import (
     TASK_CONTEXT_CLASS_ALLOWLIST,
     ProviderError,
+    ProviderInvocation,
     ReasoningProvider,
     ReasoningRequest,
     ReasoningResult,
@@ -218,9 +220,19 @@ class ProviderExecutionService:
             )
 
         payload = request.to_payload()
-        manifest = derive_context_manifest(request, provider_id=provider.id, payload=payload)
-        self._validate_payload(request, payload, provider, manifest)
+        serialized_input = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        manifest = derive_context_manifest(
+            request,
+            provider_id=provider.id,
+            payload=payload,
+            serialized_payload=serialized_input,
+        )
+        self._validate_payload(request, payload, provider, manifest, serialized_input)
         self._validate_claimed_manifest(request.context_manifest, manifest)
+        invocation = ProviderInvocation(
+            request=deepcopy(request),
+            serialized_input_text=serialized_input,
+        )
 
         run_id = str(uuid.uuid4())
         started = monotonic()
@@ -262,9 +274,13 @@ class ProviderExecutionService:
                 before_provider(run_id, manifest)
             if cancellation_check is not None and cancellation_check():
                 raise _ExecutionCancelled
+            self._validate_invocation_input_unchanged(
+                request=request,
+                invocation=invocation,
+            )
             result = self._invoke_with_budget(
                 provider,
-                request,
+                invocation,
                 cancellation_check=cancellation_check,
             )
             if cancellation_check is not None and cancellation_check():
@@ -275,9 +291,9 @@ class ProviderExecutionService:
                     "The reasoning provider returned malformed structured output.",
                 )
             output = validate_provider_output(
-                request.task_type,
+                invocation.request.task_type,
                 result.output,
-                conflict_metadata=request.conflict_metadata,
+                conflict_metadata=invocation.request.conflict_metadata,
             )
             if output_validator is not None:
                 output = output_validator(output)
@@ -400,11 +416,11 @@ class ProviderExecutionService:
     def _invoke_with_budget(
         self,
         provider: ReasoningProvider,
-        request: ReasoningRequest,
+        invocation: ProviderInvocation,
         *,
         cancellation_check: CancellationCheck | None,
     ) -> ReasoningResult:
-        budget_ms = request.latency_budget_ms
+        budget_ms = invocation.request.latency_budget_ms
         if not isinstance(budget_ms, int) or budget_ms <= 0:
             raise _ExecutionTimedOut
         result: list[ReasoningResult] = []
@@ -413,7 +429,7 @@ class ProviderExecutionService:
 
         def invoke() -> None:
             try:
-                result.append(provider.generate(request))
+                result.append(provider.generate(invocation))
             except BaseException as error:  # pass adapter failures back to the boundary
                 failure.append(error)
             finally:
@@ -548,6 +564,7 @@ class ProviderExecutionService:
         payload: dict[str, Any],
         provider: ReasoningProvider,
         manifest: dict[str, Any],
+        serialized_input: str,
     ) -> None:
         if set(payload) != _PAYLOAD_KEYS:
             raise ProviderError(
@@ -574,9 +591,8 @@ class ProviderExecutionService:
                 "PROVIDER_REQUEST_FAILED",
                 "The reasoning task instruction is not core-owned.",
             )
-        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         if (
-            len(serialized)
+            len(serialized_input)
             + len(APPLICATION_POLICY)
             + len(request.task_instruction or "")
             + MAX_TRUSTED_CONTENT_OVERHEAD_CHARS
@@ -676,6 +692,31 @@ class ProviderExecutionService:
                 "The serialized reasoning payload privacy mode did not match the request.",
             )
         self._validate_task_context_policy(request, payload, manifest, style_context)
+
+    def _validate_invocation_input_unchanged(
+        self,
+        *,
+        request: ReasoningRequest,
+        invocation: ProviderInvocation,
+    ) -> None:
+        try:
+            current_serialized = json.dumps(
+                request.to_payload(), ensure_ascii=False, separators=(",", ":")
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ProviderExecutionError(
+                "PRIVACY_PAYLOAD_CHANGED",
+                "The reasoning payload changed after validation; retry.",
+                retryable=True,
+                details={"task_type": invocation.request.task_type},
+            ) from error
+        if current_serialized != invocation.serialized_input():
+            raise ProviderExecutionError(
+                "PRIVACY_PAYLOAD_CHANGED",
+                "The reasoning payload changed after validation; retry.",
+                retryable=True,
+                details={"task_type": invocation.request.task_type},
+            )
 
     def _validate_task_context_policy(
         self,

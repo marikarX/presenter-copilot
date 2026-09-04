@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from time import sleep
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,11 +19,13 @@ from presenter_core.providers.context import APPLICATION_POLICY
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
 from presenter_core.providers.models import (
     ProviderError,
+    ProviderInvocation,
     ReasoningRequest,
     ReasoningResult,
     derive_context_manifest,
     question_output_schema,
 )
+from presenter_core.providers.openai import OpenAIReasoningProvider
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
 
 FIXTURE_ROOT = Path(__file__).parents[2] / "samples" / "synthetic-deck"
@@ -470,6 +473,7 @@ def _direct_question_request(
     latency_budget_ms: int = 1_000,
     context_manifest: dict[str, Any] | None = None,
     preferred_user_explanations: tuple[dict[str, Any], ...] = (),
+    style_context: dict[str, Any] | None = None,
     audience_context: tuple[dict[str, Any], ...] = (),
     challenge_intensity: str | None = None,
     prior_question_context: tuple[dict[str, Any], ...] = (),
@@ -482,7 +486,7 @@ def _direct_question_request(
         evidence=(),
         preferred_user_explanations=preferred_user_explanations,
         speaker_evidence=(),
-        style_context={"policy": "preserve_voice"},
+        style_context=style_context if style_context is not None else {"policy": "preserve_voice"},
         conflict_metadata=(),
         style_policy="preserve_voice",
         privacy_mode=privacy_mode,
@@ -508,6 +512,125 @@ def test_m8_manifest_is_derived_from_the_actual_final_payload() -> None:
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
     assert "actual-evidence" not in json.dumps(manifest)
+
+
+def test_m8_nested_request_mutation_fails_closed_before_provider(tmp_path: Path) -> None:
+    provider = DeterministicFakeReasoningProvider(locality="remote")
+    events: list[dict[str, Any]] = []
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+        reasoning_provider=provider,
+        event_sink=events.append,
+    )
+    style_context = {
+        "policy": "preserve_voice",
+        "rejected_patterns": [{"id": "pattern-1", "text": "Keep this concise."}],
+    }
+    request = _direct_question_request(
+        privacy_mode="selected_context_cloud",
+        style_context=style_context,
+    )
+    widened_text = "MUTATED_SECRET_WIDENED_AFTER_VALIDATION"
+
+    def mutate_request(_run_id: str, _manifest: dict[str, Any]) -> None:
+        style_context["rejected_patterns"][0]["text"] = widened_text
+
+    try:
+        project_id = _project(core, "selected_context_cloud")
+        _call(core, "project.acknowledge_remote_reasoning", {"project_id": project_id})
+        with pytest.raises(ProviderError) as changed:
+            core._provider_execution.execute(  # type: ignore[attr-defined]
+                project_id=project_id,
+                session_id=None,
+                provider=provider,
+                request=request,
+                before_provider=mutate_request,
+            )
+        assert changed.value.code == "PRIVACY_PAYLOAD_CHANGED"
+        assert changed.value.message == "The reasoning payload changed after validation; retry."
+        assert changed.value.details == {"task_type": "teach_question"}
+        assert widened_text not in json.dumps(changed.value.details)
+        assert provider.call_count == 0
+
+        manifest_events = [
+            event for event in events if event.get("event") == "privacy.remote_context_manifest"
+        ]
+        assert len(manifest_events) == 1
+        event_payload = dict(manifest_events[0]["payload"])
+        stored_manifest = {
+            key: value for key, value in event_payload.items() if key != "provider_run_id"
+        }
+        assert widened_text not in json.dumps(event_payload, ensure_ascii=False)
+        assert '"text"' not in json.dumps(event_payload, ensure_ascii=False)
+
+        with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
+            rows = connection.execute(
+                "SELECT status, error_code, ended_at, context_manifest_json FROM provider_runs"
+            ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["status"] == "error"
+        assert rows[0]["error_code"] == "PRIVACY_PAYLOAD_CHANGED"
+        assert rows[0]["ended_at"] is not None
+        assert json.loads(str(rows[0]["context_manifest_json"])) == stored_manifest
+    finally:
+        core.close()
+
+
+def test_m8_openai_adapter_submits_execution_snapshot_verbatim(tmp_path: Path) -> None:
+    calls: list[dict[str, Any]] = []
+    captured_invocations: list[ProviderInvocation] = []
+
+    class Responses:
+        def create(self, **kwargs: Any) -> SimpleNamespace:
+            calls.append(kwargs)
+            return SimpleNamespace(
+                output_text=json.dumps(
+                    {"question": "What tradeoff mattered?", "focus": "tradeoff"}
+                ),
+                usage=SimpleNamespace(input_tokens=3, output_tokens=2),
+            )
+
+    client = SimpleNamespace(responses=Responses())
+
+    class ObservedOpenAIProvider(OpenAIReasoningProvider):
+        def generate(self, invocation: ProviderInvocation) -> ReasoningResult:
+            captured_invocations.append(invocation)
+            return super().generate(invocation)
+
+    provider = ObservedOpenAIProvider(
+        api_key="synthetic-test-key",
+        client_factory=lambda **_kwargs: client,
+    )
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=4),
+        reasoning_provider=provider,
+    )
+    request = _direct_question_request(privacy_mode="selected_context_cloud")
+    canonical_payload = request.to_payload()
+    canonical_serialized = json.dumps(canonical_payload, ensure_ascii=False, separators=(",", ":"))
+    try:
+        project_id = _project(core, "selected_context_cloud")
+        _call(core, "project.acknowledge_remote_reasoning", {"project_id": project_id})
+        core._provider_execution.execute(  # type: ignore[attr-defined]
+            project_id=project_id,
+            session_id=None,
+            provider=provider,
+            request=request,
+        )
+        assert len(captured_invocations) == 1
+        submitted = calls[0]["input"][1]["content"][0]["text"]
+        assert submitted == canonical_serialized
+        assert submitted == captured_invocations[0].serialized_input()
+        assert submitted == json.dumps(
+            captured_invocations[0].to_payload(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        assert "output_schema" not in submitted
+    finally:
+        core.close()
 
 
 @pytest.mark.parametrize(

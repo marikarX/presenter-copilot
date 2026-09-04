@@ -12,6 +12,7 @@ from presenter_core.storage.service import StorageManager
 from .models import (
     ProviderError,
     ProviderHealth,
+    ProviderInvocation,
     ReasoningProvider,
     ReasoningRequest,
     question_output_schema,
@@ -128,7 +129,12 @@ class ProviderService:
             application_policy="Synthetic provider contract test only.",
         )
         try:
-            result = provider.generate(request)
+            result = provider.generate(
+                ProviderInvocation(
+                    request=request,
+                    serialized_input_text=request.serialized_input(),
+                )
+            )
         except ProviderError as error:
             self.record_failure(provider, error)
             raise

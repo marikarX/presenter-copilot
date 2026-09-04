@@ -13,6 +13,7 @@ from .models import (
     ProviderCapabilities,
     ProviderError,
     ProviderHealth,
+    ProviderInvocation,
     ReasoningProvider,
     ReasoningRequest,
     ReasoningResult,
@@ -89,7 +90,8 @@ class OpenAIReasoningProvider(ReasoningProvider):
             configured=True,
         )
 
-    def generate(self, request: ReasoningRequest) -> ReasoningResult:
+    def generate(self, invocation: ProviderInvocation) -> ReasoningResult:
+        request = invocation.request
         effective_timeout = self._effective_timeout_seconds(request)
         # Keep the SDK client and its connection pool stable.  The operation
         # budget belongs on this request, not in cached-client identity.
@@ -124,7 +126,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "input_text", "text": request.serialized_input()},
+                            {"type": "input_text", "text": invocation.serialized_input()},
                         ],
                     },
                 ],

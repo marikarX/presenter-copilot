@@ -266,11 +266,35 @@ class ReasoningRequest:
         return json.dumps(self.to_payload(), ensure_ascii=False, separators=(",", ":"))
 
 
+@dataclass(frozen=True)
+class ProviderInvocation:
+    """Execution-owned request snapshot and exact serialized provider input."""
+
+    request: ReasoningRequest
+    serialized_input_text: str
+
+    def serialized_input(self) -> str:
+        """Return the exact JSON snapshot approved by execution."""
+        return self.serialized_input_text
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a parsed copy of the exact approved JSON snapshot."""
+        payload = json.loads(self.serialized_input_text)
+        if not isinstance(payload, dict):
+            raise ValueError("provider invocation payload is not an object")
+        return payload
+
+    def __getattr__(self, name: str) -> Any:
+        """Keep legacy test providers readable while adapters migrate to request."""
+        return getattr(self.request, name)
+
+
 def derive_context_manifest(
     request: ReasoningRequest,
     *,
     provider_id: str,
     payload: Mapping[str, Any] | None = None,
+    serialized_payload: str | None = None,
 ) -> dict[str, Any]:
     """Derive a metadata-only manifest from the exact adapter payload.
 
@@ -367,7 +391,8 @@ def derive_context_manifest(
         }
     )
 
-    serialized_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    if serialized_payload is None:
+        serialized_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return {
         "provider_content_boundary": "selected_context",
         "provider_id": provider_id,
@@ -437,7 +462,7 @@ class ReasoningProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate(self, request: ReasoningRequest) -> ReasoningResult:
+    def generate(self, invocation: ProviderInvocation) -> ReasoningResult:
         raise NotImplementedError
 
     def close(self) -> None:
