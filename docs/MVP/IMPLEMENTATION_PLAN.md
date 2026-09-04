@@ -229,8 +229,7 @@ started state before provider I/O. Provider failures update process-local
 health with stable actionable states; bounded timeout and logical
 supersession/cancellation finalize runs exactly once and discard ineligible
 results. `privacy.list_context_manifests` exposes only bounded run metadata
-and sanitized manifests. OS secret storage and optional local/Codex adapters
-remain deferred; no M9 work is included.
+and sanitized manifests. Optional local/Codex adapters remain deferred.
 
 ## Milestone 9 — Deletion, security, packaging, performance
 
@@ -252,6 +251,23 @@ remain deferred; no M9 work is included.
 ### Exit
 
 All MVP release gates in `TEST_PLAN.md` pass on packaged Windows build.
+
+M9 implementation status for this branch: project/session/source and
+Audience/Speaker deletion paths purge SQLite, vault, retrieval mappings, and
+warm model references; app reset has explicit confirmation and retains model
+caches unless selected. Provider credentials use a core-owned Windows
+Credential Manager seam, logs and diagnostic exports are allowlisted and
+content-free, and renderer IPC never accepts a credential or diagnostic output
+path. Unsafe archive names, duplicate normalized members, external links, and
+bounded-name violations are rejected before extraction. A pinned PyInstaller
+one-folder sidecar is required in packaged mode, the NSIS installer is
+per-user and retains user data on uninstall, model preparation is explicit,
+and sidecar restart/reconciliation is bounded after unexpected close.
+
+The deterministic M9 E2E runner, deletion/security tests, privacy gate, and
+metadata-only benchmark are automated. A clean-machine install and real
+CPU/RTX model benchmarks remain separately labeled manual or unavailable until
+their evidence is captured on the named machine and exact release SHA.
 
 ## 2. Parallelizable work
 

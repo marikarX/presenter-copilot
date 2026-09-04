@@ -52,6 +52,9 @@ export const CORE_METHODS = [
   "asr.start",
   "asr.stop",
   "asr.status",
+  "models.status",
+  "models.prepare",
+  "models.remove",
   "presentation.detect",
   "presentation.set_slide",
   "presentation.next_slide",
@@ -89,6 +92,12 @@ export const CORE_METHODS = [
   "provider.configure",
   "provider.test",
   "provider.status",
+  "provider.credentials.status",
+  "provider.credentials.save_detected",
+  "provider.credentials.remove",
+  "diagnostics.preview",
+  "diagnostics.export",
+  "app.reset_local_data",
   "privacy.list_context_manifests",
 ] as const;
 
@@ -123,6 +132,7 @@ export const CORE_EVENTS = [
   "cue.partial",
   "cue.ready",
   "cue.error",
+  "models.progress",
 ] as const;
 
 export type CoreEvent = (typeof CORE_EVENTS)[number];
@@ -175,6 +185,9 @@ export const RENDERER_CORE_METHODS = [
   "asr.start",
   "asr.stop",
   "asr.status",
+  "models.status",
+  "models.prepare",
+  "models.remove",
   "presentation.detect",
   "presentation.set_slide",
   "presentation.next_slide",
@@ -212,6 +225,10 @@ export const RENDERER_CORE_METHODS = [
   "provider.configure",
   "provider.test",
   "provider.status",
+  "provider.credentials.status",
+  "provider.credentials.save_detected",
+  "provider.credentials.remove",
+  "app.reset_local_data",
   "privacy.list_context_manifests",
 ] as const;
 export type RendererCoreMethod = (typeof RENDERER_CORE_METHODS)[number];
@@ -1099,6 +1116,71 @@ export interface ProviderStatus {
   };
 }
 
+export interface ModelStatusSummary {
+  kind: "asr" | "embeddings";
+  adapter_id: string;
+  model_id: string;
+  status: string;
+  local_only: boolean;
+  cache_location: string;
+  disk_requirement_mb: number | null;
+  preparing: boolean;
+  error_code: string | null;
+}
+
+export interface ModelsStatusResult {
+  network_policy: {
+    runtime: "local_files_only";
+    prepare: "explicit_user_action_only";
+  };
+  models: ModelStatusSummary[];
+}
+
+export interface CredentialStatus {
+  provider_id: string;
+  credential_source: string;
+  configured: boolean;
+  secure_store_available: boolean;
+  environment_detected: boolean;
+}
+
+export const DIAGNOSTIC_SECTIONS = [
+  "core",
+  "storage",
+  "models",
+  "provider",
+  "logs",
+  "benchmarks",
+] as const;
+export type DiagnosticSection = (typeof DIAGNOSTIC_SECTIONS)[number];
+
+export interface DiagnosticPreviewResult {
+  schema_version: number;
+  timestamp: string;
+  [section: string]: unknown;
+}
+
+export interface DiagnosticSaveResult {
+  cancelled?: boolean;
+  exported?: boolean;
+  format?: "zip";
+  file_name?: string;
+  size_bytes?: number;
+  included_sections?: DiagnosticSection[];
+}
+
+export interface ResetLocalDataResult {
+  reset: true;
+  projects_removed: number;
+  project_directories_removed: number;
+  model_cache_retained: boolean;
+  credentials_removed: boolean;
+  stored_credential_present: boolean;
+  credential_cleanup_established: boolean;
+  environment_credential_detected: boolean;
+  environment_credential_retained: true;
+}
+
 export type ProviderHealthStatus =
   | "ready"
   | "unconfigured"
@@ -1186,6 +1268,14 @@ export interface PresenterCopilotApi {
       projectId: string,
       kind?: "presentation" | "supporting" | "transcript",
     ): Promise<InvokeResult<ImportSourceResult>>;
+  };
+  diagnostics: {
+    preview(
+      sections?: DiagnosticSection[],
+    ): Promise<InvokeResult<DiagnosticPreviewResult>>;
+    save(
+      sections?: DiagnosticSection[],
+    ): Promise<InvokeResult<DiagnosticSaveResult>>;
   };
   shortcuts: {
     enableManualRun(

@@ -66,6 +66,15 @@ class EmbeddingAdapter:
     def health(self) -> EmbeddingHealth:
         raise NotImplementedError
 
+    def model_status(self) -> str:
+        """Return a non-downloading installation status for setup UX."""
+        health = self.health()
+        return "ready" if health.status == "ready" else "unavailable"
+
+    def prepare_explicit(self) -> EmbeddingHealth:
+        """Prepare only when an explicit setup action authorizes network use."""
+        return self.health()
+
     def embed_documents(
         self,
         texts: Iterable[str],
@@ -276,6 +285,33 @@ class FastEmbedAdapter(EmbeddingAdapter):
         """Explicitly resolve/load the model; callers choose whether network is allowed."""
         return self.health()
 
+    def model_status(self) -> str:
+        if self._model is not None:
+            return "ready"
+        if not self._cache_dir.exists() or not self._cache_dir.is_dir():
+            return "not_installed"
+        try:
+            has_files = any(path.is_file() for path in self._cache_dir.rglob("*"))
+        except OSError:
+            return "unavailable"
+        return "installed" if has_files else "not_installed"
+
+    def prepare_explicit(self) -> EmbeddingHealth:
+        """Use the existing FastEmbed bootstrap path only on explicit request."""
+        if not self._local_files_only:
+            return self.health()
+        bootstrap = FastEmbedAdapter(
+            cache_dir=self._cache_dir,
+            local_files_only=False,
+            threads=self._threads,
+        )
+        try:
+            health = bootstrap.health()
+        finally:
+            bootstrap.close()
+        self.close()
+        return self.health() if health.status == "ready" else health
+
     def close(self) -> None:
         self._model = None
 
@@ -384,6 +420,12 @@ class DeterministicEmbeddingAdapter(EmbeddingAdapter):
             dimension=self.dimension,
             model_loaded=True,
         )
+
+    def model_status(self) -> str:
+        return "ready"
+
+    def prepare_explicit(self) -> EmbeddingHealth:
+        return self.health()
 
     def embed_documents(
         self,

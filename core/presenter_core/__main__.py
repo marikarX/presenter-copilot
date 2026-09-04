@@ -6,10 +6,10 @@ import os
 import sys
 from io import TextIOWrapper
 
-from .ipc.core import CoreService
-from .ipc.server import SidecarServer
-from .providers.fake import DeterministicFakeReasoningProvider
-from .providers.models import ReasoningProvider
+from presenter_core.ipc.core import CoreService
+from presenter_core.ipc.server import SidecarServer
+from presenter_core.providers.fake import DeterministicFakeReasoningProvider
+from presenter_core.providers.models import ReasoningProvider
 
 
 def _explicit_developer_provider() -> ReasoningProvider | None:
@@ -49,8 +49,10 @@ def main() -> int:
         return 0
     except KeyboardInterrupt:
         return 0
-    except Exception as exc:  # pragma: no cover - last-resort process boundary guard
-        print(f"presenter_core fatal error: {exc}", file=sys.stderr, flush=True)
+    except Exception:  # pragma: no cover - last-resort process boundary guard
+        # Keep even the final stderr path free of provider/credential or raw
+        # source details.  Normal request failures are already safe responses.
+        print("presenter_core fatal error: CORE_PROCESS_FAILED", file=sys.stderr, flush=True)
         return 1
 
 

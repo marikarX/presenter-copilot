@@ -93,17 +93,23 @@ dev` opens the desktop shell, which starts the Python core sidecar
 automatically. The shell should show `CORE READY`, protocol `1`, core version
 `0.1.0`, and health `OK`.
 
-Milestones 1–4 add the local project vault flow: create/open a project, import
+The installed Windows application does not require Python, Node.js, pnpm, uv,
+Git, or this repository. Development uses the Python sidecar from `core/.venv`;
+release packaging freezes that sidecar under the Electron resources directory.
+
+Milestones 1–8 add the local project vault flow: create/open a project, import
 PPTX/PDF/TXT/Markdown and explicitly authorized VTT/SRT/named-TXT/structured
 JSON transcript sources through the native file picker, inspect bounded
 slide/page/section/transcript previews with provenance, re-index from the
 stored snapshot, delete sources or whole projects, inspect local hybrid
-semantic retrieval, use the typed Teach/Speaker Profile vertical slice, and
-review a project-local Audience Model. M3 supports project-local sessions,
-confirmed user knowledge, explicit style-evidence promotion, and an optional
-bounded OpenAI Responses call. M4 audience extraction is deterministic and
-local; it never sends transcript content to a provider. Voice Teach, Challenge,
-Run, and the HUD remain later milestones. The normal data root is
+semantic retrieval, use typed Teach/Speaker Profile, review a project-local
+Audience Model, rehearse with Challenge and Run, and use the isolated Live
+Assist HUD. M3 supports project-local sessions, confirmed user knowledge,
+explicit style-evidence promotion, and an optional bounded OpenAI Responses
+call. M4 audience extraction is deterministic and local; it never sends
+transcript content to a provider. M8 adds bounded Selected Context Cloud
+routing, provider health, cancellation, and retrieval-only fallback. The
+normal data root is
 `%LOCALAPPDATA%\PresenterCopilot` on Windows. Tests use a temporary root; a
 controlled run can set `PRESENTER_COPILOT_DATA_ROOT` explicitly.
 
@@ -121,6 +127,14 @@ pnpm model:prepare:embeddings  # explicit, network-dependent model bootstrap
 pnpm test:embedding-real       # real local FastEmbed acceptance; cache required
 pnpm benchmark:retrieval       # reproducible 50k-vector local benchmark
 pnpm test:provider-real        # opt-in synthetic OpenAI acceptance; key required
+pnpm test:m9                   # deletion, security, recovery, and secret-boundary tests
+pnpm test:privacy-network      # Local Only network-isolation regression
+pnpm test:e2e:release          # deterministic E2E-01 through E2E-08 runner
+pnpm benchmark:release         # metadata-only aggregate release benchmark
+pnpm build:sidecar             # frozen one-folder Windows sidecar
+pnpm package:win               # Electron app plus unsigned per-user NSIS installer
+pnpm test:packaged             # bundled app/sidecar hello-health-shutdown smoke
+pnpm test:install-smoke        # installer artifact/readiness report; manual install remains required
 ```
 
 Model preparation and the explicitly opt-in real-provider acceptance are the
@@ -131,6 +145,44 @@ include Teams/Webex-specific export connectors, audio/video, diarization, or
 Challenge mode. See
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the boundary and core-only
 commands.
+
+Provider credentials are resolved inside the core process. On Windows, the
+user-scoped Credential Manager entry `Presenter Copilot/OpenAI` is preferred;
+`OPENAI_API_KEY` remains a development/bootstrap fallback. The renderer can
+ask the core to save a detected environment credential or remove the stored
+credential, but it never submits or receives plaintext secrets. SQLite,
+ProviderRun manifests, logs, and diagnostics contain metadata only.
+
+`local_only` is a hard no-content-network mode. `selected_context_cloud` may
+send only the bounded, core-built context manifest permitted by the existing
+privacy policy to an enabled provider; it never grants the renderer provider
+or credential authority. Model preparation is a separate explicit action and
+is the only normal path allowed to download approved local model artifacts.
+
+The M9 release controls expose explicit model preparation/removal, safe
+diagnostic preview/export, and destructive Reset Local Data confirmation.
+Reset removes projects, settings, app metadata, logs, diagnostics, and stored
+credentials; model caches are retained unless the separate removal option is
+selected. Diagnostic ZIPs are metadata-only and are written through the
+Electron main-process native save dialog.
+
+To build the Windows release, run `pnpm package:win`. The unsigned installer
+is written to `artifacts/installer/Presenter-Copilot-0.1.0-x64-setup.exe` and
+the unpacked app is placed under `artifacts/installer/win-unpacked/`.
+`pnpm test:packaged` uses a disposable data root and removes Python-related
+development overrides. `pnpm test:install-smoke` reports whether the artifact
+exists but deliberately does not install, uninstall, or delete data on the
+developer machine; use [`docs/MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](docs/MVP/M9_CLEAN_MACHINE_CHECKLIST.md)
+for that manual gate.
+
+Known limitations: Windows 11 is the reference platform; local models require
+explicit bootstrap; automatic question segmentation, Teams/Webex connectors,
+biometric speaker/face recognition, and mobile/cloud accounts are not part of
+this MVP. Microphone capture protection is best effort. Real CPU/RTX model
+benchmarks, physical microphone recognition quality, clean-machine
+install/uninstall, external capture behavior, and the five-presenter
+qualitative study require separate evidence and are not implied by
+deterministic tests or a successful package build.
 
 ## Broader documentation
 
@@ -159,10 +211,12 @@ commands.
 
 ## Repository status
 
-Milestone 0 — repository scaffold — is merged into `main`. The current
-implementation slice is Milestone 4 — local project vault, transcript
-ingestion, embeddings, hybrid retrieval, typed Teach, Speaker Profile, and the
-project-local Audience Model.
+Milestones 0–8 are based on the merged MVP architecture. The current branch
+contains the Milestone 9 release-hardening implementation: deletion/cache
+purge, OS-backed credential handling, safe logs/diagnostics, security checks,
+frozen-sidecar packaging, explicit model controls, restart recovery, and
+metadata-only release gates. M02 clean-machine evidence and the real hardware
+and qualitative acceptance gates remain separate review items until run.
 
 Immersive Rehearsal is documented as a post-MVP roadmap direction and does not change the frozen MVP implementation contract.
 

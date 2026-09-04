@@ -20,8 +20,9 @@ Global device-level state:
 
 - app settings;
 - non-secret provider configuration metadata (`provider_id`, `enabled`, `model_id`,
-  `credential_source`, and safe configuration JSON); credentials remain in the
-  core environment for M3;
+  `credential_source`, and safe configuration JSON); credential material remains
+  in the user-scoped Windows Credential Manager (with the core environment as a
+  development/bootstrap fallback) and never enters SQLite;
 - global Speaker Profile;
 - recent project list;
 - schema/app version metadata.
@@ -563,6 +564,11 @@ promotion tables. The v5 -> v6 migration adds only Run slide, marker, and
 debrief state. The v6 -> v7 migration adds only Live Assist cue and cue-evidence
 state. A future schema version is rejected without mutating the
 database. `app.db` remains at version 2.
+
+M9 adds no persistent relational schema or migration. Release-only logs,
+diagnostic staging, model caches, and in-process retrieval references use
+existing filesystem/service boundaries; no credential material is added to
+either database.
 
 ## 14. M4 transcript attribution and Audience Model
 

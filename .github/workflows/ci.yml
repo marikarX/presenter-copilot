@@ -13,7 +13,7 @@ jobs:
   verify:
     name: Verify on Windows (hosted)
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -56,6 +56,27 @@ jobs:
 
       - name: Run privacy network isolation gate
         run: pnpm test:privacy-network
+
+      - name: Run M9 deletion/security regression gate
+        run: pnpm test:m9
+
+      - name: Run deterministic release acceptance scenarios
+        run: pnpm test:e2e:release
+
+      - name: Record metadata-only release benchmark
+        run: pnpm benchmark:release
+
+      - name: Build packaged Windows application
+        run: pnpm package:win
+
+      - name: Run packaged sidecar smoke
+        run: pnpm test:packaged
+
+      - name: Check clean-machine installer gate
+        run: pnpm test:install-smoke
+
+      - name: Check whitespace errors
+        run: git diff --check
 
       - name: Build desktop application
         run: pnpm build

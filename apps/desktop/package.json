@@ -12,8 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings 0",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"*.{json,mjs,ts}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"*.{json,mjs,ts}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"../../scripts/**/*.mjs\" \"*.{json,mjs,ts}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"../../scripts/**/*.mjs\" \"*.{json,mjs,ts}\"",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit"
   },
   "dependencies": {

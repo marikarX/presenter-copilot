@@ -31,12 +31,10 @@ export function toInvokeError(error: unknown): CoreError {
     return toCoreError(error);
   }
   if (isCoreError(error)) {
-    return {
-      code: error.code,
-      message: error.message,
-      retryable: error.retryable,
-      details: { ...error.details },
-    };
+    // A structured-looking object can still originate from an untrusted
+    // Electron boundary. Re-enter the same sanitizer used for core-client
+    // errors instead of copying arbitrary message/details values through IPC.
+    return toCoreError(error);
   }
   return { ...GENERIC_INVOKE_ERROR, details: {} };
 }

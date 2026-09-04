@@ -31,7 +31,7 @@ Read in order:
 6. [`MVP/BACKLOG.md`](MVP/BACKLOG.md)
 7. [`MVP/TEST_PLAN.md`](MVP/TEST_PLAN.md)
 
-## Milestone 4 setup and commands
+## M9 setup and commands
 
 The scaffold is validated on Windows with Node.js 22.12+, pnpm 11, Python
 3.13, and uv. Install the locked JavaScript and Python environments from the
@@ -74,6 +74,14 @@ pnpm format:check
 pnpm check
 pnpm core:dev
 pnpm test:provider-real
+pnpm test:m9
+pnpm test:privacy-network
+pnpm test:e2e:release
+pnpm benchmark:release
+pnpm build:sidecar
+pnpm package:win
+pnpm test:packaged
+pnpm test:install-smoke
 ```
 
 `pnpm test` includes the TypeScript Electron-side client tests, deterministic
@@ -82,8 +90,17 @@ tests, and integration tests that spawn the real Python sidecar across a
 restart. Hosted CI does not
 download the embedding model, require provider credentials, or make provider
 calls; real-model and real-provider acceptance are manual developer checks.
-`pnpm build` compiles main/preload and the React renderer. Milestone 0 does not
-bundle Python into an installer; release bundling is a later packaging slice.
+`pnpm build` compiles main/preload and the React renderer. `pnpm build:sidecar`
+freezes the Python core into a one-folder Windows executable, and
+`pnpm package:win` places it under Electron resources and builds the unsigned
+per-user NSIS installer. Packaged smoke uses a disposable data root and does
+not rely on system Python or development `PYTHONPATH` overrides.
+
+`pnpm test:install-smoke` is intentionally read-only: it reports whether the
+installer artifact exists and exits with `manual_required` when a real install
+has not been performed. Use [`MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](MVP/M9_CLEAN_MACHINE_CHECKLIST.md)
+for the clean Windows profile/VM gate; the repository scripts never uninstall
+or delete data on the developer machine.
 
 The M2 developer-only model and retrieval commands are:
 
@@ -173,7 +190,7 @@ Do not create these folders merely to match documentation; scaffold them as the 
 - prefer a working vertical slice over speculative abstraction;
 - record durable deviations in `docs/DECISIONS.md`.
 
-## Milestone 4 boundary
+## M9 implementation boundary
 
 The current implementation includes the M1 vault/ingestion vertical slice, M2
 generation-based local retrieval, M3 typed Teach/Speaker Profile behavior, and
@@ -187,17 +204,26 @@ durable UserStatement provenance, provisional candidate approval, explicit
 Speaker Profile evidence, explicit native-speaker mapping, project-local
 AudienceProfile CRUD, deterministic local observable-pattern candidates,
 reviewed/stale evidence lifecycle, provider routing, bounded context
-manifests, and the official optional OpenAI Responses adapter. M4 audience
-extraction never invokes that provider. Voice ASR, Challenge, Run, the HUD,
-OS-backed secret storage, Teams/Webex-specific connectors, media/diarization,
-and full provider cancellation/resilience remain later milestones defined in
-`docs/MVP/`.
+manifests, the official optional OpenAI Responses adapter, local voice ASR,
+typed Challenge, Run, the isolated Live Assist HUD, and provider
+cancellation/resilience. M4 audience extraction never invokes the provider.
+Teams/Webex-specific connectors, media/diarization, and other deferred
+post-MVP integrations remain outside the M9 release-hardening scope. M9 adds
+complete project/app purge barriers, OS-backed provider credential handling,
+allowlisted logs and metadata-only diagnostics, import security preflight,
+explicit model controls, restart reconciliation, frozen sidecar packaging,
+installer smoke, release E2E, and metadata-only performance reporting.
+Clean-machine installation, real model/hardware measurements, physical
+microphone quality, external capture behavior, and the five-presenter study
+remain manual evidence gates.
 
 The Python core resolves one authoritative data root. Set
 `PRESENTER_COPILOT_DATA_ROOT` for controlled tests or local integration runs;
 do not point tests at the developer's real Local AppData. The renderer has no
 path input for imports: Electron main opens the native picker and passes the
-selected path only to the trusted core request.
+selected path only to the trusted core request. The same main-process
+authority owns the diagnostic save dialog; renderer diagnostic requests
+provide only a bounded section list.
 
 Transcript import is additionally disclosure-gated before the native picker
 opens. The core receives only the selected path through the existing

@@ -583,6 +583,25 @@ physical-capture, and CI evidence precisely. Require hosted Windows and
 Trusted Local CI on the same exact final SHA. Do not merge and do not start
 M9.
 
+### M9 milestone gate
+
+Before opening the M9 review PR, verify all M0-M8 migrations and acceptance
+flows remain intact; deletion removes project/session/source data from SQLite,
+vaults, retrieval mappings, and warm caches; app reset requires explicit
+confirmation and has a documented model-cache retention choice; credentials,
+logs, diagnostics, renderer IPC, preload exposure, archive extraction, and
+packaged sidecar resolution satisfy the M9 security boundary; model downloads
+are explicit; unexpected sidecar close reconciles ProviderRun and active
+Run/Live state; and the installer is per-user with user-data retention on
+uninstall. Run `pnpm setup`, `pnpm check`, `pnpm test:privacy-network`,
+`pnpm test:m9`, `pnpm test:e2e:release`, `pnpm benchmark:release`,
+`pnpm package:win`, `pnpm test:packaged`, `pnpm test:install-smoke`, and
+`git diff --check`. Require hosted Windows and trusted Local CI on the same
+exact final SHA. Record clean-machine, real-model, hardware, and external
+screen-capture evidence precisely; do not convert a deterministic fake or a
+metadata-only benchmark into real ASR/provider/hardware evidence. Do not
+merge and do not start post-MVP work.
+
 A pre-1.0 MVP release requires:
 
 - all P0 unit/integration tests passing;

@@ -73,6 +73,50 @@ Exact dependency versions are pinned when the executable scaffold is created, no
 8. [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — build sequence.
 9. [`BACKLOG.md`](BACKLOG.md) — issue-sized P0/P1 work.
 
+## Setup and release commands
+
+The reference toolchain is pinned by the repository metadata: Node.js 22.16,
+pnpm 11.19, Python 3.13, and uv 0.11.7. From a clean checkout run:
+
+```text
+pnpm setup
+pnpm dev
+pnpm check
+pnpm build
+```
+
+The deterministic release gates are:
+
+```text
+pnpm test:m9
+pnpm test:e2e:release
+pnpm benchmark:release
+pnpm package:win
+pnpm test:packaged
+pnpm test:install-smoke
+```
+
+`package:win` creates an unsigned per-user NSIS installer under
+`artifacts/installer/` and bundles the PyInstaller one-folder sidecar under
+the Electron resources directory. `test:packaged` launches the packaged
+executable with a disposable data root and verifies bounded startup/shutdown;
+it never uses the repository's Python fallback. `test:install-smoke` is a
+read-only reporter for the manual clean-machine checklist in
+[`M9_CLEAN_MACHINE_CHECKLIST.md`](M9_CLEAN_MACHINE_CHECKLIST.md); it does not
+install, uninstall, or delete local data.
+
+Model preparation is explicit and user initiated:
+
+```text
+pnpm model:prepare:embeddings
+pnpm model:prepare:asr
+```
+
+The application does not silently download models at launch. Provider
+credentials are read by the core only; the desktop release controls can save
+the detected `OPENAI_API_KEY` into Windows Credential Manager without sending
+the plaintext value through renderer IPC.
+
 ## Definition of MVP complete
 
 MVP is complete only when the end-to-end acceptance scenario in `SPEC.md` runs on a clean Windows machine with no developer intervention and passes the privacy-mode and deletion tests.

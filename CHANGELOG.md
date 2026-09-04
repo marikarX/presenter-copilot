@@ -8,6 +8,16 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ### Added
 
+- Milestone 9 release hardening: explicit model status/prepare/remove controls,
+  core-owned Windows Credential Manager integration with safe development
+  fallback, allowlisted structured logs, previewable metadata-only diagnostic
+  ZIPs, full local-data reset, and warm-cache project purge barriers.
+- Frozen one-folder Windows Python sidecar packaging, unsigned per-user NSIS
+  installer configuration, deterministic packaged smoke, release E2E-01 to
+  E2E-08 reporting, and metadata-only aggregate performance benchmarking.
+- Malicious archive preflight for unsafe names, duplicate normalized members,
+  links, entry counts, and expanded-size bounds, plus renderer/main/preload
+  allowlist and packaged-environment regressions.
 - Milestone 4 transcript and Audience Model vertical slice: bounded VTT, SRT,
   named-TXT, and structured-JSON adapters; timestamped/native-label
   SourceUnits; explicit unresolved speaker mapping; project-local
@@ -59,6 +69,9 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 - Hardened Milestone 0 renderer sender/origin validation and sidecar process
   finalization across spawn errors, exits, closes, timeouts, and shutdown.
+- Hardened restart recovery so automatic sidecar restart follows final `close`
+  finalization, stale process-owned state is reconciled, and unexpected HUD
+  state is cleared without creating an endless restart loop.
 
 ## 0.0.0
 

@@ -146,8 +146,10 @@ full-corpus upload. UI must not switch to it automatically on provider error.
 ## 6. Secrets
 
 - use OS credential storage for provider secrets where possible;
-- M8's OpenAI adapter reads only `OPENAI_API_KEY` from the core process
-  environment and persists only `credential_source = environment`;
+- M9's OpenAI adapter resolves the user-scoped Windows Credential Manager entry
+  `Presenter Copilot/OpenAI` inside core first, with `OPENAI_API_KEY` as an
+  explicit development/bootstrap fallback; SQLite persists only safe
+  `credential_source` metadata;
 - never store API keys or OAuth refresh tokens in project DB/logs;
 - never expose secrets to renderer context;
 - never accept plaintext provider secrets through renderer IPC;
@@ -398,3 +400,34 @@ unavailable error and creates no partial question/answer version.
 `privacy.list_context_manifests` exposes bounded run metadata and sanitized
 manifest history for project inspection. It never returns prompt text,
 transcript excerpts, provider responses, raw error bodies, or credentials.
+
+## 17. M9 release hardening boundary
+
+Provider secrets are core-owned. On Windows, the OpenAI credential is resolved
+from the per-user Windows Credential Manager target `Presenter Copilot/OpenAI`
+before the explicitly detected environment fallback. Renderer IPC accepts no
+credential value; the save action asks the core to persist its already detected
+environment credential, and status/remove operations return metadata only.
+Reset removes the app-owned stored credential but cannot erase an environment
+variable owned by the launching process.
+
+Core logs are structured JSONL records with an allowlisted event name and
+bounded scalar fields. They do not include source text, transcript text, raw
+provider errors, filesystem paths, prompts, or secret-like values. Diagnostic
+preview and ZIP export use the same safe projection and are initiated through
+the native main-process save dialog; the renderer supplies only an optional
+bounded section list, never an output path or archive contents.
+
+The packaged desktop application resolves only the bundled frozen sidecar
+under Electron resources. Packaged mode does not fall back to system Python or
+developer paths. The sidecar uses protocol-only stdout, minimized inherited
+environment, hidden Windows process startup, and bounded restart/reconcile
+behavior. Model preparation is an explicit user action and model caches are
+not included in the installer or removed by app reset unless the user selects
+that destructive option.
+
+M9 deletion tests verify that a deleted project cannot be queried through a
+warm retrieval mapping or cache, while another project's data and shared model
+cache remain intact. Archive validation rejects traversal, absolute/drive
+paths, control characters, duplicate normalized names, external links, and
+overlong member names before extraction.

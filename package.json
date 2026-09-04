@@ -26,9 +26,19 @@
     "test:embedding-real": "uv run --directory core --project . --locked python -m presenter_core.tools.embedding_acceptance",
     "test:asr-real": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_acceptance",
     "test:provider-real": "uv run --directory core --project . --locked python -m presenter_core.tools.provider_acceptance",
+    "test:m9": "uv run --directory core --project . --locked python -m pytest tests/test_m9_release.py -q",
     "test:privacy-network": "uv run --directory core --project . --locked python -m pytest tests/test_m8_privacy.py -q",
     "benchmark:retrieval": "uv run --directory core --project . --locked python -m presenter_core.tools.retrieval_benchmark",
     "benchmark:cue": "uv run --directory core --project . --locked python -m presenter_core.tools.cue_benchmark",
-    "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark"
+    "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark",
+    "benchmark:release": "uv run --directory core --project . --locked python -m presenter_core.tools.release_benchmark",
+    "build:sidecar": "uv run --directory core --project . --locked python -m PyInstaller --noconfirm --clean --distpath ../artifacts/sidecar --workpath ../artifacts/sidecar-build ../packaging/presenter-core.spec",
+    "package:win": "pnpm build:sidecar && pnpm build && pnpm --filter @presenter-copilot/desktop exec electron-builder --win --config electron-builder.yml",
+    "test:packaged": "node scripts/test-packaged.mjs",
+    "test:install-smoke": "node scripts/test-install-smoke.mjs",
+    "test:e2e:release": "node scripts/release-acceptance.mjs"
+  },
+  "devDependencies": {
+    "electron-builder": "26.15.3"
   }
 }

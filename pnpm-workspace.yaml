@@ -1,4 +1,6 @@
 packages:
   - apps/*
+allowBuilds:
+  electron-winstaller: false
 minimumReleaseAgeExclude:
   - globals@17.12.0

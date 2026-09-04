@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -287,6 +286,48 @@ class AppPaths:
             )
         return resolved_projects
 
+    def project_directory_ids(self) -> list[str]:
+        """List every safe, UUID-keyed project directory under the app root."""
+        projects_root = self._safe_projects_root()
+        try:
+            entries = sorted(projects_root.iterdir(), key=lambda path: path.name)
+        except OSError as error:
+            raise CoreDomainError(
+                "PROJECT_PATH_UNSAFE",
+                "The application project root could not be inspected.",
+                retryable=True,
+            ) from error
+
+        project_ids: list[str] = []
+        for entry in entries:
+            if entry.is_symlink() or not entry.is_dir():
+                raise CoreDomainError(
+                    "PROJECT_PATH_UNSAFE",
+                    "The application project root contains an unsafe entry.",
+                )
+            try:
+                project_id = normalize_project_id(entry.name)
+            except CoreDomainError as error:
+                raise CoreDomainError(
+                    "PROJECT_PATH_UNSAFE",
+                    "The application project root contains an unknown entry.",
+                ) from error
+            resolved_entry = entry.resolve()
+            if resolved_entry.parent != projects_root or resolved_entry.name != project_id:
+                raise CoreDomainError(
+                    "PROJECT_PATH_UNSAFE",
+                    "The application project root contains an unsafe entry.",
+                )
+            project_ids.append(project_id)
+        return project_ids
+
+    def delete_all_project_directories(self) -> int:
+        """Delete all safe app-owned project directories, including orphans."""
+        project_ids = self.project_directory_ids()
+        for project_id in project_ids:
+            self.delete_project_directory(project_id)
+        return len(project_ids)
+
     def delete_project_directory(self, project_id: str) -> bool:
         """Delete one already-resolved project directory, safely and idempotently."""
         paths = self.project(project_id)
@@ -319,13 +360,6 @@ class AppPaths:
                         raise
                     time.sleep(0.1 * (attempt + 1))
         except OSError as exc:
-            print(
-                "project vault delete failed: "
-                f"{type(exc).__name__} errno={exc.errno} "
-                f"winerror={getattr(exc, 'winerror', None)}",
-                file=sys.stderr,
-                flush=True,
-            )
             raise CoreDomainError(
                 "PROJECT_DELETE_FAILED",
                 "The project vault could not be deleted.",
@@ -333,3 +367,69 @@ class AppPaths:
                 details={},
             ) from exc
         return True
+
+    def delete_model_cache(self, kind: str) -> bool:
+        """Delete one approved shared model cache, never a project directory."""
+        targets = self.model_cache_directories(kind)
+        removed = False
+        for target in targets:
+            if not target.exists():
+                continue
+            try:
+                shutil.rmtree(target)
+            except OSError as exc:
+                raise CoreDomainError(
+                    "MODEL_CACHE_DELETE_FAILED",
+                    "The shared model cache could not be removed.",
+                    retryable=True,
+                ) from exc
+            removed = True
+        return removed
+
+    def model_cache_directories(self, kind: str) -> tuple[Path, ...]:
+        """Validate and return only the fixed shared model-cache directories."""
+        if kind not in {"asr", "embeddings", "all"}:
+            raise CoreDomainError("MODEL_KIND_INVALID", "The requested model cache is unsupported.")
+        models_root = self.root / "models"
+        if models_root.is_symlink() or (models_root.exists() and not models_root.is_dir()):
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache is not a safe application directory.",
+            )
+        try:
+            resolved_models_root = models_root.resolve()
+            expected_models_root = self.root.resolve() / "models"
+        except OSError as error:
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache could not be resolved.",
+                retryable=True,
+            ) from error
+        if resolved_models_root != expected_models_root:
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache is outside the application data root.",
+            )
+        names = ("asr", "embeddings") if kind == "all" else (kind,)
+        targets = tuple(models_root / name for name in names)
+        for target in targets:
+            if target.is_symlink() or (target.exists() and not target.is_dir()):
+                raise CoreDomainError(
+                    "MODEL_CACHE_UNSAFE",
+                    "The shared model cache is not a safe application directory.",
+                )
+            if target.exists():
+                try:
+                    resolved = target.resolve()
+                except OSError as error:
+                    raise CoreDomainError(
+                        "MODEL_CACHE_UNSAFE",
+                        "The shared model cache could not be resolved.",
+                        retryable=True,
+                    ) from error
+                if resolved.parent != resolved_models_root or resolved.name != target.name:
+                    raise CoreDomainError(
+                        "MODEL_CACHE_UNSAFE",
+                        "The shared model cache is outside the application data root.",
+                    )
+        return targets

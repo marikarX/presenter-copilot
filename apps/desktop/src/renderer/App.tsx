@@ -18,6 +18,7 @@ import {
 import { AudiencePanel } from "./AudiencePanel";
 import { ChallengePanel } from "./ChallengePanel";
 import { LiveAssistPanel } from "./LiveAssistPanel";
+import { ReleaseControls } from "./ReleaseControls";
 import { RunPanel } from "./RunPanel";
 import { TeachPanel } from "./TeachPanel";
 import {
@@ -593,6 +594,16 @@ export function App() {
         ? "Unavailable"
         : (health?.status.toUpperCase() ?? "Not checked");
 
+  const handleResetComplete = useCallback(() => {
+    setSelectedProject(null);
+    setSources([]);
+    setPreview(null);
+    setSelectedSourceId(null);
+    setRetrievalHealth(null);
+    setRetrievalResult(null);
+    void loadProjects();
+  }, [loadProjects]);
+
   return (
     <main className="app-shell">
       <header className="hero">
@@ -655,6 +666,12 @@ export function App() {
           {healthState === "checking" ? "Checking core…" : "Check Core Health"}
         </button>
       </section>
+
+      <ReleaseControls
+        coreReady={status.state === "ready"}
+        runActive={runActive}
+        onResetComplete={handleResetComplete}
+      />
 
       <div className="workspace-grid">
         <aside className="panel project-panel" aria-labelledby="projects-title">

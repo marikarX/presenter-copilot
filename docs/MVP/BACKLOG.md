@@ -2,6 +2,10 @@
 
 This is the initial issue-sized engineering backlog. `P0` blocks the MVP release. `P1` is important but may move after first external usability. `P2` is explicitly post-MVP.
 
+The final first-MVP release-closure decision is recorded in
+[`RELEASE_BASELINE.md`](RELEASE_BASELINE.md). Where older backlog/gate wording
+conflicts with that dated baseline, the release baseline controls.
+
 ## Epic A — Scaffold and protocol
 
 ### P0
@@ -77,7 +81,12 @@ This is the initial issue-sized engineering backlog. `P0` blocks the MVP release
 ### P1
 
 - [ ] E09 Local OpenAI-compatible/local-model adapter.
-- [ ] E10 Official Codex adapter behind feature flag if still appropriate.
+- [ ] E10 Investigate and implement ChatGPT-authenticated inference through an
+      officially supported OpenAI/ChatGPT or Codex mechanism where available.
+      This is inference entitlement, not identity-only sign-in; do not scrape or
+      reuse undocumented ChatGPT/Codex tokens. Preserve the existing provider
+      privacy boundary and keep API-key fallback until an official path is
+      validated.
 
 ## Epic F — Speaker Profile and style preservation
 
@@ -192,6 +201,8 @@ conferencing integration is part of this milestone.
 ### P1
 
 - [ ] K14 Experimental automatic question segmentation.
+- [ ] K15 Re-test physical HUD interaction after the planned sleek UI/UX redesign.
+- [ ] K16 Independently validate external screen-capture exclusion on target conferencing/capture tools.
 
 ## Epic L — Privacy and secret handling
 
@@ -200,28 +211,42 @@ conferencing integration is part of this milestone.
 - [x] L01 Implement Local Only hard routing invariant.
 - [x] L02 Implement Selected Context Cloud minimum-context builder.
 - [x] L03 Emit/store privacy context manifest before remote call.
-- [ ] L04 Implement OS-backed provider secret storage.
+- [x] L04 Implement OS-backed provider secret storage.
 - [x] L05 Prevent renderer access to raw secrets.
 - [x] L06 Add local-only network isolation test.
 - [x] L07 Add fake-provider payload inspection test.
-- [ ] L08 Add local legal/authorization disclosure for transcript/recording inputs.
-- [ ] L09 Log redaction rules/tests.
-- [ ] L10 Verify deleted project is absent from caches/indexes.
+- [x] L08 Add local legal/authorization disclosure for transcript/recording inputs.
+- [x] L09 Log redaction rules/tests.
+- [x] L10 Verify deleted project is absent from caches/indexes.
 
 ## Epic M — Packaging and release readiness
 
 ### P0
 
-- [ ] M01 Bundle Python sidecar for Windows release build.
-- [ ] M02 Clean-machine installation test.
-- [ ] M03 Model bootstrap/download path.
-- [ ] M04 Crash/restart recovery flow.
-- [ ] M05 Diagnostic export with user preview/redaction.
+- [x] M01 Bundle Python sidecar for Windows release build.
+- [x] M02 Clean-machine installation test.
+- [x] M03 Model bootstrap/download path.
+- [x] M04 Crash/restart recovery flow.
+- [x] M05 Diagnostic export with user preview/redaction.
+- [x] M08 Run all deterministic E2E acceptance scenarios from `TEST_PLAN.md`.
+- [x] M09 Update README with real setup/run commands after scaffold lands.
+- [x] M10 Produce first pre-1.0 release notes.
+
+M02 passed during the 2026-09-04 final acceptance campaign. The release gate
+for the first MVP is defined by `RELEASE_BASELINE.md`.
+
+### P1 — deferred validation / technical debt
+
 - [ ] M06 Release benchmark on CPU-only Windows machine.
-- [ ] M07 Release benchmark on RTX reference machine when available.
-- [ ] M08 Run all E2E acceptance scenarios from `TEST_PLAN.md`.
-- [ ] M09 Update README with real setup/run commands after scaffold lands.
-- [ ] M10 Produce first pre-1.0 release notes.
+- [ ] M07 Release benchmark on RTX reference machine; repair/validate the local
+      CUDA 12/cuBLAS runtime first.
+- [ ] M11 Run authorized real-provider acceptance when a user-owned credential
+      is available.
+- [ ] M12 Run the five-presenter/deck qualitative usability study.
+
+M06, M07, M11, and M12 remain useful validation evidence but do not block the
+first MVP merge/release under the dated release baseline. They must remain
+truthfully open until executed.
 
 ## Epic N — Post-MVP mobile companion
 

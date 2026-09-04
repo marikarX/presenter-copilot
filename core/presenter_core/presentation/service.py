@@ -232,6 +232,25 @@ class SlideStateService:
         with self._lock:
             self._runs.pop(key, None)
 
+    def purge_project(self, project_id: str) -> None:
+        """Stop every in-process presentation watcher owned by a project."""
+        normalized_project_id = self._project_id(project_id)
+        with self._lock:
+            keys = [key for key in self._runs if key[0] == normalized_project_id]
+        for _, session_id in keys:
+            self.stop_run(normalized_project_id, session_id)
+
+    def purge_all(self) -> None:
+        """Stop every in-process presentation watcher before a full reset."""
+        with self._lock:
+            keys = list(self._runs)
+        for project_id, session_id in keys:
+            self.stop_run(project_id, session_id)
+
+    def purge_session(self, project_id: str, session_id: str) -> None:
+        """Release one session watcher before its durable row is deleted."""
+        self.stop_run(project_id, session_id)
+
     def close(self) -> None:
         with self._lock:
             self._closed = True

@@ -887,6 +887,100 @@ class AssistService:
             if row is not None and row["mode"] == "live_assist":
                 self.stop_session(project_id, owner[1], status="aborted")
 
+    def wait_for_project_idle(self, project_id: str, timeout_seconds: float = 30.0) -> bool:
+        """Wait for all background workers before project files can be removed."""
+        normalized_project_id = self._project_id(project_id)
+        deadline = monotonic() + max(0.0, timeout_seconds)
+        while True:
+            with self._lock:
+                workers = [
+                    state.worker
+                    for state in self._states.values()
+                    if state.project_id == normalized_project_id
+                ]
+            alive = [worker for worker in workers if worker is not None and worker.is_alive()]
+            if not alive:
+                return True
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                return False
+            alive[0].join(timeout=min(0.05, remaining))
+
+    def purge_session(self, project_id: str, session_id: str) -> None:
+        """Cancel, join, and forget one session's transient assist state."""
+        normalized_project_id = self._project_id(project_id)
+        normalized_session_id = self._session_id(session_id)
+        with self._lock:
+            states = [
+                state
+                for state in self._states.values()
+                if (state.project_id, state.session_id)
+                == (normalized_project_id, normalized_session_id)
+            ]
+            for state in states:
+                state.cancelled.set()
+        if not self.wait_for_project_idle(normalized_project_id):
+            raise CoreDomainError(
+                "ASSIST_CLEANUP_FAILED",
+                "Live Assist work is still active; retry the cleanup safely.",
+                retryable=True,
+            )
+        for state in states:
+            try:
+                self._cue.discard_partial(
+                    normalized_project_id, normalized_session_id, state.assist_id
+                )
+            except CoreDomainError as error:
+                if error.code not in {"PROJECT_NOT_FOUND", "SESSION_NOT_FOUND", "CUE_NOT_FOUND"}:
+                    raise
+        with self._lock:
+            for state in states:
+                self._states.pop(state.assist_id, None)
+            self._generations.pop((normalized_project_id, normalized_session_id), None)
+
+    def purge_project(self, project_id: str) -> None:
+        """Cancel/join all project workers and clear project-keyed generations."""
+        normalized_project_id = self._project_id(project_id)
+        with self._lock:
+            states = [
+                state
+                for state in self._states.values()
+                if state.project_id == normalized_project_id
+            ]
+            for state in states:
+                state.cancelled.set()
+        if not self.wait_for_project_idle(normalized_project_id):
+            raise CoreDomainError(
+                "ASSIST_CLEANUP_FAILED",
+                "Live Assist work is still active; retry the cleanup safely.",
+                retryable=True,
+            )
+        for state in states:
+            try:
+                self._cue.discard_partial(normalized_project_id, state.session_id, state.assist_id)
+            except CoreDomainError as error:
+                if error.code not in {"PROJECT_NOT_FOUND", "SESSION_NOT_FOUND", "CUE_NOT_FOUND"}:
+                    raise
+        with self._lock:
+            for state in states:
+                self._states.pop(state.assist_id, None)
+            self._generations = {
+                key: value
+                for key, value in self._generations.items()
+                if key[0] != normalized_project_id
+            }
+
+    def purge_all(self) -> None:
+        """Cancel and join every transient worker before a full local reset."""
+        with self._lock:
+            projects = {state.project_id for state in self._states.values()}
+        for project_id in sorted(projects):
+            self.purge_project(project_id)
+        with self._lock:
+            # A completed/superseded assist may leave only a generation marker;
+            # it is still process-owned state and must not survive full reset.
+            self._generations.clear()
+
     def close(self) -> None:
         with self._lock:
             self._closed = True

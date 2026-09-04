@@ -589,6 +589,26 @@ class ASRService:
                 self._last_error_code = release_error.code
         return release_error is None
 
+    def release_models(self) -> None:
+        """Release loaded model objects while keeping the service reusable."""
+        with self._lock:
+            if self._active is not None or self._preparing:
+                raise CoreDomainError(
+                    "ASR_BUSY",
+                    "The ASR model cannot be removed while capture or preparation is active.",
+                    retryable=True,
+                )
+            adapters = list(self._adapters.values())
+        for adapter in adapters:
+            try:
+                adapter.close()
+            except Exception as error:
+                raise CoreDomainError(
+                    "ASR_MODEL_REMOVE_FAILED",
+                    "The local ASR model could not be released.",
+                    retryable=True,
+                ) from error
+
     def _audio_callback(self, frame: AudioFrame, status: Any = None) -> None:
         # The real-time callback only copies bounded PCM and performs a
         # non-blocking queue operation.  VAD, recognition, storage, and IPC

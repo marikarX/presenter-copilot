@@ -97,6 +97,13 @@ project.acknowledge_remote_reasoning
 project.delete
 ```
 
+`project.delete` stops project-owned Run/Live/ASR state and evicts retrieval
+indexes before moving the vault into an app-owned quarantine tombstone. The
+registry removal and committed tombstone marker share one app transaction. A
+failure before that commit restores the vault; a post-commit cleanup failure
+returns a retryable pending result and startup/retry reconciliation never makes
+the committed vault retrievable again.
+
 ### Sources
 
 ```text
@@ -434,6 +441,34 @@ nullable safe error code. `input_signal_state` is only `unknown`, `silent`, or
 `detected`; it is a coarse capture diagnostic, not a speech/transcript result.
 It never returns raw PCM, model paths, COM objects, stack traces, or secrets.
 
+### Local models and application reset
+
+```text
+models.status
+models.prepare
+models.remove
+app.reset_local_data
+```
+
+`models.prepare` is the only normal model-download path. It accepts only a
+core-approved model kind (`asr` or `embeddings`), reports bounded progress, and
+uses the app-scoped model cache. Runtime ASR and embedding paths remain
+local-files-only. `models.remove` requires an explicit confirmation flag and
+releases the corresponding in-process model/cache references before deleting
+the approved shared cache. Neither method returns a model filesystem path.
+
+`app.reset_local_data` requires explicit confirmation and removes registered
+and orphaned canonical project vaults, app settings/metadata, diagnostics,
+logs, provider metadata, and stored OS credentials. Model caches are retained
+unless `remove_model_cache=true` is explicitly supplied. Reset stages all
+targets in an app-owned quarantine tombstone and commits its cleanup marker in
+the same app transaction; pre-commit failures restore the vaults and
+post-commit failures remain retryable and non-retrievable. The secure
+credential store is preflighted before staging; an unavailable store fails
+closed without changing project/app data. Environment credentials are external
+and are not deleted. Reset and deletion stop owners before staging and fail
+closed on unsafe targets.
+
 `run.list_transcript` returns final utterances only, ordered by start time and
 bounded by `limit`/`offset`. `run.list_timeline` returns bounded slide events
 and manual markers. `run.get_state` is a bounded recovery projection, and
@@ -486,8 +521,10 @@ provider.status
 privacy.list_context_manifests
 ```
 
-M8's OpenAI reference adapter reads only `OPENAI_API_KEY` from the core
-process environment. `provider.configure` accepts safe metadata such as
+M9's OpenAI reference adapter resolves credentials inside the core process,
+preferring the user-scoped Windows Credential Manager entry
+`Presenter Copilot/OpenAI` and falling back to `OPENAI_API_KEY` for
+development/bootstrap. `provider.configure` accepts safe metadata such as
 `enabled` and `model_id`; it rejects API keys, tokens, cookies, and other
 secret fields. The renderer never receives or submits a provider secret.
 Provider health is process-local and uses only `ready`, `unconfigured`,
@@ -496,6 +533,37 @@ Provider health is process-local and uses only `ready`, `unconfigured`,
 and bounded `limit`/`offset`; its rows contain task/provider/privacy metadata,
 status, timing, safe error codes, and sanitized manifest fields only. It never
 returns prompts, excerpts, transcript text, responses, or credentials.
+
+Credential lifecycle methods are core-owned and renderer-safe:
+
+```text
+provider.credentials.status
+provider.credentials.save_detected
+provider.credentials.remove
+```
+
+`save_detected` reads only the core process environment and never accepts a
+secret parameter. Credential responses expose only configured/source and
+secure-store availability metadata. `remove` affects the stored OS credential;
+it does not mutate the process environment.
+
+### Diagnostics
+
+```text
+diagnostics.preview
+diagnostics.export
+```
+
+Diagnostics are metadata-only, previewable, and redacted by an allowlisted
+structured logger. The bounded selectable sections are `core`, `storage`,
+`models`, `provider`, `logs`, and `benchmarks`; preview and export receive the
+same exact section list. They may include safe health, model/provider status,
+counts, timings, error codes, and recent safe event records, but not databases,
+source text, transcript text, prompts, responses, credentials, raw environment,
+or arbitrary paths. The renderer displays the returned projection as inert
+text through an explicit preload API; the native Electron main process owns the
+save dialog and passes the selected destination to core only after validating
+it.
 
 ## 4. Required P0 events
 
