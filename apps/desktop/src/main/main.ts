@@ -122,7 +122,12 @@ function createWindow(
   window.once("ready-to-show", () => window.show());
   window.on("closed", () => {
     disableManualRunShortcuts();
-    if (mainWindow === window) mainWindow = null;
+    if (mainWindow === window) {
+      mainWindow = null;
+      // The HUD is intentionally hidden and non-closable, so it prevents
+      // Electron's window-all-closed event from representing app shutdown.
+      if (!isQuitting) app.quit();
+    }
   });
 
   const rendererTarget = selectRendererLoadTarget({
@@ -1263,7 +1268,9 @@ app.on("before-quit", (event) => {
     .catch((error) =>
       console.error(`[core:shutdown] ${toCoreError(error).message}`),
     )
-    .finally(() => app.quit());
+    // stopCore has already closed the HUD and sidecar; exit directly so a
+    // hidden non-closable HUD cannot keep Electron alive after cleanup.
+    .finally(() => app.exit(0));
 });
 
 app.on("window-all-closed", () => {
