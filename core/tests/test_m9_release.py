@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import stat
 import uuid
 import zipfile
@@ -263,6 +264,7 @@ def test_reset_local_data_fails_closed_on_unknown_project_entry(tmp_path: Path) 
     core = CoreService(
         data_root=data_root,
         embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=InMemoryCredentialStore(),
     )
     try:
         project_id = _project(core, "M9 unsafe reset project")
@@ -272,6 +274,438 @@ def test_reset_local_data_fails_closed_on_unknown_project_entry(tmp_path: Path) 
         assert error["code"] == "PROJECT_PATH_UNSAFE"
         assert (data_root / "projects" / project_id).is_dir()
         assert unknown_entry.is_dir()
+    finally:
+        core.close()
+
+
+def test_project_delete_stage_and_registry_failures_restore_the_vault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project_id = _project(core, "M9 injected project failure")
+        project_root = tmp_path / "data" / "projects" / project_id
+        marker = project_root / "preserve.txt"
+        marker.write_text("preserve", encoding="utf-8")
+        storage = core._storage  # type: ignore[attr-defined]
+
+        def fail_stage(_operation: Any, _project_id: str) -> bool:
+            raise CoreDomainError(
+                "PROJECT_DELETE_STAGE_FAILED",
+                "injected stage failure",
+                retryable=True,
+            )
+
+        original_stage = storage._tombstones.stage_project
+        monkeypatch.setattr(storage._tombstones, "stage_project", fail_stage)
+        stage_error = _error(core, "project.delete", {"project_id": project_id})
+        assert stage_error["code"] == "PROJECT_DELETE_STAGE_FAILED"
+        assert marker.read_text(encoding="utf-8") == "preserve"
+        assert storage.app_row(project_id)["id"] == project_id
+        monkeypatch.setattr(storage._tombstones, "stage_project", original_stage)
+
+        def fail_registry_marker(_connection: Any, _operation_id: str) -> None:
+            raise sqlite3.OperationalError("injected registry failure")
+
+        original_journal = storage._append_deletion_journal_id
+        monkeypatch.setattr(storage, "_append_deletion_journal_id", fail_registry_marker)
+        registry_error = _error(core, "project.delete", {"project_id": project_id})
+        assert registry_error["code"] == "PROJECT_DELETE_FAILED"
+        assert registry_error["retryable"] is True
+        assert marker.read_text(encoding="utf-8") == "preserve"
+        assert storage.app_row(project_id)["id"] == project_id
+        monkeypatch.setattr(storage, "_append_deletion_journal_id", original_journal)
+
+        deleted = _request(core, "project.delete", {"project_id": project_id})
+        assert deleted == {"project_id": project_id, "deleted": True}
+        assert not project_root.exists()
+        assert not list((tmp_path / "data" / "tombstones").iterdir())
+    finally:
+        core.close()
+
+
+def test_reset_stage_and_app_transaction_failures_leave_all_data_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    store = InMemoryCredentialStore("m9-reset-injected-secret")
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=store,
+    )
+    try:
+        project_a = _project(core, "M9 reset failure A")
+        project_b = _project(core, "M9 reset failure B")
+        storage = core._storage  # type: ignore[attr-defined]
+        storage.set_app_metadata("m9-reset-state", {"preserve": True})
+        original_stage = storage._tombstones.stage_project
+        stage_calls = 0
+
+        def fail_second_stage(operation: Any, project_id: str) -> bool:
+            nonlocal stage_calls
+            stage_calls += 1
+            if stage_calls == 2:
+                raise CoreDomainError(
+                    "LOCAL_DATA_RESET_FAILED",
+                    "injected reset stage failure",
+                    retryable=True,
+                )
+            return original_stage(operation, project_id)
+
+        monkeypatch.setattr(storage._tombstones, "stage_project", fail_second_stage)
+        stage_error = _error(core, "app.reset_local_data", {"confirm": True})
+        assert stage_error["code"] == "LOCAL_DATA_RESET_FAILED"
+        assert (data_root / "projects" / project_a).is_dir()
+        assert (data_root / "projects" / project_b).is_dir()
+        assert {str(row["id"]) for row in storage.list_app_rows()} == {project_a, project_b}
+        monkeypatch.setattr(storage._tombstones, "stage_project", original_stage)
+
+        def fail_reset_registry_marker(_connection: Any, _operation_id: str) -> None:
+            raise sqlite3.OperationalError("injected reset transaction failure")
+
+        original_journal = storage._append_deletion_journal_id
+        monkeypatch.setattr(storage, "_append_deletion_journal_id", fail_reset_registry_marker)
+        transaction_error = _error(core, "app.reset_local_data", {"confirm": True})
+        assert transaction_error["code"] == "LOCAL_DATA_RESET_FAILED"
+        assert (data_root / "projects" / project_a).is_dir()
+        assert (data_root / "projects" / project_b).is_dir()
+        assert {str(row["id"]) for row in storage.list_app_rows()} == {project_a, project_b}
+        assert storage.get_app_metadata("m9-reset-state") == {"preserve": True}
+        assert store.read() == "m9-reset-injected-secret"
+        monkeypatch.setattr(storage, "_append_deletion_journal_id", original_journal)
+
+        reset = _request(core, "app.reset_local_data", {"confirm": True})
+        assert reset["reset"] is True
+        assert reset["credentials_removed"] is True
+        assert not (data_root / "projects" / project_a).exists()
+        assert not (data_root / "projects" / project_b).exists()
+    finally:
+        core.close()
+
+
+def test_committed_project_cleanup_failure_is_non_retrievable_and_retryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    source = tmp_path / "warm-cache.md"
+    source.write_text("warm cache deletion sentinel", encoding="utf-8")
+    try:
+        project_id = _project(core, "M9 cleanup retry")
+        imported = _request(
+            core,
+            "source.import",
+            {"project_id": project_id, "path": str(source), "kind": "supporting"},
+        )
+        _request(core, "retrieval.rebuild", {"project_id": project_id})
+        _request(core, "retrieval.query", {"project_id": project_id, "query": "warm cache"})
+        matrix_cache = core._hybrid_retrieval._matrix_cache  # type: ignore[attr-defined]
+        mapping_cache = core._hybrid_retrieval._mapping_count_cache  # type: ignore[attr-defined]
+        assert project_id in matrix_cache
+        assert any(key[0] == project_id for key in mapping_cache)
+
+        storage = core._storage  # type: ignore[attr-defined]
+        original_cleanup = storage._tombstones.cleanup_vaults
+        failed = False
+
+        def fail_once(operation: Any) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise CoreDomainError(
+                    "DELETION_CLEANUP_FAILED",
+                    "injected postcommit cleanup failure",
+                    retryable=True,
+                )
+            original_cleanup(operation)
+
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", fail_once)
+        first_error = _error(core, "project.delete", {"project_id": project_id})
+        assert first_error["code"] == "PROJECT_DELETE_CLEANUP_PENDING"
+        assert first_error["retryable"] is True
+        assert not (data_root / "projects" / project_id).exists()
+        assert project_id not in matrix_cache
+        assert all(key[0] != project_id for key in mapping_cache)
+        with pytest.raises(CoreDomainError) as missing:
+            storage.app_row(project_id)
+        assert missing.value.code == "PROJECT_NOT_FOUND"
+        assert list((data_root / "tombstones").iterdir())
+        with storage.app_database() as connection:
+            journal = connection.execute(
+                "SELECT value FROM app_metadata WHERE key = ?",
+                ("__presenter_copilot_deletion_journal_v1",),
+            ).fetchone()
+        assert journal is not None
+        assert imported["document"]["project_id"] == project_id
+
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", original_cleanup)
+        retry = _request(core, "project.delete", {"project_id": project_id})
+        assert retry == {"project_id": project_id, "deleted": True}
+        assert not list((data_root / "tombstones").iterdir())
+        assert (
+            _error(core, "retrieval.query", {"project_id": project_id, "query": "warm cache"})[
+                "code"
+            ]
+            == "PROJECT_NOT_FOUND"
+        )
+    finally:
+        core.close()
+
+
+def test_committed_project_cleanup_is_retried_during_next_core_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project_id = _project(core, "M9 startup cleanup retry")
+        storage = core._storage  # type: ignore[attr-defined]
+
+        def fail_cleanup(_operation: Any) -> None:
+            raise CoreDomainError(
+                "DELETION_CLEANUP_FAILED",
+                "injected startup cleanup failure",
+                retryable=True,
+            )
+
+        original_cleanup = storage._tombstones.cleanup_vaults
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", fail_cleanup)
+        error = _error(core, "project.delete", {"project_id": project_id})
+        assert error["code"] == "PROJECT_DELETE_CLEANUP_PENDING"
+        assert list((data_root / "tombstones").iterdir())
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", original_cleanup)
+        core.close()
+
+        restarted = CoreService(
+            data_root=data_root,
+            embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        )
+        try:
+            assert not list((data_root / "tombstones").iterdir())
+            assert (
+                _error(
+                    restarted,
+                    "retrieval.query",
+                    {"project_id": project_id, "query": "deleted"},
+                )["code"]
+                == "PROJECT_NOT_FOUND"
+            )
+            assert _request(restarted, "project.delete", {"project_id": project_id}) == {
+                "project_id": project_id,
+                "deleted": False,
+            }
+        finally:
+            restarted.close()
+    finally:
+        core.close()
+
+
+def test_committed_reset_cleanup_failure_keeps_journal_for_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    store = InMemoryCredentialStore("m9-reset-cleanup-secret")
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=store,
+    )
+    try:
+        project_id = _project(core, "M9 reset cleanup retry")
+        storage = core._storage  # type: ignore[attr-defined]
+        original_cleanup = storage._tombstones.cleanup_vaults
+        failed = False
+
+        def fail_once(operation: Any) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise CoreDomainError(
+                    "DELETION_CLEANUP_FAILED",
+                    "injected reset cleanup failure",
+                    retryable=True,
+                )
+            original_cleanup(operation)
+
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", fail_once)
+        error = _error(core, "app.reset_local_data", {"confirm": True})
+        assert error["code"] == "LOCAL_DATA_RESET_CLEANUP_PENDING"
+        assert store.read() is None
+        assert not (data_root / "projects" / project_id).exists()
+        assert list((data_root / "tombstones").iterdir())
+        with storage.app_database() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT value FROM app_metadata WHERE key = ?",
+                ("__presenter_copilot_deletion_journal_v1",),
+            ).fetchone()
+
+        monkeypatch.setattr(storage._tombstones, "cleanup_vaults", original_cleanup)
+        retry = _request(core, "app.reset_local_data", {"confirm": True})
+        assert retry["reset"] is True
+        assert retry["stored_credential_present"] is False
+        assert not list((data_root / "tombstones").iterdir())
+    finally:
+        core.close()
+
+
+def test_reset_fails_closed_without_changing_data_when_secure_store_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class UnavailableStore:
+        source = "test_unavailable_store"
+
+        def __init__(self) -> None:
+            self.value = "m9-unavailable-secret"
+            self.delete_called = False
+
+        def is_available(self) -> bool:
+            return False
+
+        def read(self) -> str | None:
+            return self.value
+
+        def write(self, value: str) -> None:
+            self.value = value
+
+        def delete(self) -> bool:
+            self.delete_called = True
+            self.value = None
+            return True
+
+    monkeypatch.setenv("OPENAI_API_KEY", "m9-environment-secret")
+    data_root = tmp_path / "data"
+    store = UnavailableStore()
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=store,
+    )
+    try:
+        project_id = _project(core, "M9 unavailable credential reset")
+        core._storage.set_app_metadata("m9", {"value": "preserve"})  # type: ignore[attr-defined]
+        before = _all_bytes(data_root)
+        error = _error(core, "app.reset_local_data", {"confirm": True})
+        assert error["code"] == "CREDENTIAL_STORE_UNAVAILABLE"
+        assert not store.delete_called
+        assert store.value == "m9-unavailable-secret"
+        assert _all_bytes(data_root) == before
+        assert (data_root / "projects" / project_id).is_dir()
+        assert core._storage.app_row(project_id)["id"] == project_id  # type: ignore[attr-defined]
+    finally:
+        core.close()
+
+
+def test_reset_fails_closed_when_secure_store_read_fails(tmp_path: Path) -> None:
+    class ReadFailureStore:
+        source = "test_read_failure_store"
+
+        def __init__(self) -> None:
+            self.delete_called = False
+
+        def is_available(self) -> bool:
+            return True
+
+        def read(self) -> str | None:
+            raise RuntimeError("injected secure-store read failure")
+
+        def write(self, value: str) -> None:
+            del value
+
+        def delete(self) -> bool:
+            self.delete_called = True
+            return False
+
+    data_root = tmp_path / "data"
+    store = ReadFailureStore()
+    core = CoreService(
+        data_root=data_root,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=store,
+    )
+    try:
+        project_id = _project(core, "M9 credential read failure")
+        before = _all_bytes(data_root)
+        error = _error(core, "app.reset_local_data", {"confirm": True})
+        assert error["code"] == "CREDENTIAL_STORE_UNAVAILABLE"
+        assert not store.delete_called
+        assert _all_bytes(data_root) == before
+        assert (data_root / "projects" / project_id).is_dir()
+    finally:
+        core.close()
+
+
+def test_reset_reports_no_stored_credential_and_retains_environment_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "m9-environment-only-secret")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=InMemoryCredentialStore(),
+    )
+    try:
+        reset = _request(core, "app.reset_local_data", {"confirm": True})
+        assert reset["credentials_removed"] is False
+        assert reset["stored_credential_present"] is False
+        assert reset["credential_cleanup_established"] is True
+        assert reset["environment_credential_detected"] is True
+        assert reset["environment_credential_retained"] is True
+        assert "m9-environment-only-secret" not in json.dumps(reset)
+    finally:
+        core.close()
+
+
+def test_diagnostic_preview_and_export_have_exact_selected_sections(tmp_path: Path) -> None:
+    core = CoreService(
+        data_root=tmp_path / "data",
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+        credential_store=InMemoryCredentialStore(),
+    )
+    try:
+        core._logger.event("m9-diagnostic-parity", {"operation": "parity"})  # type: ignore[attr-defined]
+        selected = ["core", "logs"]
+        preview = _request(core, "diagnostics.preview", {"sections": selected})
+        assert set(preview) == {"schema_version", "timestamp", *selected}
+        assert "runtime" not in preview
+
+        output = tmp_path / "diagnostics" / "selected.zip"
+        exported = _request(
+            core,
+            "diagnostics.export",
+            {"output_path": str(output), "sections": selected},
+        )
+        assert exported["included_sections"] == selected
+        with zipfile.ZipFile(output) as archive:
+            assert set(archive.namelist()) == {"diagnostics.json", "logs.jsonl"}
+            exported_projection = json.loads(archive.read("diagnostics.json"))
+            assert b"m9-diagnostic-parity" in archive.read("logs.jsonl")
+        assert set(exported_projection) == set(preview)
+        assert "provider" not in exported_projection
+
+        empty_output = tmp_path / "diagnostics" / "empty.zip"
+        empty = _request(
+            core,
+            "diagnostics.export",
+            {"output_path": str(empty_output), "sections": []},
+        )
+        assert empty["included_sections"] == []
+        with zipfile.ZipFile(empty_output) as archive:
+            assert archive.namelist() == ["diagnostics.json"]
+            assert set(json.loads(archive.read("diagnostics.json"))) == {
+                "schema_version",
+                "timestamp",
+            }
     finally:
         core.close()
 

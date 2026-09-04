@@ -225,6 +225,18 @@ class CoreService:
             models=lambda: self._models.status({}),
             provider=lambda: self._providers.status({})["provider"],
         )
+        deletion_recovery = self._storage.reconcile_deletions(
+            credential_cleanup=self._providers.remove_stored_credential_for_reset,
+        )
+        if deletion_recovery["pending_operation_ids"]:
+            self._logger.event(
+                "deletion.recovery_pending",
+                {
+                    "operation": "startup_recovery",
+                    "count": len(deletion_recovery["pending_operation_ids"]),
+                    "error_code": "DELETION_RECOVERY_PENDING",
+                },
+            )
         recovery = self._storage.reconcile_runtime()
         if recovery["provider_runs"] or recovery["sessions"]:
             self._logger.event(
@@ -456,8 +468,6 @@ class CoreService:
                 result=self._projects.acknowledge_remote_reasoning(params),
             )
         if method == "project.delete":
-            self._run.stop_project_runs(params)
-            self._assist.stop_project_sessions(params)
             return make_response(request_id, result=self._projects.delete(params))
         if method == "source.import":
             result = self._ingestion.import_source(params)
@@ -797,6 +807,9 @@ class CoreService:
                 "remove_model_cache must be a boolean.",
                 details={"field": "remove_model_cache"},
             )
+        # Probe the secure store before stopping owners or staging any local
+        # state.  An unavailable store must leave the entire reset untouched.
+        credential_plan = self._providers.prepare_reset_credential_cleanup()
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
         self._assist.purge_all()
@@ -807,10 +820,14 @@ class CoreService:
         self._hybrid_retrieval.release_model()
         if remove_model_cache:
             self._asr.release_models()
-        credentials = self._providers.remove_stored_credential_for_reset()
-        result = self._storage.reset_local_data(remove_model_cache=remove_model_cache)
+        result = self._storage.reset_local_data(
+            remove_model_cache=remove_model_cache,
+            credential_present=bool(credential_plan["stored_credential_present"]),
+            credential_cleanup=self._providers.remove_stored_credential_for_reset,
+        )
         self._logger.clear()
-        result["credentials_removed"] = credentials
+        result.update(credential_plan)
+        result.setdefault("credentials_removed", False)
         return result
 
     def _diagnostic_core_status(self) -> dict[str, Any]:

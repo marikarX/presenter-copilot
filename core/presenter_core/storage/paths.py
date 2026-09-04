@@ -370,37 +370,11 @@ class AppPaths:
 
     def delete_model_cache(self, kind: str) -> bool:
         """Delete one approved shared model cache, never a project directory."""
-        if kind not in {"asr", "embeddings", "all"}:
-            raise CoreDomainError("MODEL_KIND_INVALID", "The requested model cache is unsupported.")
-        models_root = self.root / "models"
-        if models_root.is_symlink() or (models_root.exists() and not models_root.is_dir()):
-            raise CoreDomainError(
-                "MODEL_CACHE_UNSAFE",
-                "The shared model cache is not a safe application directory.",
-            )
-        targets = (
-            [models_root / "asr", models_root / "embeddings"]
-            if kind == "all"
-            else [models_root / kind]
-        )
+        targets = self.model_cache_directories(kind)
         removed = False
         for target in targets:
-            if target.is_symlink() or (target.exists() and not target.is_dir()):
-                raise CoreDomainError(
-                    "MODEL_CACHE_UNSAFE",
-                    "The shared model cache is not a safe application directory.",
-                )
             if not target.exists():
                 continue
-            resolved = target.resolve()
-            if resolved.parent != models_root.resolve() or resolved.name not in {
-                "asr",
-                "embeddings",
-            }:
-                raise CoreDomainError(
-                    "MODEL_CACHE_UNSAFE",
-                    "The shared model cache is outside the application data root.",
-                )
             try:
                 shutil.rmtree(target)
             except OSError as exc:
@@ -411,3 +385,51 @@ class AppPaths:
                 ) from exc
             removed = True
         return removed
+
+    def model_cache_directories(self, kind: str) -> tuple[Path, ...]:
+        """Validate and return only the fixed shared model-cache directories."""
+        if kind not in {"asr", "embeddings", "all"}:
+            raise CoreDomainError("MODEL_KIND_INVALID", "The requested model cache is unsupported.")
+        models_root = self.root / "models"
+        if models_root.is_symlink() or (models_root.exists() and not models_root.is_dir()):
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache is not a safe application directory.",
+            )
+        try:
+            resolved_models_root = models_root.resolve()
+            expected_models_root = self.root.resolve() / "models"
+        except OSError as error:
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache could not be resolved.",
+                retryable=True,
+            ) from error
+        if resolved_models_root != expected_models_root:
+            raise CoreDomainError(
+                "MODEL_CACHE_UNSAFE",
+                "The shared model cache is outside the application data root.",
+            )
+        names = ("asr", "embeddings") if kind == "all" else (kind,)
+        targets = tuple(models_root / name for name in names)
+        for target in targets:
+            if target.is_symlink() or (target.exists() and not target.is_dir()):
+                raise CoreDomainError(
+                    "MODEL_CACHE_UNSAFE",
+                    "The shared model cache is not a safe application directory.",
+                )
+            if target.exists():
+                try:
+                    resolved = target.resolve()
+                except OSError as error:
+                    raise CoreDomainError(
+                        "MODEL_CACHE_UNSAFE",
+                        "The shared model cache could not be resolved.",
+                        retryable=True,
+                    ) from error
+                if resolved.parent != resolved_models_root or resolved.name != target.name:
+                    raise CoreDomainError(
+                        "MODEL_CACHE_UNSAFE",
+                        "The shared model cache is outside the application data root.",
+                    )
+        return targets

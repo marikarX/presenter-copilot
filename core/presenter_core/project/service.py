@@ -288,11 +288,21 @@ class ProjectService:
     def delete(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id"})
         project_id = self._project_id(params)
+        recovery = self._storage.reconcile_deletions()
+        if recovery["pending_operation_ids"]:
+            raise CoreDomainError(
+                "DELETION_RECOVERY_PENDING",
+                "A previous deletion is still being recovered; retry is safe.",
+                retryable=True,
+            )
         try:
             self._storage.app_row(project_id)
         except CoreDomainError as error:
             if error.code == "PROJECT_NOT_FOUND":
-                return {"project_id": project_id, "deleted": False}
+                return {
+                    "project_id": project_id,
+                    "deleted": project_id in recovery["completed_project_ids"],
+                }
             raise
 
         # Validate the registry-to-vault mapping before the one authoritative
@@ -300,16 +310,7 @@ class ProjectService:
         self._storage.project_paths(project_id, require_exists=False)
         if self._before_delete is not None:
             self._before_delete(project_id)
-        self._storage.paths.delete_project_directory(project_id)
-        try:
-            self._storage.remove_app_project(project_id)
-        except CoreDomainError as exc:
-            raise CoreDomainError(
-                "PROJECT_DELETE_FAILED",
-                "The project directory was removed but its registry entry could not be cleared.",
-                retryable=True,
-                details={},
-            ) from exc
+        self._storage.delete_project_authoritative(project_id)
         return {"project_id": project_id, "deleted": True}
 
     def close(self) -> None:

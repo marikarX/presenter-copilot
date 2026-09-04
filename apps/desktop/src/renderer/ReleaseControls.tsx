@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import type {
   CredentialStatus,
+  DiagnosticSection,
   DiagnosticPreviewResult,
+  ResetLocalDataResult,
   ModelsStatusResult,
   ModelStatusSummary,
   RendererCoreMethod,
 } from "../shared/protocol";
-import { unwrapInvokeResult } from "../shared/protocol";
+import { DIAGNOSTIC_SECTIONS, unwrapInvokeResult } from "../shared/protocol";
 
 interface ReleaseControlsProps {
   coreReady: boolean;
@@ -38,6 +40,25 @@ function modelLabel(model: ModelStatusSummary): string {
   return model.kind === "asr" ? "Speech recognition" : "Semantic retrieval";
 }
 
+const DIAGNOSTIC_SECTION_LABELS: Record<DiagnosticSection, string> = {
+  core: "Core",
+  storage: "Storage",
+  models: "Models",
+  provider: "Provider",
+  logs: "Logs",
+  benchmarks: "Benchmarks",
+};
+
+function sameSections(
+  left: readonly DiagnosticSection[],
+  right: readonly DiagnosticSection[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((section, index) => section === right[index])
+  );
+}
+
 export function ReleaseControls({
   coreReady,
   runActive,
@@ -47,6 +68,12 @@ export function ReleaseControls({
   const [credentials, setCredentials] = useState<CredentialStatus | null>(null);
   const [diagnosticPreview, setDiagnosticPreview] =
     useState<DiagnosticPreviewResult | null>(null);
+  const [diagnosticSections, setDiagnosticSections] = useState<
+    DiagnosticSection[]
+  >([...DIAGNOSTIC_SECTIONS]);
+  const [previewSections, setPreviewSections] = useState<
+    DiagnosticSection[] | null
+  >(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [removeModelCache, setRemoveModelCache] = useState(false);
@@ -160,30 +187,46 @@ export function ReleaseControls({
   }, [loadCredentials]);
 
   const previewDiagnostics = useCallback(async () => {
+    const selectedSections = [...diagnosticSections];
     setBusy("diagnostic-preview");
     setNotice(null);
     try {
       const result = await window.presenterCopilot.diagnostics
-        .preview(["core", "storage", "models", "provider", "benchmarks"])
+        .preview(selectedSections)
         .then(unwrapInvokeResult);
       setDiagnosticPreview(result);
+      setPreviewSections(selectedSections);
       setNotice("Safe diagnostic metadata is ready to review.");
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [diagnosticSections]);
 
   const saveDiagnostics = useCallback(async () => {
+    if (
+      diagnosticPreview === null ||
+      previewSections === null ||
+      !sameSections(diagnosticSections, previewSections)
+    ) {
+      setNotice("Preview the current diagnostic selection before exporting.");
+      return;
+    }
+    const selectedSections = [...diagnosticSections];
     setBusy("diagnostic-save");
     setNotice(null);
     try {
       const result = await window.presenterCopilot.diagnostics
-        .save(["core", "storage", "models", "provider", "logs", "benchmarks"])
+        .save(selectedSections)
         .then(unwrapInvokeResult);
       if (result.cancelled) {
         setNotice("Diagnostic export cancelled.");
+      } else if (
+        !result.included_sections ||
+        !sameSections(result.included_sections, selectedSections)
+      ) {
+        setNotice("Diagnostic export selection did not match its preview.");
       } else {
         setNotice(
           "Safe diagnostic ZIP exported from the selected native save location.",
@@ -194,26 +237,52 @@ export function ReleaseControls({
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [diagnosticPreview, diagnosticSections, previewSections]);
+
+  const toggleDiagnosticSection = useCallback(
+    (section: DiagnosticSection, checked: boolean) => {
+      setDiagnosticSections((current) =>
+        DIAGNOSTIC_SECTIONS.filter((candidate) =>
+          candidate === section ? checked : current.includes(candidate),
+        ),
+      );
+      setDiagnosticPreview(null);
+      setPreviewSections(null);
+      setNotice("Diagnostic selection changed. Preview it before exporting.");
+    },
+    [],
+  );
 
   const resetLocalData = useCallback(async () => {
     const cacheText = removeModelCache
-      ? " Project data, settings, logs, credentials, and model caches will be removed."
-      : " Project data, settings, logs, and credentials will be removed; model caches will be retained.";
+      ? " Project data, settings, logs, stored credentials, and model caches will be removed. Environment variables remain external."
+      : " Project data, settings, logs, and stored credentials will be removed; model caches will be retained. Environment variables remain external.";
     if (!window.confirm(`Reset all local application data?${cacheText}`))
       return;
     setBusy("reset-local-data");
     setNotice(null);
     try {
-      await requestCore("app.reset_local_data", {
-        confirm: true,
-        remove_model_cache: removeModelCache,
-      });
+      const result = await requestCore<ResetLocalDataResult>(
+        "app.reset_local_data",
+        {
+          confirm: true,
+          remove_model_cache: removeModelCache,
+        },
+      );
       setDiagnosticPreview(null);
+      setPreviewSections(null);
       await Promise.all([loadModels(), loadCredentials()]);
       onResetComplete();
+      const credentialMessage = result.credentials_removed
+        ? " The stored credential was removed."
+        : result.stored_credential_present
+          ? " The stored credential was not removed."
+          : " No stored credential was present. ";
+      const environmentMessage = result.environment_credential_retained
+        ? " Environment variables remain external and were not changed."
+        : "";
       setNotice(
-        "Local application data was reset. Model-cache retention followed your selection.",
+        `Local application data was reset. Model-cache retention followed your selection.${credentialMessage}${environmentMessage}`,
       );
     } catch (error) {
       setNotice(errorMessage(error));
@@ -330,6 +399,25 @@ export function ReleaseControls({
             Metadata-only preview and ZIP export. No source text, secrets, or
             renderer paths.
           </span>
+          <div
+            className="diagnostic-sections"
+            role="group"
+            aria-label="Diagnostic sections"
+          >
+            {DIAGNOSTIC_SECTIONS.map((section) => (
+              <label key={section} className="diagnostic-section-option">
+                <input
+                  type="checkbox"
+                  checked={diagnosticSections.includes(section)}
+                  onChange={(event) =>
+                    toggleDiagnosticSection(section, event.target.checked)
+                  }
+                  disabled={controlsDisabled}
+                />
+                {DIAGNOSTIC_SECTION_LABELS[section]}
+              </label>
+            ))}
+          </div>
           <div className="model-actions">
             <button
               type="button"
@@ -345,7 +433,12 @@ export function ReleaseControls({
               type="button"
               className="secondary-button"
               onClick={() => void saveDiagnostics()}
-              disabled={controlsDisabled}
+              disabled={
+                controlsDisabled ||
+                diagnosticPreview === null ||
+                previewSections === null ||
+                !sameSections(diagnosticSections, previewSections)
+              }
             >
               {busy === "diagnostic-save" ? "Exporting…" : "Export ZIP…"}
             </button>
@@ -353,14 +446,11 @@ export function ReleaseControls({
           {diagnosticPreview ? (
             <div className="diagnostic-preview" role="status">
               <strong>Previewed sections</strong>
-              <span>
-                {Object.keys(diagnosticPreview)
-                  .filter(
-                    (key) => key !== "schema_version" && key !== "timestamp",
-                  )
-                  .join(" · ") || "none"}
-              </span>
+              <span>{previewSections?.join(" · ") || "none"}</span>
               <small>Schema {diagnosticPreview.schema_version}</small>
+              <pre aria-label="Safe diagnostic metadata">
+                {JSON.stringify(diagnosticPreview, null, 2)}
+              </pre>
             </div>
           ) : null}
         </section>

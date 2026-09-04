@@ -192,12 +192,70 @@ class ProviderService:
             "environment_still_detected": bool(os.environ.get("OPENAI_API_KEY")),
         }
 
-    def remove_stored_credential_for_reset(self) -> bool:
-        """Remove the OS entry during reset without treating environment as stored data."""
-        if not self._credential_store.is_available():
-            return False
-        result = self.remove_credential({})
-        return bool(result["removed"])
+    def prepare_reset_credential_cleanup(self) -> dict[str, Any]:
+        """Preflight the OS store before any destructive local-data operation."""
+        try:
+            available = self._credential_store.is_available()
+        except Exception as error:
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "A secure operating-system credential store is unavailable.",
+                retryable=True,
+            ) from error
+        if not available:
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "A secure operating-system credential store is unavailable.",
+                retryable=True,
+            )
+        try:
+            stored = self._credential_store.read()
+        except Exception as error:
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "The secure operating-system credential store could not be read.",
+                retryable=True,
+            ) from error
+        return {
+            "stored_credential_present": bool(stored),
+            "credential_cleanup_established": True,
+            "environment_credential_detected": bool(os.environ.get("OPENAI_API_KEY")),
+            "environment_credential_retained": True,
+        }
+
+    def remove_stored_credential_for_reset(
+        self, plan: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Remove and verify only the OS entry; environment credentials stay external."""
+        del plan
+        preflight = self.prepare_reset_credential_cleanup()
+        stored_present = bool(preflight["stored_credential_present"])
+        removed = False
+        if stored_present:
+            try:
+                self._credential_store.delete()
+                remaining = self._credential_store.read()
+            except Exception as error:
+                raise ProviderError(
+                    "CREDENTIAL_CLEANUP_INCOMPLETE",
+                    "The stored credential could not be removed and verified; retry is safe.",
+                    retryable=True,
+                ) from error
+            if remaining:
+                raise ProviderError(
+                    "CREDENTIAL_CLEANUP_INCOMPLETE",
+                    "The stored credential could not be removed and verified; retry is safe.",
+                    retryable=True,
+                )
+            removed = True
+        if self._openai_instance is not None:
+            self._openai_instance.close()
+        self._runtime_health.pop("openai", None)
+        self._update_credential_source()
+        return {
+            **preflight,
+            "credentials_removed": removed,
+        }
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})

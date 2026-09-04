@@ -259,6 +259,41 @@ h2 {
   color: #8194b3;
 }
 
+.diagnostic-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+
+.diagnostic-section-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b8c9e3;
+  font-size: 0.76rem;
+}
+
+.diagnostic-section-option input {
+  width: auto;
+  accent-color: #76a5eb;
+}
+
+.diagnostic-preview pre {
+  max-height: 260px;
+  margin: 6px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(143, 171, 213, 0.12);
+  border-radius: 6px;
+  background: rgba(6, 13, 25, 0.52);
+  color: #c7d7ee;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .release-reset {
   margin-top: 10px;
 }

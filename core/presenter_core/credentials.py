@@ -61,12 +61,19 @@ class WindowsCredentialStore:
             elif isinstance(blob, str):
                 value = blob
             else:
+                raise CredentialStoreUnavailable
+            if not _valid_credential(value):
+                raise CredentialStoreUnavailable
+            return value
+        except Exception as error:
+            # Missing is the only safe negative result. A read/API/decode
+            # failure must remain distinguishable to Reset Local Data, or a
+            # credential could be left behind while the reset reports success.
+            if getattr(error, "winerror", None) == self._ERROR_NOT_FOUND:
                 return None
-            return value if _valid_credential(value) else None
-        except Exception:
-            # Absence, corrupt data, and a temporarily unavailable API are all
-            # intentionally indistinguishable at the renderer boundary.
-            return None
+            if isinstance(error, CredentialStoreUnavailable):
+                raise
+            raise CredentialStoreUnavailable from error
 
     def write(self, value: str) -> None:
         _require_credential(value)

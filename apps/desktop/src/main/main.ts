@@ -22,7 +22,9 @@ import {
   isJsonObject,
   isRendererCoreMethod,
   PROTOCOL_VERSION,
+  DIAGNOSTIC_SECTIONS,
   type CoreMetadata,
+  type DiagnosticSection,
   type RendererCoreMethod,
   type CoreStatus,
   type EventEnvelope,
@@ -50,17 +52,16 @@ import {
 } from "./shortcut-manager";
 import { nextCueIndex } from "./cue-navigation";
 import { bindHudCueRequest, type HudLiveTarget } from "./hud-cue-request";
+import {
+  AutomaticRestartController,
+  DEFAULT_AUTOMATIC_RESTART_DELAYS_MS,
+  DEFAULT_AUTOMATIC_RESTART_MAX_ATTEMPTS,
+} from "./restart-controller";
 
 let mainWindow: BrowserWindow | null = null;
 let hudWindow: BrowserWindow | null = null;
 let coreClient: CoreProcessClient | null = null;
 let isQuitting = false;
-let restartTimer: ReturnType<typeof setTimeout> | null = null;
-let restartAttempt = 0;
-let restartInFlight = false;
-
-const MAX_AUTOMATIC_RESTARTS = 2;
-const AUTOMATIC_RESTART_DELAYS_MS = [500, 1_500] as const;
 const PACKAGED_SMOKE_ARGUMENT = "--presenter-copilot-smoke";
 
 export const MANUAL_PREVIOUS_SHORTCUT = "Ctrl+Alt+PageUp";
@@ -703,63 +704,42 @@ async function bootstrapCore(): Promise<boolean> {
     return true;
   } catch (error) {
     client.markUnavailable(error);
+    // A failed handshake may have already asked CoreProcessClient to kill the
+    // child. Wait for its close finalizer before another restart attempt; this
+    // preserves the one-child/no-race lifecycle invariant when termination is
+    // delayed by the OS.
+    await client.shutdown().catch(() => undefined);
     return false;
   }
 }
 
-function scheduleAutomaticRestart(): void {
-  if (
-    isQuitting ||
-    restartTimer !== null ||
-    restartInFlight ||
-    restartAttempt >= MAX_AUTOMATIC_RESTARTS
-  ) {
-    return;
-  }
-  const delay =
-    AUTOMATIC_RESTART_DELAYS_MS[restartAttempt] ??
-    AUTOMATIC_RESTART_DELAYS_MS[AUTOMATIC_RESTART_DELAYS_MS.length - 1];
-  restartAttempt += 1;
-  restartTimer = setTimeout(() => {
-    restartTimer = null;
-    void restartCore();
-  }, delay);
-}
+const automaticRestartController = new AutomaticRestartController({
+  restart: bootstrapCore,
+  isQuitting: () => isQuitting,
+  maxAttempts: DEFAULT_AUTOMATIC_RESTART_MAX_ATTEMPTS,
+  delaysMs: DEFAULT_AUTOMATIC_RESTART_DELAYS_MS,
+  onExhausted: () => {
+    clearInterruptedLiveState();
+  },
+});
 
-async function restartCore(): Promise<void> {
-  if (isQuitting || restartInFlight || !coreClient) return;
-  restartInFlight = true;
-  try {
-    const ready = await bootstrapCore();
-    if (ready) restartAttempt = 0;
-    else scheduleAutomaticRestart();
-  } finally {
-    restartInFlight = false;
-  }
-}
-
-function validateDiagnosticSections(value: unknown): string[] | undefined {
+function validateDiagnosticSections(
+  value: unknown,
+): DiagnosticSection[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > 6)
     throw new Error("Diagnostic sections must be a bounded list.");
-  const allowed = new Set([
-    "core",
-    "storage",
-    "models",
-    "provider",
-    "logs",
-    "benchmarks",
-  ]);
-  const sections: string[] = [];
+  const allowed = new Set<string>(DIAGNOSTIC_SECTIONS);
+  const sections: DiagnosticSection[] = [];
   for (const section of value) {
     if (
       typeof section !== "string" ||
       !allowed.has(section) ||
-      sections.includes(section)
+      sections.includes(section as DiagnosticSection)
     ) {
       throw new Error("Diagnostic sections contain an unsupported value.");
     }
-    sections.push(section);
+    sections.push(section as DiagnosticSection);
   }
   return sections;
 }
@@ -1247,7 +1227,7 @@ void app.whenReady().then(() => {
   });
   coreClient.onUnexpectedTermination(() => {
     clearInterruptedLiveState();
-    scheduleAutomaticRestart();
+    automaticRestartController.onUnexpectedClose();
   });
   coreClient.onEvent(sendEvent);
   coreClient.onProtocolError((error) => {
@@ -1278,10 +1258,7 @@ app.on("before-quit", (event) => {
   if (isQuitting || !coreClient) return;
   event.preventDefault();
   isQuitting = true;
-  if (restartTimer !== null) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
-  }
+  automaticRestartController.cancel();
   void stopCore()
     .catch((error) =>
       console.error(`[core:shutdown] ${toCoreError(error).message}`),

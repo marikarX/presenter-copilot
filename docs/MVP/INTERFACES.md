@@ -97,6 +97,13 @@ project.acknowledge_remote_reasoning
 project.delete
 ```
 
+`project.delete` stops project-owned Run/Live/ASR state and evicts retrieval
+indexes before moving the vault into an app-owned quarantine tombstone. The
+registry removal and committed tombstone marker share one app transaction. A
+failure before that commit restores the vault; a post-commit cleanup failure
+returns a retryable pending result and startup/retry reconciliation never makes
+the committed vault retrievable again.
+
 ### Sources
 
 ```text
@@ -453,8 +460,14 @@ the approved shared cache. Neither method returns a model filesystem path.
 `app.reset_local_data` requires explicit confirmation and removes registered
 and orphaned canonical project vaults, app settings/metadata, diagnostics,
 logs, provider metadata, and stored OS credentials. Model caches are retained
-unless `remove_model_cache=true` is explicitly supplied. Reset and deletion
-fail closed if an active worker still owns the affected data.
+unless `remove_model_cache=true` is explicitly supplied. Reset stages all
+targets in an app-owned quarantine tombstone and commits its cleanup marker in
+the same app transaction; pre-commit failures restore the vaults and
+post-commit failures remain retryable and non-retrievable. The secure
+credential store is preflighted before staging; an unavailable store fails
+closed without changing project/app data. Environment credentials are external
+and are not deleted. Reset and deletion stop owners before staging and fail
+closed on unsafe targets.
 
 `run.list_transcript` returns final utterances only, ordered by start time and
 bounded by `limit`/`offset`. `run.list_timeline` returns bounded slide events
@@ -542,12 +555,15 @@ diagnostics.export
 ```
 
 Diagnostics are metadata-only, previewable, and redacted by an allowlisted
-structured logger. They may include safe health, model/provider status, counts,
-timings, error codes, and recent safe event records, but not databases, source
-text, transcript text, prompts, responses, credentials, raw environment, or
-arbitrary paths. The renderer receives preview data through an explicit
-preload API; the native Electron main process owns the save dialog and passes
-the selected destination to core only after validating it.
+structured logger. The bounded selectable sections are `core`, `storage`,
+`models`, `provider`, `logs`, and `benchmarks`; preview and export receive the
+same exact section list. They may include safe health, model/provider status,
+counts, timings, error codes, and recent safe event records, but not databases,
+source text, transcript text, prompts, responses, credentials, raw environment,
+or arbitrary paths. The renderer displays the returned projection as inert
+text through an explicit preload API; the native Electron main process owns the
+save dialog and passes the selected destination to core only after validating
+it.
 
 ## 4. Required P0 events
 

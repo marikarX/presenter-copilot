@@ -1144,6 +1144,16 @@ export interface CredentialStatus {
   environment_detected: boolean;
 }
 
+export const DIAGNOSTIC_SECTIONS = [
+  "core",
+  "storage",
+  "models",
+  "provider",
+  "logs",
+  "benchmarks",
+] as const;
+export type DiagnosticSection = (typeof DIAGNOSTIC_SECTIONS)[number];
+
 export interface DiagnosticPreviewResult {
   schema_version: number;
   timestamp: string;
@@ -1156,7 +1166,19 @@ export interface DiagnosticSaveResult {
   format?: "zip";
   file_name?: string;
   size_bytes?: number;
-  included_sections?: string[];
+  included_sections?: DiagnosticSection[];
+}
+
+export interface ResetLocalDataResult {
+  reset: true;
+  projects_removed: number;
+  project_directories_removed: number;
+  model_cache_retained: boolean;
+  credentials_removed: boolean;
+  stored_credential_present: boolean;
+  credential_cleanup_established: boolean;
+  environment_credential_detected: boolean;
+  environment_credential_retained: true;
 }
 
 export type ProviderHealthStatus =
@@ -1249,9 +1271,11 @@ export interface PresenterCopilotApi {
   };
   diagnostics: {
     preview(
-      sections?: string[],
+      sections?: DiagnosticSection[],
     ): Promise<InvokeResult<DiagnosticPreviewResult>>;
-    save(sections?: string[]): Promise<InvokeResult<DiagnosticSaveResult>>;
+    save(
+      sections?: DiagnosticSection[],
+    ): Promise<InvokeResult<DiagnosticSaveResult>>;
   };
   shortcuts: {
     enableManualRun(

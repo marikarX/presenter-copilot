@@ -14,6 +14,7 @@ import type {
   HudStatus,
   DiagnosticPreviewResult,
   DiagnosticSaveResult,
+  DiagnosticSection,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -61,13 +62,15 @@ const api: PresenterCopilotApi = {
   },
   diagnostics: {
     preview(
-      sections?: string[],
+      sections?: DiagnosticSection[],
     ): Promise<InvokeResult<DiagnosticPreviewResult>> {
       return ipcRenderer.invoke("diagnostics:preview", sections) as Promise<
         InvokeResult<DiagnosticPreviewResult>
       >;
     },
-    save(sections?: string[]): Promise<InvokeResult<DiagnosticSaveResult>> {
+    save(
+      sections?: DiagnosticSection[],
+    ): Promise<InvokeResult<DiagnosticSaveResult>> {
       return ipcRenderer.invoke("diagnostics:save", sections) as Promise<
         InvokeResult<DiagnosticSaveResult>
       >;

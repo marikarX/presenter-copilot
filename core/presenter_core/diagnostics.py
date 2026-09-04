@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shutil
 import uuid
 import zipfile
@@ -12,14 +11,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from presenter_core import CORE_VERSION
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
 from presenter_core.safe_logging import SafeLogger
 from presenter_core.storage.database import APP_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION
 from presenter_core.storage.service import StorageManager
 
 SafeProjection = Callable[[], dict[str, Any]]
-_SECTIONS = frozenset({"core", "storage", "models", "provider", "logs", "benchmarks"})
+DIAGNOSTIC_SECTION_ORDER = ("core", "storage", "models", "provider", "logs", "benchmarks")
+_SECTIONS = frozenset(DIAGNOSTIC_SECTION_ORDER)
 
 
 class DiagnosticService:
@@ -43,8 +42,6 @@ class DiagnosticService:
     def preview(self, params: dict[str, Any]) -> dict[str, Any]:
         sections = _requested_sections(params)
         projection = self._projection()
-        if sections is None:
-            return projection
         return {
             "schema_version": projection["schema_version"],
             "timestamp": projection["timestamp"],
@@ -80,10 +77,11 @@ class DiagnosticService:
                 retryable=True,
             ) from error
 
-        preview_params: dict[str, Any] = {}
-        if "sections" in params:
-            preview_params["sections"] = params["sections"]
-        projection = self.preview(preview_params)
+        requested = _requested_sections(
+            {"sections": params["sections"]} if "sections" in params else {}
+        )
+        assert requested is not None
+        projection = self.preview({"sections": list(requested)})
         staging = self._storage.paths.root / f".diagnostic-staging-{uuid.uuid4()}"
         temporary_output = destination.with_name(f".{destination.name}.{uuid.uuid4()}.tmp")
         try:
@@ -98,16 +96,17 @@ class DiagnosticService:
                 json.dumps(projection, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            safe_logs = projection.get("logs", [])
-            (staging / "logs.jsonl").write_text(
-                "".join(
-                    json.dumps(item, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-                    + "\n"
-                    for item in safe_logs
-                    if isinstance(item, dict)
-                ),
-                encoding="utf-8",
-            )
+            if "logs" in projection:
+                safe_logs = projection.get("logs", [])
+                (staging / "logs.jsonl").write_text(
+                    "".join(
+                        json.dumps(item, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                        + "\n"
+                        for item in safe_logs
+                        if isinstance(item, dict)
+                    ),
+                    encoding="utf-8",
+                )
             with zipfile.ZipFile(
                 temporary_output,
                 mode="w",
@@ -115,7 +114,8 @@ class DiagnosticService:
                 compresslevel=6,
             ) as archive:
                 archive.write(staging / "diagnostics.json", "diagnostics.json")
-                archive.write(staging / "logs.jsonl", "logs.jsonl")
+                if "logs" in projection:
+                    archive.write(staging / "logs.jsonl", "logs.jsonl")
             os.replace(temporary_output, destination)
             size_bytes = destination.stat().st_size
         except CoreDomainError:
@@ -142,9 +142,7 @@ class DiagnosticService:
             "format": "zip",
             "file_name": destination.name[:160],
             "size_bytes": size_bytes,
-            "included_sections": [
-                key for key in projection if key not in {"schema_version", "timestamp"}
-            ],
+            "included_sections": list(requested),
         }
 
     def _projection(self) -> dict[str, Any]:
@@ -177,14 +175,6 @@ class DiagnosticService:
                 "status": "metadata_only",
                 "automatic_question_segmentation": "not_applicable",
             },
-            "runtime": {
-                "os": platform.system(),
-                "os_release": platform.release(),
-                "architecture": platform.machine(),
-                "python": platform.python_version(),
-                "core_version": CORE_VERSION,
-                "pid_present": True,
-            },
         }
 
     @staticmethod
@@ -194,10 +184,10 @@ class DiagnosticService:
         return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _requested_sections(params: dict[str, Any]) -> tuple[str, ...] | None:
+def _requested_sections(params: dict[str, Any]) -> tuple[str, ...]:
     reject_unknown_fields(params, {"sections"})
     if "sections" not in params:
-        return None
+        return DIAGNOSTIC_SECTION_ORDER
     sections = params["sections"]
     if not isinstance(sections, list) or len(sections) > len(_SECTIONS):
         raise invalid_request(
