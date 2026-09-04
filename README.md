@@ -24,6 +24,7 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 - **Challenge** — rehearse against grounded audience questions and follow-ups.
 - **Run** — uninterrupted presentation rehearsal with post-run debrief.
 - **Live Assist** — private webcam-adjacent source-grounded cues with an explicit push-to-assist fallback.
+- **Immersive Rehearsal (roadmap)** — renderer-independent synthetic audience simulation with visible reactions, interruptions, spatial pressure, and scenario-specific debriefing. See [`docs/IMMERSIVE/`](docs/IMMERSIVE/README.md).
 
 ## Design principles
 
@@ -34,6 +35,7 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 - **Provider-pluggable.** Support local models, user-supplied APIs, and officially supported agent backends where permitted.
 - **Source-grounded.** Important facts remain traceable to slides, documents, user explanations, transcripts, or practiced answers.
 - **Audience evidence, not profiling.** Use observed questions/interaction patterns; do not infer hidden emotions, sensitive traits, or persistent biometric identity.
+- **Behavior before photorealism.** Immersive rehearsal should prove that simulated audience behavior improves preparation before investing in high-fidelity 3D or XR.
 - **No stealth-cheating positioning.** This is a private presenter view, not an undetectable answer machine.
 
 ## Initial architecture
@@ -136,6 +138,7 @@ commands.
 
 - [Product definition](docs/PRODUCT.md)
 - [Architecture principles](docs/ARCHITECTURE.md)
+- [Immersive rehearsal roadmap package](docs/IMMERSIVE/README.md)
 - [Privacy model](docs/PRIVACY.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Competition](docs/COMPETITION.md)
@@ -160,6 +163,8 @@ Milestone 0 — repository scaffold — is merged into `main`. The current
 implementation slice is Milestone 4 — local project vault, transcript
 ingestion, embeddings, hybrid retrieval, typed Teach, Speaker Profile, and the
 project-local Audience Model.
+
+Immersive Rehearsal is documented as a post-MVP roadmap direction and does not change the frozen MVP implementation contract.
 
 ## License
 
