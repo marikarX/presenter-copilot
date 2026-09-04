@@ -35,6 +35,7 @@ type PendingRequest = {
 type EventListener = (event: EventEnvelope) => void;
 type StatusListener = (status: CoreStatus) => void;
 type ProtocolErrorListener = (error: CoreClientError) => void;
+type UnexpectedTerminationListener = (error: CoreError) => void;
 
 type ChildLifecycle = {
   code: number | null;
@@ -49,6 +50,36 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 // The core's bounded ASR join is 30 seconds.  Leave a small transport margin
 // so an expected final decode is not killed by Electron first.
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 35_000;
+const UNSAFE_ERROR_TEXT =
+  /api[_-]?key|access[_-]?token|bearer|credential|password|secret|sk-[a-z0-9]/i;
+
+function hasUnsafeControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if ((code >= 0 && code <= 31) || code === 127) return true;
+  }
+  return false;
+}
+
+function safeErrorMessage(code: string, message: unknown): string {
+  if (
+    typeof message === "string" &&
+    message.length > 0 &&
+    message.length <= 240 &&
+    !hasUnsafeControlCharacters(message) &&
+    !UNSAFE_ERROR_TEXT.test(message)
+  ) {
+    return message;
+  }
+  const fallbacks: Record<string, string> = {
+    SIDECAR_START_FAILED: "The Python core sidecar could not be started.",
+    SIDECAR_PROCESS_ERROR: "The Python core sidecar process failed.",
+    SIDECAR_STDOUT_ERROR: "The Python core sidecar transport failed.",
+    SIDECAR_WRITE_FAILED: "The Python core sidecar request could not be sent.",
+    SIDECAR_UNAVAILABLE: "The Python core sidecar is unavailable.",
+  };
+  return fallbacks[code] ?? "The Python core sidecar returned an unsafe error.";
+}
 
 export class CoreClientError extends Error {
   readonly code: string;
@@ -56,7 +87,7 @@ export class CoreClientError extends Error {
   readonly details: JsonObject;
 
   constructor(error: CoreError) {
-    super(error.message);
+    super(safeErrorMessage(error.code, error.message));
     this.name = "CoreClientError";
     this.code = error.code;
     this.retryable = error.retryable;
@@ -98,7 +129,7 @@ export function toCoreError(
   }
   return {
     code: fallbackCode,
-    message: error instanceof Error ? error.message : String(error),
+    message: safeErrorMessage(fallbackCode, undefined),
     retryable,
     details: {},
   };
@@ -117,6 +148,8 @@ export class CoreProcessClient {
   private readonly eventListeners = new Set<EventListener>();
   private readonly statusListeners = new Set<StatusListener>();
   private readonly protocolErrorListeners = new Set<ProtocolErrorListener>();
+  private readonly unexpectedTerminationListeners =
+    new Set<UnexpectedTerminationListener>();
   private readonly finalizedChildren =
     new WeakSet<ChildProcessWithoutNullStreams>();
   private readonly childLifecycles = new WeakMap<
@@ -162,6 +195,7 @@ export class CoreProcessClient {
       cwd: options.cwd,
       env: options.env,
       stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
       windowsHide: true,
     };
     this.spawnProcess =
@@ -199,6 +233,11 @@ export class CoreProcessClient {
   onProtocolError(listener: ProtocolErrorListener): () => void {
     this.protocolErrorListeners.add(listener);
     return () => this.protocolErrorListeners.delete(listener);
+  }
+
+  onUnexpectedTermination(listener: UnexpectedTerminationListener): () => void {
+    this.unexpectedTerminationListeners.add(listener);
+    return () => this.unexpectedTerminationListeners.delete(listener);
   }
 
   start(): Promise<CoreMetadata> {
@@ -259,7 +298,7 @@ export class CoreProcessClient {
       this.fail(
         new CoreClientError({
           code: "SIDECAR_START_FAILED",
-          message: error instanceof Error ? error.message : String(error),
+          message: safeErrorMessage("SIDECAR_START_FAILED", error),
           retryable: true,
           details: {},
         }),
@@ -322,7 +361,7 @@ export class CoreProcessClient {
                 requestId,
                 new CoreClientError({
                   code: "SIDECAR_WRITE_FAILED",
-                  message: error.message,
+                  message: safeErrorMessage("SIDECAR_WRITE_FAILED", error),
                   retryable: true,
                   details: {},
                 }),
@@ -335,7 +374,7 @@ export class CoreProcessClient {
           requestId,
           new CoreClientError({
             code: "SIDECAR_WRITE_FAILED",
-            message: error instanceof Error ? error.message : String(error),
+            message: safeErrorMessage("SIDECAR_WRITE_FAILED", error),
             retryable: true,
             details: {},
           }),
@@ -431,16 +470,13 @@ export class CoreProcessClient {
       try {
         const message: unknown = JSON.parse(line);
         this.handleMessage(message);
-      } catch (error) {
+      } catch {
         this.notifyProtocolError(
           new CoreClientError({
             code: "MALFORMED_JSON",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Sidecar emitted malformed JSON.",
+            message: "The sidecar emitted malformed JSON.",
             retryable: false,
-            details: { line_preview: line.slice(0, 120) },
+            details: { line_length: Math.min(line.length, 100_000) },
           }),
         );
       }
@@ -460,7 +496,7 @@ export class CoreProcessClient {
     if (message.protocol_version !== PROTOCOL_VERSION) {
       const error = new CoreClientError({
         code: "PROTOCOL_VERSION_UNSUPPORTED",
-        message: `Sidecar protocol version ${String(message.protocol_version)} is not supported.`,
+        message: "The sidecar protocol version is not supported.",
         retryable: false,
         details: { supported_versions: [PROTOCOL_VERSION] },
       });
@@ -629,6 +665,14 @@ export class CoreProcessClient {
       this.setStatus({ state: "stopped" });
     } else {
       this.setStatus({ state: "unavailable", error: toCoreError(finalError) });
+      const safeError = toCoreError(finalError);
+      for (const listener of this.unexpectedTerminationListeners) {
+        try {
+          listener(safeError);
+        } catch {
+          // Recovery listeners are isolated from the transport finalizer.
+        }
+      }
     }
   }
 

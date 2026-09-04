@@ -65,6 +65,9 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "asr.start",
     "asr.stop",
     "asr.status",
+    "models.status",
+    "models.prepare",
+    "models.remove",
     "presentation.detect",
     "presentation.set_slide",
     "presentation.next_slide",
@@ -102,6 +105,12 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "provider.configure",
     "provider.test",
     "provider.status",
+    "provider.credentials.status",
+    "provider.credentials.save_detected",
+    "provider.credentials.remove",
+    "diagnostics.preview",
+    "diagnostics.export",
+    "app.reset_local_data",
     "privacy.list_context_manifests",
 )
 SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
@@ -133,6 +142,7 @@ SUPPORTED_EVENTS: Final[tuple[str, ...]] = (
     "cue.partial",
     "cue.ready",
     "cue.error",
+    "models.progress",
 )
 
 

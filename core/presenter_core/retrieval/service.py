@@ -690,6 +690,12 @@ class HybridRetrievalService:
             self._evict_matrix_cache(project_id)
         self._embedding_adapter.close()
 
+    def release_model(self) -> None:
+        """Release the shared embedding runtime while keeping retrieval reusable."""
+        for project_id in tuple(self._matrix_cache):
+            self._evict_matrix_cache(project_id)
+        self._embedding_adapter.close()
+
     def evict_project(self, project_id: str) -> None:
         """Release one project's cached matrix before its vault is deleted."""
         normalized_project_id = normalize_project_id(project_id)
@@ -699,11 +705,9 @@ class HybridRetrievalService:
     def invalidate_project_mappings(self, project_id: str) -> None:
         """Forget cached validity counts after an active mapping-set mutation."""
         normalized_project_id = normalize_project_id(project_id)
-        self._mapping_count_cache = {
-            key: value
-            for key, value in self._mapping_count_cache.items()
-            if key[0] != normalized_project_id
-        }
+        for key in tuple(self._mapping_count_cache):
+            if key[0] == normalized_project_id:
+                self._mapping_count_cache.pop(key, None)
 
     def _activate_generation(
         self,

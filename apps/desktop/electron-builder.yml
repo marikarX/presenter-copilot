@@ -1,0 +1,29 @@
+appId: com.synapseone.presenter-copilot
+productName: Presenter Copilot
+artifactName: Presenter-Copilot-${version}-${arch}-setup.${ext}
+directories:
+  output: ../../artifacts/installer
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: ../../artifacts/sidecar/presenter-core
+    to: sidecar/presenter-core
+    filter:
+      - '**/*'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: Presenter Copilot
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  runAfterFinish: false

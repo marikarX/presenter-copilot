@@ -26,6 +26,42 @@ Before tagging a release:
 9. Generate checksums/signatures for downloadable binaries once binary distribution begins.
 10. Smoke-test install, first-run permissions, rehearsal, HUD, and uninstall/data-removal behavior.
 
+## M9 Windows release gate
+
+The current pre-1.0 Windows release pipeline is intentionally split between
+deterministic repository gates and manual environment evidence. From the
+repository root, run the pinned setup and the following commands on the exact
+candidate commit:
+
+```text
+pnpm setup
+pnpm check
+pnpm test:privacy-network
+pnpm test:m9
+pnpm test:e2e:release
+pnpm benchmark:release
+pnpm package:win
+pnpm test:packaged
+pnpm test:install-smoke
+git diff --check
+```
+
+`pnpm build:sidecar` creates the one-folder frozen Python sidecar used by
+`pnpm package:win`; the resulting installer is unsigned and per-user. The
+packaged application must launch the bundled sidecar without system Python,
+complete hello/health/shutdown, and leave no sidecar process. The installer
+smoke command is read-only and reports `manual_required` until a disposable
+Windows profile or VM has actually installed, started, uninstalled, and
+reinstalled the artifact. Ordinary uninstall must not silently remove user
+data; Reset Local Data is the explicit in-app data-removal operation.
+
+Keep Hosted Windows CI and Trusted Local CI as separate exact-SHA evidence.
+They do not substitute for a clean-machine install, real CPU/RTX model
+benchmark, physical microphone test, external capture test, or the
+five-presenter qualitative study. Record missing hardware/provider/model
+evidence as unavailable or pending rather than treating deterministic fakes or
+package success as those acceptance results.
+
 ## Release notes
 
 Every release note should distinguish:

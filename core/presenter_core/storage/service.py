@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -182,3 +184,115 @@ class StorageManager:
                 (key, encoded),
             )
             self._app.commit()
+
+    def reconcile_project_runtime(self, project_id: str) -> dict[str, int]:
+        """Fail-closed process-owned state left by an interrupted core run."""
+        normalized_id = normalize_project_id(project_id)
+        now = _utc_now()
+        with self.project_database(normalized_id) as connection:
+            provider_runs = connection.execute(
+                """
+                UPDATE provider_runs
+                SET ended_at = ?, status = 'error', error_code = 'CORE_RESTART_INTERRUPTED'
+                WHERE status = 'started'
+                """,
+                (now,),
+            ).rowcount
+            sessions = connection.execute(
+                """
+                UPDATE sessions
+                SET ended_at = COALESCE(ended_at, ?), status = 'aborted'
+                WHERE status = 'active' AND mode IN ('run', 'live_assist')
+                """,
+                (now,),
+            ).rowcount
+            connection.commit()
+        return {
+            "provider_runs": max(0, int(provider_runs)),
+            "sessions": max(0, int(sessions)),
+        }
+
+    def reconcile_runtime(self) -> dict[str, int]:
+        """Reconcile every registered project without changing completed state."""
+        result = {"provider_runs": 0, "sessions": 0, "projects": 0}
+        for row in self.list_app_rows():
+            project_id = str(row["id"])
+            try:
+                counts = self.reconcile_project_runtime(project_id)
+            except CoreDomainError:
+                # A corrupt vault remains unavailable and is never rewritten
+                # during recovery.  Its safe error is reported by project.list.
+                continue
+            result["provider_runs"] += counts["provider_runs"]
+            result["sessions"] += counts["sessions"]
+            result["projects"] += 1
+        return result
+
+    def reset_local_data(self, *, remove_model_cache: bool = False) -> dict[str, Any]:
+        """Remove app-owned user state while retaining models by explicit choice."""
+        rows = self.list_app_rows()
+        for row in rows:
+            project_id = normalize_project_id(str(row["id"]))
+            # Validate the registry mapping before deleting any vault.  This
+            # makes a tampered path fail closed instead of widening deletion.
+            self.project_paths(project_id, require_exists=False)
+        project_directories_removed = self.paths.delete_all_project_directories()
+
+        with self._app_lock:
+            try:
+                self._app.execute("BEGIN IMMEDIATE")
+                self._app.execute("DELETE FROM speaker_profiles")
+                self._app.execute("DELETE FROM provider_configurations")
+                self._app.execute("DELETE FROM projects")
+                self._app.execute("DELETE FROM app_metadata")
+                self._app.commit()
+            except Exception:
+                if self._app.in_transaction:
+                    self._app.rollback()
+                raise CoreDomainError(
+                    "LOCAL_DATA_RESET_FAILED",
+                    "Application data could not be reset; retry is safe.",
+                    retryable=True,
+                ) from None
+
+        for name in ("logs", "diagnostics"):
+            _delete_named_directory(self.paths.root, name)
+        if remove_model_cache:
+            self.paths.delete_model_cache("all")
+        return {
+            "reset": True,
+            "projects_removed": len(rows),
+            "project_directories_removed": project_directories_removed,
+            "model_cache_retained": not remove_model_cache,
+        }
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _delete_named_directory(root: Path, name: str) -> None:
+    """Delete one fixed app-owned child directory after validating its boundary."""
+    target = root / name
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        raise CoreDomainError(
+            "LOCAL_DATA_RESET_FAILED",
+            "Application data contains an unsafe directory entry.",
+            retryable=True,
+        )
+    if not target.exists():
+        return
+    if target.resolve().parent != root.resolve() or target.name != name:
+        raise CoreDomainError(
+            "LOCAL_DATA_RESET_FAILED",
+            "Application data contains an unsafe directory entry.",
+            retryable=True,
+        )
+    try:
+        shutil.rmtree(target)
+    except OSError as error:
+        raise CoreDomainError(
+            "LOCAL_DATA_RESET_FAILED",
+            "Application diagnostics could not be removed; retry is safe.",
+            retryable=True,
+        ) from error

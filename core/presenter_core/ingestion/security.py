@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final
@@ -11,6 +12,7 @@ from presenter_core.errors import CoreDomainError
 MAX_SOURCE_BYTES: Final = 50 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES: Final = 2_048
 MAX_ARCHIVE_EXPANDED_BYTES: Final = 128 * 1024 * 1024
+MAX_ARCHIVE_MEMBER_NAME_LENGTH: Final = 512
 MAX_SOURCE_UNITS: Final = 5_000
 MAX_EXTRACTED_TEXT_CHARS: Final = 20_000_000
 
@@ -86,7 +88,14 @@ def preflight_pptx_archive(path: Path) -> None:
             expanded_bytes = 0
             names: set[str] = set()
             for entry in entries:
-                _validate_archive_member(entry.filename)
+                normalized_name = _validate_archive_member(entry.filename)
+                if normalized_name.casefold() in names:
+                    raise CoreDomainError(
+                        "SOURCE_ARCHIVE_UNSAFE",
+                        "The presentation archive contains duplicate member names.",
+                        details={},
+                    )
+                names.add(normalized_name.casefold())
                 if entry.flag_bits & 0x1:
                     raise CoreDomainError(
                         "SOURCE_ARCHIVE_UNSAFE",
@@ -100,9 +109,15 @@ def preflight_pptx_archive(path: Path) -> None:
                         "The presentation archive expands beyond the import limit.",
                         details={"max_expanded_bytes": MAX_ARCHIVE_EXPANDED_BYTES},
                     )
-                names.add(entry.filename.replace("\\", "/"))
+                mode = (entry.external_attr >> 16) & 0o170000
+                if mode == stat.S_IFLNK:
+                    raise CoreDomainError(
+                        "SOURCE_ARCHIVE_UNSAFE",
+                        "The presentation archive contains a symbolic link.",
+                        details={},
+                    )
 
-            if "[Content_Types].xml" not in names or "ppt/presentation.xml" not in names:
+            if "[content_types].xml" not in names or "ppt/presentation.xml" not in names:
                 raise CoreDomainError(
                     "SOURCE_PARSE_FAILED",
                     "The PPTX archive is missing required presentation parts.",
@@ -118,13 +133,15 @@ def preflight_pptx_archive(path: Path) -> None:
         ) from exc
 
 
-def _validate_archive_member(name: str) -> None:
+def _validate_archive_member(name: str) -> str:
     normalized = name.replace("\\", "/")
     posix_path = PurePosixPath(normalized)
     windows_path = PureWindowsPath(normalized)
     if (
         not normalized
+        or len(normalized) > MAX_ARCHIVE_MEMBER_NAME_LENGTH
         or "\x00" in name
+        or any(ord(character) < 32 for character in name)
         or posix_path.is_absolute()
         or windows_path.is_absolute()
         or bool(windows_path.drive)
@@ -135,3 +152,4 @@ def _validate_archive_member(name: str) -> None:
             "The presentation archive contains an unsafe path.",
             details={},
         )
+    return normalized

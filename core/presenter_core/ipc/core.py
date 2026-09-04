@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from time import monotonic
@@ -19,11 +18,14 @@ from presenter_core.asr.segmenter import VADConfig
 from presenter_core.asr.service import ASRService
 from presenter_core.audience.service import AudienceModelService
 from presenter_core.challenge.service import ChallengeService
+from presenter_core.credentials import CredentialStore
+from presenter_core.diagnostics import DiagnosticService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
 from presenter_core.knowledge.service import KnowledgeService
 from presenter_core.live.service import AssistService
 from presenter_core.live.settings import HudSettingsService
+from presenter_core.model_service import ModelService
 from presenter_core.presentation.adapters import PresentationAdapter
 from presenter_core.presentation.service import SlideStateService
 from presenter_core.project.service import ProjectService
@@ -39,6 +41,7 @@ from presenter_core.retrieval.embeddings import (
 from presenter_core.retrieval.lexical import LexicalRetrievalService
 from presenter_core.retrieval.service import HybridRetrievalService
 from presenter_core.run.service import RunService
+from presenter_core.safe_logging import SafeLogger
 from presenter_core.session.service import SessionService
 from presenter_core.speaker.service import SpeakerProfileService
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION
@@ -74,6 +77,7 @@ class CoreService:
         presentation_adapter: PresentationAdapter | None = None,
         vad_config: VADConfig | None = None,
         asr_worker_join_timeout_seconds: float | None = None,
+        credential_store: CredentialStore | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
@@ -82,6 +86,7 @@ class CoreService:
         self._last_close_error: CoreDomainError | None = None
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
+        self._logger = SafeLogger(self._storage.paths.root)
         self._audience = AudienceModelService(self._storage)
         self._transcript = TranscriptService(
             self._storage,
@@ -95,9 +100,12 @@ class CoreService:
             source_reindex_hook=self._after_source_reindex,
         )
         self._retrieval = LexicalRetrievalService(self._storage)
+        embedding_runtime = embedding_adapter or FastEmbedAdapter(
+            cache_dir=embedding_model_cache_dir(data_root)
+        )
         self._hybrid_retrieval = HybridRetrievalService(
             self._storage,
-            embedding_adapter or FastEmbedAdapter(cache_dir=embedding_model_cache_dir(data_root)),
+            embedding_runtime,
             self._emit_service_event,
         )
         self._speaker_profile = SpeakerProfileService(self._storage)
@@ -154,6 +162,7 @@ class CoreService:
             self._storage,
             reasoning_provider,
             event_sink=self._emit_service_event,
+            credential_store=credential_store,
         )
         self._context_builder = ProviderContextBuilder(
             self._storage,
@@ -187,7 +196,7 @@ class CoreService:
         )
         self._projects = ProjectService(
             self._storage,
-            before_delete=self._hybrid_retrieval.evict_project,
+            before_delete=self._before_project_delete,
         )
         self._assist = AssistService(
             self._storage,
@@ -202,6 +211,29 @@ class CoreService:
             provider_execution=self._provider_execution,
         )
         self._hud_settings = HudSettingsService(self._storage)
+        self._models = ModelService(
+            self._storage,
+            self._asr,
+            embedding_runtime,
+            event_sink=self._emit_service_event,
+            before_remove=self._stop_active_for_model_change,
+        )
+        self._diagnostics = DiagnosticService(
+            self._storage,
+            self._logger,
+            core_status=self._diagnostic_core_status,
+            models=lambda: self._models.status({}),
+            provider=lambda: self._providers.status({})["provider"],
+        )
+        recovery = self._storage.reconcile_runtime()
+        if recovery["provider_runs"] or recovery["sessions"]:
+            self._logger.event(
+                "core.recovery_reconciled",
+                {
+                    "operation": "startup_recovery",
+                    "count": recovery["provider_runs"] + recovery["sessions"],
+                },
+            )
 
     @property
     def shutdown_requested(self) -> bool:
@@ -364,10 +396,10 @@ class CoreService:
                 details=error.details,
             )
         except Exception as error:  # pragma: no cover - final request boundary guard
-            print(
-                f"presenter_core request failed: {type(error).__name__}",
-                file=sys.stderr,
-                flush=True,
+            del error
+            self._logger.event(
+                "request.failed",
+                {"operation": method, "error_code": "INTERNAL_ERROR"},
             )
             return make_error(
                 request_id,
@@ -410,6 +442,9 @@ class CoreService:
         if method == "project.create":
             return make_response(request_id, result=self._projects.create(params))
         if method == "project.open":
+            project_id = params.get("project_id")
+            if isinstance(project_id, str):
+                self._storage.reconcile_project_runtime(project_id)
             return make_response(request_id, result=self._projects.open(params))
         if method == "project.list":
             return make_response(request_id, result=self._projects.list(params))
@@ -536,7 +571,10 @@ class CoreService:
         if method == "session.list":
             return make_response(request_id, result=self._sessions.list(params))
         if method == "session.delete":
-            return make_response(request_id, result=self._sessions.delete(params))
+            result = self._sessions.delete(params)
+            self._assist.purge_session(str(result["project_id"]), str(result["session_id"]))
+            self._presentation.purge_session(str(result["project_id"]), str(result["session_id"]))
+            return make_response(request_id, result=result)
         if method == "assist.request":
             return make_response(request_id, result=self._assist.request(params))
         if method == "assist.cancel":
@@ -563,6 +601,12 @@ class CoreService:
             return make_response(request_id, result=self._asr.stop(params))
         if method == "asr.status":
             return make_response(request_id, result=self._asr.status(params))
+        if method == "models.status":
+            return make_response(request_id, result=self._models.status(params))
+        if method == "models.prepare":
+            return make_response(request_id, result=self._models.prepare(params))
+        if method == "models.remove":
+            return make_response(request_id, result=self._models.remove(params))
         if method == "presentation.detect":
             return make_response(request_id, result=self._presentation.detect(params))
         if method == "presentation.set_slide":
@@ -638,6 +682,20 @@ class CoreService:
             return make_response(request_id, result=self._providers.test(params))
         if method == "provider.status":
             return make_response(request_id, result=self._providers.status(params))
+        if method == "provider.credentials.status":
+            return make_response(request_id, result=self._providers.credentials_status(params))
+        if method == "provider.credentials.save_detected":
+            return make_response(
+                request_id, result=self._providers.save_detected_credential(params)
+            )
+        if method == "provider.credentials.remove":
+            return make_response(request_id, result=self._providers.remove_credential(params))
+        if method == "diagnostics.preview":
+            return make_response(request_id, result=self._diagnostics.preview(params))
+        if method == "diagnostics.export":
+            return make_response(request_id, result=self._diagnostics.export(params))
+        if method == "app.reset_local_data":
+            return make_response(request_id, result=self.reset_local_data(params))
         if method == "privacy.list_context_manifests":
             return make_response(
                 request_id, result=self._provider_execution.list_context_manifests(params)
@@ -646,6 +704,28 @@ class CoreService:
         raise AssertionError(f"supported method has no handler: {method}")
 
     def _emit_event(self, event: str, payload: dict[str, Any]) -> None:
+        safe_fields = {
+            key: payload[key]
+            for key in (
+                "project_id",
+                "session_id",
+                "document_id",
+                "assist_id",
+                "provider_run_id",
+                "status",
+                "error_code",
+                "provider_id",
+                "model_id",
+                "adapter_id",
+                "phase",
+                "completed",
+                "total",
+                "latency_ms",
+                "generation_id",
+            )
+            if key in payload
+        }
+        self._logger.event(event, safe_fields)
         if self._event_sink is not None:
             self._event_sink(make_event(event, payload))
 
@@ -683,6 +763,63 @@ class CoreService:
                 retryable=True,
                 details={"cleanup_error_code": cleanup_code},
             )
+        self._assist.purge_session(project_id, session_id)
+        self._presentation.purge_session(project_id, session_id)
+
+    def _before_project_delete(self, project_id: str) -> None:
+        """Cross-service deletion barrier executed before vault removal."""
+        self._run.stop_project_runs({"project_id": project_id})
+        self._assist.stop_project_sessions({"project_id": project_id})
+        self._assist.purge_project(project_id)
+        self._presentation.purge_project(project_id)
+        self._hybrid_retrieval.evict_project(project_id)
+
+    def _stop_active_for_model_change(self) -> None:
+        """Model cache deletion never occurs underneath a process owner."""
+        self._run.stop_active_runs(status="aborted")
+        self._assist.stop_active_sessions(status="aborted")
+        self._assist.purge_all()
+        self._presentation.purge_all()
+        self._hybrid_retrieval.release_model()
+
+    def reset_local_data(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Perform the explicit destructive app reset after a confirmation gate."""
+        reject_unknown_fields(params, {"confirm", "remove_model_cache"})
+        if params.get("confirm") is not True:
+            raise CoreDomainError(
+                "LOCAL_DATA_RESET_CONFIRMATION_REQUIRED",
+                "Reset Local Data requires explicit confirmation.",
+            )
+        remove_model_cache = params.get("remove_model_cache", False)
+        if not isinstance(remove_model_cache, bool):
+            raise CoreDomainError(
+                "INVALID_REQUEST",
+                "remove_model_cache must be a boolean.",
+                details={"field": "remove_model_cache"},
+            )
+        self._run.stop_active_runs(status="aborted")
+        self._assist.stop_active_sessions(status="aborted")
+        self._assist.purge_all()
+        self._presentation.purge_all()
+        # Reset always releases process-memory retrieval state.  This does not
+        # remove the shared on-disk model unless the explicit option below is
+        # selected, so retained caches remain available for a later bootstrap.
+        self._hybrid_retrieval.release_model()
+        if remove_model_cache:
+            self._asr.release_models()
+        credentials = self._providers.remove_stored_credential_for_reset()
+        result = self._storage.reset_local_data(remove_model_cache=remove_model_cache)
+        self._logger.clear()
+        result["credentials_removed"] = credentials
+        return result
+
+    def _diagnostic_core_status(self) -> dict[str, Any]:
+        return {
+            "status": "closed" if self._closed else "ready",
+            "shutdown_requested": self._shutdown_requested,
+            "protocol_version": PROTOCOL_VERSION,
+            "core_version": CORE_VERSION,
+        }
 
     def _before_source_delete(self, connection: Any, document_id: str) -> None:
         self._audience.before_source_delete(connection, document_id)

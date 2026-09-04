@@ -6,7 +6,12 @@ import { PassThrough, Writable } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CoreProcessClient, CoreRequestTimeoutError } from "./core-client";
+import {
+  CoreProcessClient,
+  CoreRequestTimeoutError,
+  toCoreError,
+} from "./core-client";
+import { toInvokeError } from "./invoke-result";
 import {
   isHealthResult,
   isRendererCoreMethod,
@@ -132,6 +137,8 @@ describe("CoreProcessClient", () => {
     expect(isRendererCoreMethod("search.lexical")).toBe(false);
     expect(isRendererCoreMethod("core.hello")).toBe(false);
     expect(isRendererCoreMethod("core.shutdown")).toBe(false);
+    expect(isRendererCoreMethod("diagnostics.preview")).toBe(false);
+    expect(isRendererCoreMethod("diagnostics.export")).toBe(false);
   });
 
   it("returns a rejecting promise when sidecar spawn fails synchronously", async () => {
@@ -400,5 +407,31 @@ describe("CoreProcessClient", () => {
       code: "SIDECAR_EXITED_UNEXPECTEDLY",
     });
     expect(client.getStatus().state).toBe("unavailable");
+  });
+
+  it("notifies recovery only after close, exactly once, and without raw error text", async () => {
+    const { client, child } = await startedClient();
+    const terminations: string[] = [];
+    client.onUnexpectedTermination((error) => terminations.push(error.code));
+
+    child.emitExit(1, null);
+    expect(terminations).toEqual([]);
+    child.emitClose(1, null);
+    expect(terminations).toEqual(["SIDECAR_EXITED_UNEXPECTEDLY"]);
+    child.emitClose(1, null);
+    expect(terminations).toEqual(["SIDECAR_EXITED_UNEXPECTEDLY"]);
+
+    const safe = toCoreError(new Error("sk-m9-secret-sentinel"));
+    expect(safe.message).not.toContain("sk-m9-secret-sentinel");
+    expect(safe.details).toEqual({});
+
+    const invokeSafe = toInvokeError({
+      code: "REMOTE_ERROR",
+      message: "credential sk-m9-secret-sentinel",
+      retryable: false,
+      details: { secret: "sk-m9-secret-sentinel" },
+    });
+    expect(invokeSafe.message).not.toContain("sk-m9-secret-sentinel");
+    expect(invokeSafe.details).toEqual({});
   });
 });

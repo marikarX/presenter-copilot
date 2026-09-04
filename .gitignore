@@ -52,6 +52,13 @@ indexes/
 recordings/
 transcripts/
 
+# Generated Windows release outputs
+/artifacts/sidecar/
+/artifacts/sidecar-build/
+/artifacts/installer/
+/artifacts/win-unpacked/
+/artifacts/m9-release-*.json
+
 # Logs
 *.log
 logs/

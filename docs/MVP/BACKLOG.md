@@ -200,28 +200,33 @@ conferencing integration is part of this milestone.
 - [x] L01 Implement Local Only hard routing invariant.
 - [x] L02 Implement Selected Context Cloud minimum-context builder.
 - [x] L03 Emit/store privacy context manifest before remote call.
-- [ ] L04 Implement OS-backed provider secret storage.
+- [x] L04 Implement OS-backed provider secret storage.
 - [x] L05 Prevent renderer access to raw secrets.
 - [x] L06 Add local-only network isolation test.
 - [x] L07 Add fake-provider payload inspection test.
-- [ ] L08 Add local legal/authorization disclosure for transcript/recording inputs.
-- [ ] L09 Log redaction rules/tests.
-- [ ] L10 Verify deleted project is absent from caches/indexes.
+- [x] L08 Add local legal/authorization disclosure for transcript/recording inputs.
+- [x] L09 Log redaction rules/tests.
+- [x] L10 Verify deleted project is absent from caches/indexes.
 
 ## Epic M — Packaging and release readiness
 
 ### P0
 
-- [ ] M01 Bundle Python sidecar for Windows release build.
+- [x] M01 Bundle Python sidecar for Windows release build.
 - [ ] M02 Clean-machine installation test.
-- [ ] M03 Model bootstrap/download path.
-- [ ] M04 Crash/restart recovery flow.
-- [ ] M05 Diagnostic export with user preview/redaction.
+- [x] M03 Model bootstrap/download path.
+- [x] M04 Crash/restart recovery flow.
+- [x] M05 Diagnostic export with user preview/redaction.
 - [ ] M06 Release benchmark on CPU-only Windows machine.
 - [ ] M07 Release benchmark on RTX reference machine when available.
-- [ ] M08 Run all E2E acceptance scenarios from `TEST_PLAN.md`.
-- [ ] M09 Update README with real setup/run commands after scaffold lands.
-- [ ] M10 Produce first pre-1.0 release notes.
+- [x] M08 Run all deterministic E2E acceptance scenarios from `TEST_PLAN.md`.
+- [x] M09 Update README with real setup/run commands after scaffold lands.
+- [x] M10 Produce first pre-1.0 release notes.
+
+M02, M06, and M07 remain evidence gates: the repository contains a
+read-only/manual clean-machine checklist and an aggregate benchmark reporter,
+but those gates are not marked verified without a fresh clean-profile install
+or real model runs on the named hardware.
 
 ## Epic N — Post-MVP mobile companion
 

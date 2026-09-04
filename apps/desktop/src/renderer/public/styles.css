@@ -149,6 +149,134 @@ h2 {
   padding: 28px;
 }
 
+.release-controls {
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px solid rgba(143, 171, 213, 0.17);
+  border-radius: 20px;
+  background: rgba(17, 28, 48, 0.84);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+}
+
+.release-copy {
+  max-width: 820px;
+  margin-top: 14px;
+}
+
+.model-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.model-card,
+.release-subsection,
+.release-reset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(143, 171, 213, 0.12);
+  border-radius: 10px;
+  background: rgba(6, 13, 25, 0.48);
+}
+
+.model-card > div:first-child,
+.release-subsection,
+.release-reset > div {
+  min-width: 0;
+}
+
+.model-label {
+  margin: 0 0 6px;
+  color: #9fc5ff;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.model-card strong,
+.release-subsection strong {
+  display: block;
+  overflow: hidden;
+  color: #e7edf8;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-meta {
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: #8194b3;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.release-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.release-subsection {
+  display: block;
+}
+
+.release-subsection .model-actions {
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+
+.diagnostic-preview {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(102, 215, 162, 0.09);
+  color: #a9edc9;
+  font-size: 0.78rem;
+}
+
+.diagnostic-preview small {
+  color: #8194b3;
+}
+
+.release-reset {
+  margin-top: 10px;
+}
+
+.reset-checkbox {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  color: #b8c9e3;
+  font-size: 0.76rem;
+}
+
+.reset-checkbox input {
+  width: auto;
+  accent-color: #76a5eb;
+}
+
 .compact {
   align-items: center;
 }
@@ -2087,6 +2215,7 @@ textarea {
   .settings-grid,
   .run-setup-grid,
   .run-facts,
+  .release-grid,
   .m3-grid,
   .candidate-columns,
   .challenge-settings-grid,
@@ -2132,6 +2261,16 @@ textarea {
   .direct-save-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .model-card,
+  .release-reset {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .model-actions {
+    justify-content: flex-start;
   }
 
   .challenge-answer-form-footer,

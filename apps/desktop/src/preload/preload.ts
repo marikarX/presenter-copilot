@@ -12,6 +12,8 @@ import type {
   HudSettings,
   HudSettingsUpdate,
   HudStatus,
+  DiagnosticPreviewResult,
+  DiagnosticSaveResult,
   PresenterCopilotApi,
 } from "../shared/protocol";
 
@@ -55,6 +57,20 @@ const api: PresenterCopilotApi = {
         project_id: projectId,
         kind,
       }) as Promise<InvokeResult<ImportSourceResult>>;
+    },
+  },
+  diagnostics: {
+    preview(
+      sections?: string[],
+    ): Promise<InvokeResult<DiagnosticPreviewResult>> {
+      return ipcRenderer.invoke("diagnostics:preview", sections) as Promise<
+        InvokeResult<DiagnosticPreviewResult>
+      >;
+    },
+    save(sections?: string[]): Promise<InvokeResult<DiagnosticSaveResult>> {
+      return ipcRenderer.invoke("diagnostics:save", sections) as Promise<
+        InvokeResult<DiagnosticSaveResult>
+      >;
     },
   },
   shortcuts: {

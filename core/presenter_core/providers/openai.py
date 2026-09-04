@@ -25,7 +25,7 @@ DEFAULT_TIMEOUT_SECONDS = 20.0
 
 
 class OpenAIReasoningProvider(ReasoningProvider):
-    """Use only OPENAI_API_KEY and the official SDK; never browser credentials."""
+    """Use the core-owned credential resolver and the official SDK only."""
 
     id = "openai"
     locality = "remote"
@@ -37,9 +37,13 @@ class OpenAIReasoningProvider(ReasoningProvider):
         api_key: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         client_factory: Callable[..., Any] | None = None,
+        credential_resolver: Callable[[], str | None] | None = None,
     ) -> None:
         self.model_id = model_id
-        self._api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY")
+        self._api_key_override = api_key
+        self._credential_resolver = credential_resolver
+        self._api_key: str | None = None
+        self._client_api_key: str | None = None
         self._timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
         self._client_factory = client_factory
         self._client: Any | None = None
@@ -61,7 +65,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
         )
 
     def health(self) -> ProviderHealth:
-        if not self._api_key:
+        if not self._current_api_key():
             return ProviderHealth(
                 provider_id=self.id,
                 locality=self.locality,
@@ -176,6 +180,8 @@ class OpenAIReasoningProvider(ReasoningProvider):
         with self._client_lock:
             client = self._client
             self._client = None
+            self._client_api_key = None
+            self._api_key = None
         if client is not None:
             close = getattr(client, "close", None)
             if callable(close):
@@ -187,15 +193,26 @@ class OpenAIReasoningProvider(ReasoningProvider):
                     pass
 
     def _load_client(self) -> Any:
-        if not self._api_key:
+        api_key = self._current_api_key()
+        if not api_key:
             raise ProviderError("PROVIDER_UNCONFIGURED", "OpenAI credentials are not configured.")
         with self._client_lock:
-            if self._client is not None:
+            if self._client is not None and self._client_api_key == api_key:
                 return self._client
+            if self._client is not None:
+                old_client = self._client
+                self._client = None
+                self._client_api_key = None
+                close = getattr(old_client, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        pass
             try:
                 if self._client_factory is not None:
                     self._client = self._client_factory(
-                        api_key=self._api_key,
+                        api_key=api_key,
                         timeout=self._timeout_seconds,
                         max_retries=0,
                     )
@@ -203,10 +220,11 @@ class OpenAIReasoningProvider(ReasoningProvider):
                     from openai import OpenAI
 
                     self._client = OpenAI(
-                        api_key=self._api_key,
+                        api_key=api_key,
                         timeout=self._timeout_seconds,
                         max_retries=0,
                     )
+                self._client_api_key = api_key
             except Exception as error:
                 raise ProviderError(
                     "PROVIDER_UNAVAILABLE",
@@ -214,6 +232,22 @@ class OpenAIReasoningProvider(ReasoningProvider):
                     retryable=True,
                 ) from error
             return self._client
+
+    def _current_api_key(self) -> str | None:
+        """Read credentials only inside the privileged core process."""
+        if self._api_key_override is not None:
+            self._api_key = self._api_key_override
+            return self._api_key
+        try:
+            resolved = (
+                self._credential_resolver()
+                if self._credential_resolver is not None
+                else os.environ.get("OPENAI_API_KEY")
+            )
+        except Exception:
+            resolved = None
+        self._api_key = resolved if isinstance(resolved, str) and resolved else None
+        return self._api_key
 
     def _effective_timeout_seconds(self, request: ReasoningRequest) -> float:
         """Keep the adapter timeout inside the core-owned request budget."""

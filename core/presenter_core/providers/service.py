@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
+from presenter_core.credentials import (
+    CredentialStore,
+    CredentialStoreUnavailable,
+    WindowsCredentialStore,
+    credential_source,
+    resolve_openai_credential,
+)
 from presenter_core.errors import invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.storage.service import StorageManager
@@ -30,9 +38,11 @@ class ProviderService:
         storage: StorageManager,
         provider: ReasoningProvider | None = None,
         event_sink: EventSink | None = None,
+        credential_store: CredentialStore | None = None,
     ) -> None:
         self._storage = storage
         self._injected_provider = provider
+        self._credential_store = credential_store or WindowsCredentialStore()
         self._openai_instance: OpenAIReasoningProvider | None = None
         self._runtime_health: dict[str, ProviderHealth] = {}
         self._event_sink = event_sink
@@ -68,6 +78,7 @@ class ProviderService:
             )
         model_id = model_id.strip()
         now = utc_now()
+        safe_credential_source = self._credential_source()
         with self._storage.app_database() as connection:
             connection.execute(
                 """
@@ -76,21 +87,117 @@ class ProviderService:
                         provider_id, enabled, model_id, credential_source,
                         safe_config_json, created_at, updated_at
                     )
-                VALUES ('openai', ?, ?, 'environment', '{}', ?, ?)
+                VALUES ('openai', ?, ?, ?, '{}', ?, ?)
                 ON CONFLICT(provider_id) DO UPDATE SET
                     enabled = excluded.enabled,
                     model_id = excluded.model_id,
-                    credential_source = 'environment',
+                    credential_source = excluded.credential_source,
                     safe_config_json = '{}',
                     updated_at = excluded.updated_at
                 """,
-                (int(enabled), model_id, now, now),
+                (int(enabled), model_id, safe_credential_source, now, now),
             )
             connection.commit()
         self._runtime_health.pop("openai", None)
         result = {"provider": self._provider_dict(self._openai_provider(), enabled=enabled)}
         self._emit("provider.status_changed", result)
         return result
+
+    def credentials_status(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Expose only safe credential source/configured metadata."""
+        reject_unknown_fields(params, {"provider_id"})
+        provider_id = params.get("provider_id", "openai")
+        if provider_id != "openai":
+            raise invalid_request(
+                "Only the OpenAI reference provider is supported.", field="provider_id"
+            )
+        source = self._credential_source()
+        return {
+            "provider_id": "openai",
+            "credential_source": source,
+            "configured": bool(resolve_openai_credential(self._credential_store)),
+            "secure_store_available": self._credential_store.is_available(),
+            "environment_detected": bool(os.environ.get("OPENAI_API_KEY")),
+        }
+
+    def save_detected_credential(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Save the core environment credential without accepting plaintext IPC input."""
+        reject_unknown_fields(params, {"provider_id"})
+        provider_id = params.get("provider_id", "openai")
+        if provider_id != "openai":
+            raise invalid_request(
+                "Only the OpenAI reference provider is supported.", field="provider_id"
+            )
+        detected = os.environ.get("OPENAI_API_KEY")
+        if not detected:
+            return {
+                "provider_id": "openai",
+                "saved": False,
+                "detected": False,
+                "credential_source": self._credential_source(),
+            }
+        if not self._credential_store.is_available():
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "A secure operating-system credential store is unavailable.",
+                retryable=True,
+            )
+        try:
+            self._credential_store.write(detected)
+        except (CredentialStoreUnavailable, ValueError) as error:
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "The credential could not be saved to the secure operating-system store.",
+                retryable=True,
+            ) from error
+        self._runtime_health.pop("openai", None)
+        self._update_credential_source()
+        return {
+            "provider_id": "openai",
+            "saved": True,
+            "detected": True,
+            "credential_source": self._credential_source(),
+        }
+
+    def remove_credential(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Remove the app/provider credential from the OS store; environment is untouched."""
+        reject_unknown_fields(params, {"provider_id"})
+        provider_id = params.get("provider_id", "openai")
+        if provider_id != "openai":
+            raise invalid_request(
+                "Only the OpenAI reference provider is supported.", field="provider_id"
+            )
+        if not self._credential_store.is_available():
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "A secure operating-system credential store is unavailable.",
+                retryable=True,
+            )
+        try:
+            removed = self._credential_store.delete()
+        except Exception as error:
+            raise ProviderError(
+                "CREDENTIAL_STORE_UNAVAILABLE",
+                "The credential could not be removed from the secure operating-system store.",
+                retryable=True,
+            ) from error
+        if self._openai_instance is not None:
+            self._openai_instance.close()
+        self._runtime_health.pop("openai", None)
+        self._update_credential_source()
+        return {
+            "provider_id": "openai",
+            "removed": bool(removed),
+            "credential_source": self._credential_source(),
+            "environment_still_detected": bool(os.environ.get("OPENAI_API_KEY")),
+        }
+
+    def remove_stored_credential_for_reset(self) -> bool:
+        """Remove the OS entry during reset without treating environment as stored data."""
+        if not self._credential_store.is_available():
+            return False
+        result = self.remove_credential({})
+        return bool(result["removed"])
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})
@@ -247,7 +354,10 @@ class ProviderService:
         if self._openai_instance is not None:
             self._openai_instance.close()
             self._runtime_health.pop("openai", None)
-        self._openai_instance = OpenAIReasoningProvider(model_id=model_id)
+        self._openai_instance = OpenAIReasoningProvider(
+            model_id=model_id,
+            credential_resolver=lambda: resolve_openai_credential(self._credential_store),
+        )
         return self._openai_instance
 
     def _config_row(self, provider_id: str) -> Any | None:
@@ -263,7 +373,7 @@ class ProviderService:
             "provider_id": provider.id,
             "enabled": enabled,
             "model_id": provider.model_id,
-            "credential_source": "environment" if provider.id == "openai" else "test",
+            "credential_source": self._credential_source() if provider.id == "openai" else "test",
             "safe_config": {},
             "health": health.to_dict(),
             "capabilities": provider.capabilities().to_dict(),
@@ -278,3 +388,20 @@ class ProviderService:
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self._event_sink is not None:
             self._event_sink(event, payload)
+
+    def _credential_source(self) -> str:
+        return credential_source(self._credential_store)
+
+    def _update_credential_source(self) -> None:
+        """Keep only source metadata in app.db; never persist the credential."""
+        with self._storage.app_database() as connection:
+            row = connection.execute(
+                "SELECT provider_id FROM provider_configurations WHERE provider_id = 'openai'"
+            ).fetchone()
+            if row is not None:
+                connection.execute(
+                    "UPDATE provider_configurations SET credential_source = ?, updated_at = ? "
+                    "WHERE provider_id = 'openai'",
+                    (self._credential_source(), utc_now()),
+                )
+                connection.commit()

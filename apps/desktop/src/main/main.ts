@@ -12,7 +12,10 @@ import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreClientError, CoreProcessClient, toCoreError } from "./core-client";
 import { invokeResult } from "./invoke-result";
-import { createSidecarCommand } from "./sidecar-command";
+import {
+  createSidecarCommand,
+  SidecarResolutionError,
+} from "./sidecar-command";
 import {
   isCoreMetadata,
   isHealthResult,
@@ -52,6 +55,13 @@ let mainWindow: BrowserWindow | null = null;
 let hudWindow: BrowserWindow | null = null;
 let coreClient: CoreProcessClient | null = null;
 let isQuitting = false;
+let restartTimer: ReturnType<typeof setTimeout> | null = null;
+let restartAttempt = 0;
+let restartInFlight = false;
+
+const MAX_AUTOMATIC_RESTARTS = 2;
+const AUTOMATIC_RESTART_DELAYS_MS = [500, 1_500] as const;
+const PACKAGED_SMOKE_ARGUMENT = "--presenter-copilot-smoke";
 
 export const MANUAL_PREVIOUS_SHORTCUT = "Ctrl+Alt+PageUp";
 export const MANUAL_NEXT_SHORTCUT = "Ctrl+Alt+PageDown";
@@ -622,7 +632,6 @@ function disableLiveShortcuts(): void {
 }
 
 function retainHudEmergencyShortcut(): void {
-  if (!liveTarget) return;
   hudRegistry?.activate("live", [
     {
       accelerator: hudSettings.shortcuts.show_hide,
@@ -633,6 +642,17 @@ function retainHudEmergencyShortcut(): void {
   // keeps the HUD hideable without a core request.
   liveShortcutsRegistered = false;
   sendHudStatus();
+}
+
+function clearInterruptedLiveState(): void {
+  disableLiveShortcuts();
+  currentHudCueId = null;
+  currentHudAssistId = null;
+  hudCueOrder = [];
+  ignoredHudAssistIds.clear();
+  if (hudWindow && !hudWindow.isDestroyed())
+    hudWindow.webContents.send("hud:clear");
+  retainHudEmergencyShortcut();
 }
 
 export function disableManualRunShortcuts(): void {
@@ -663,7 +683,7 @@ export function enableManualRunShortcuts(target: ManualRunTarget): {
   };
 }
 
-async function bootstrapCore(): Promise<void> {
+async function bootstrapCore(): Promise<boolean> {
   const client = requireClient();
   try {
     const readyMetadata = await client.start();
@@ -680,8 +700,89 @@ async function bootstrapCore(): Promise<void> {
     if (!isHealthResult(health))
       throw new Error("Core health response was invalid.");
     client.recordHealth(health);
+    return true;
   } catch (error) {
     client.markUnavailable(error);
+    return false;
+  }
+}
+
+function scheduleAutomaticRestart(): void {
+  if (
+    isQuitting ||
+    restartTimer !== null ||
+    restartInFlight ||
+    restartAttempt >= MAX_AUTOMATIC_RESTARTS
+  ) {
+    return;
+  }
+  const delay =
+    AUTOMATIC_RESTART_DELAYS_MS[restartAttempt] ??
+    AUTOMATIC_RESTART_DELAYS_MS[AUTOMATIC_RESTART_DELAYS_MS.length - 1];
+  restartAttempt += 1;
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    void restartCore();
+  }, delay);
+}
+
+async function restartCore(): Promise<void> {
+  if (isQuitting || restartInFlight || !coreClient) return;
+  restartInFlight = true;
+  try {
+    const ready = await bootstrapCore();
+    if (ready) restartAttempt = 0;
+    else scheduleAutomaticRestart();
+  } finally {
+    restartInFlight = false;
+  }
+}
+
+function validateDiagnosticSections(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 6)
+    throw new Error("Diagnostic sections must be a bounded list.");
+  const allowed = new Set([
+    "core",
+    "storage",
+    "models",
+    "provider",
+    "logs",
+    "benchmarks",
+  ]);
+  const sections: string[] = [];
+  for (const section of value) {
+    if (
+      typeof section !== "string" ||
+      !allowed.has(section) ||
+      sections.includes(section)
+    ) {
+      throw new Error("Diagnostic sections contain an unsupported value.");
+    }
+    sections.push(section);
+  }
+  return sections;
+}
+
+async function runPackagedSmoke(): Promise<void> {
+  const client = requireClient();
+  try {
+    const project = await client.request<{ project: { id: string } }>(
+      "project.create",
+      { name: "Packaged smoke disposable project" },
+    );
+    await client.request("project.delete", {
+      project_id: project.project.id,
+    });
+    await client.shutdown();
+    isQuitting = true;
+    app.exit(0);
+  } catch (error) {
+    const safe = toCoreError(error, "PACKAGED_SMOKE_FAILED", false);
+    console.error(`[packaged-smoke:${safe.code}] ${safe.message}`);
+    isQuitting = true;
+    await client.shutdown().catch(() => undefined);
+    app.exit(1);
   }
 }
 
@@ -887,6 +988,33 @@ function registerIpc(
       );
     });
   });
+  ipcMain.handle("diagnostics:preview", async (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() => {
+      const sections = validateDiagnosticSections(value);
+      return requireClient().request("diagnostics.preview", {
+        ...(sections ? { sections } : {}),
+      });
+    });
+  });
+  ipcMain.handle("diagnostics:save", async (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(async () => {
+      const sections = validateDiagnosticSections(value);
+      const selection = await dialog.showSaveDialog({
+        title: "Export Presenter Copilot diagnostics",
+        defaultPath: "presenter-copilot-diagnostics.zip",
+        properties: ["createDirectory", "showOverwriteConfirmation"],
+        filters: [{ name: "Diagnostic ZIP", extensions: ["zip"] }],
+      });
+      if (selection.canceled || !selection.filePath)
+        return { cancelled: true as const };
+      return requireClient().request("diagnostics.export", {
+        output_path: selection.filePath,
+        ...(sections ? { sections } : {}),
+      });
+    });
+  });
   ipcMain.handle("run:enable-manual-shortcuts", (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(() =>
@@ -1060,6 +1188,15 @@ async function stopCore(): Promise<void> {
 }
 
 void app.whenReady().then(() => {
+  if (
+    process.argv.includes(PACKAGED_SMOKE_ARGUMENT) &&
+    !process.env.PRESENTER_COPILOT_DATA_ROOT
+  ) {
+    process.env.PRESENTER_COPILOT_DATA_ROOT = path.join(
+      app.getPath("temp"),
+      `presenter-copilot-smoke-${process.pid}`,
+    );
+  }
   const rendererPolicy: RendererValidationOptions = {
     bundledRendererPath: path.join(__dirname, "../renderer/index.html"),
     allowDevelopmentRenderer:
@@ -1073,17 +1210,44 @@ void app.whenReady().then(() => {
   currentHudPolicy = hudPolicy;
   hudRegistry = new GlobalShortcutRegistry(globalShortcut);
   registerIpc(rendererPolicy, hudPolicy);
-  const command = createSidecarCommand();
-  coreClient = new CoreProcessClient(command);
+  try {
+    coreClient = new CoreProcessClient(
+      createSidecarCommand({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+      }),
+    );
+  } catch (error) {
+    const safe =
+      error instanceof SidecarResolutionError
+        ? new CoreClientError({
+            code: error.code,
+            message: error.message,
+            retryable: false,
+            details: {},
+          })
+        : new CoreClientError({
+            code: "SIDECAR_RESOLUTION_FAILED",
+            message: "The Python core sidecar could not be resolved.",
+            retryable: false,
+            details: {},
+          });
+    coreClient = new CoreProcessClient({ command: "" });
+    coreClient.markUnavailable(safe);
+  }
   coreClient.onStatus((nextStatus) => {
     if (nextStatus.state === "stopping" || nextStatus.state === "stopped") {
       disableManualRunShortcuts();
       disableLiveShortcuts();
     } else if (nextStatus.state === "unavailable") {
       disableManualRunShortcuts();
-      retainHudEmergencyShortcut();
+      clearInterruptedLiveState();
     }
     sendStatus(nextStatus);
+  });
+  coreClient.onUnexpectedTermination(() => {
+    clearInterruptedLiveState();
+    scheduleAutomaticRestart();
   });
   coreClient.onEvent(sendEvent);
   coreClient.onProtocolError((error) => {
@@ -1093,7 +1257,16 @@ void app.whenReady().then(() => {
   });
   mainWindow = createWindow(rendererPolicy);
   hudWindow = createHudWindow(hudPolicy);
-  void bootstrapCore();
+  const bootstrap = bootstrapCore();
+  if (process.argv.includes(PACKAGED_SMOKE_ARGUMENT)) {
+    void bootstrap.then((ready) => {
+      if (ready) void runPackagedSmoke();
+      else {
+        isQuitting = true;
+        app.exit(1);
+      }
+    });
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0)
@@ -1105,6 +1278,10 @@ app.on("before-quit", (event) => {
   if (isQuitting || !coreClient) return;
   event.preventDefault();
   isQuitting = true;
+  if (restartTimer !== null) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
   void stopCore()
     .catch((error) =>
       console.error(`[core:shutdown] ${toCoreError(error).message}`),

@@ -96,7 +96,13 @@ stops acceptance and reports `ASR_BACKPRESSURE`.
 
 ### Packaging
 
-The desktop installer must bundle or bootstrap the Python core reproducibly. Development may use an external Python environment, but release builds cannot assume Python is preinstalled.
+Development may use the locked `core/.venv` Python environment, but release
+builds cannot assume Python is preinstalled. The Windows release uses a
+reproducible PyInstaller one-folder sidecar under Electron resources and an
+unsigned per-user NSIS installer. Electron launches the bundled executable
+with hidden-window, `shell=false` stdio; packaged resolution never falls back
+to `python.exe`. Model artifacts remain in the per-user app-data cache and are
+prepared only through an explicit user action.
 
 ## 3. Repository layout target
 
