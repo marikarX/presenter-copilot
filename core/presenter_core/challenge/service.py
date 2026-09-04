@@ -6,7 +6,6 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Callable
-from time import monotonic
 from typing import Any, cast
 
 from presenter_core.audience.service import AudienceModelService
@@ -14,6 +13,7 @@ from presenter_core.errors import CoreDomainError, invalid_request, reject_unkno
 from presenter_core.ingestion.service import provenance_label
 from presenter_core.project.service import utc_now
 from presenter_core.providers.context import ProviderContextBuilder
+from presenter_core.providers.execution import ProviderExecutionResult, ProviderExecutionService
 from presenter_core.providers.models import (
     CHALLENGE_INTENSITIES,
     MAX_PROVIDER_EVIDENCE_IDS,
@@ -62,6 +62,8 @@ class ChallengeService:
         audience: AudienceModelService,
         event_sink: EventSink | None = None,
         index_synchronizer: IndexSynchronizer | None = None,
+        *,
+        provider_execution: ProviderExecutionService | None = None,
     ) -> None:
         self._storage = storage
         self._sessions = sessions
@@ -72,6 +74,11 @@ class ChallengeService:
         self._router = ReasoningRouter()
         self._event_sink = event_sink
         self._index_synchronizer = index_synchronizer
+        self._provider_execution = provider_execution or ProviderExecutionService(
+            storage,
+            providers,
+            event_sink=event_sink,
+        )
 
     def configure(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -373,21 +380,29 @@ class ChallengeService:
                 "CHALLENGE_CONTEXT_INSUFFICIENT",
                 "Challenge needs usable project evidence before it can generate a question.",
             )
-        result, provider_run_id = self._run_provider(
+        supplied_evidence = self._supplied_evidence_map(request)
+        supplied_observations = self._supplied_observation_ids(request, profile_id)
+        execution = self._run_provider(
             project_id=project_id,
             session_id=session_id,
             privacy_mode=str(project["privacy_mode"]),
             provider=provider,
             request=request,
             manifest=manifest,
+            output_validator=lambda output: self._validate_question_output_for_execution(
+                output,
+                supplied_evidence=supplied_evidence,
+                supplied_observations=supplied_observations,
+            ),
         )
+        result = execution.result
+        provider_run_id = execution.provider_run_id
+        manifest = execution.context_manifest
         output = validate_provider_output(
             task_type,
             result.output,
             conflict_metadata=request.conflict_metadata,
         )
-        supplied_evidence = self._supplied_evidence_map(request)
-        supplied_observations = self._supplied_observation_ids(request, profile_id)
         evidence_ids = [str(item) for item in output["evidence_ids"]]
         observation_ids = [str(item) for item in output["audience_observation_ids"]]
         if (
@@ -646,20 +661,27 @@ class ChallengeService:
                 "CHALLENGE_CONTEXT_INSUFFICIENT",
                 "Challenge needs usable project evidence before it can evaluate an answer.",
             )
-        result, provider_run_id = self._run_provider(
+        supplied_evidence = self._supplied_evidence_map(request)
+        execution = self._run_provider(
             project_id=project_id,
             session_id=session_id,
             privacy_mode=str(project["privacy_mode"]),
             provider=provider,
             request=request,
             manifest=manifest,
+            output_validator=lambda output: self._validate_evaluation_output_for_execution(
+                output,
+                supplied_evidence=supplied_evidence,
+            ),
         )
+        result = execution.result
+        provider_run_id = execution.provider_run_id
+        manifest = execution.context_manifest
         output = validate_provider_output(
             "challenge_evaluation",
             result.output,
             conflict_metadata=request.conflict_metadata,
         )
-        supplied_evidence = self._supplied_evidence_map(request)
         supported_ids = [str(item) for item in output["supported_evidence_ids"]]
         if len(supported_ids) > MAX_PROVIDER_EVIDENCE_IDS or not set(supported_ids).issubset(
             supplied_evidence
@@ -1159,6 +1181,50 @@ class ChallengeService:
             f"UPDATE answer_evidence SET available = 0 WHERE {predicate}", parameters
         )
 
+    @staticmethod
+    def _validate_question_output_for_execution(
+        output: dict[str, Any],
+        *,
+        supplied_evidence: dict[str, dict[str, Any]],
+        supplied_observations: set[str],
+    ) -> dict[str, Any]:
+        evidence_ids = [str(item) for item in output["evidence_ids"]]
+        observation_ids = [str(item) for item in output["audience_observation_ids"]]
+        if (
+            not evidence_ids
+            or len(evidence_ids) > MAX_PROVIDER_EVIDENCE_IDS
+            or not set(evidence_ids).issubset(supplied_evidence)
+            or len(observation_ids) > MAX_PROVIDER_OBSERVATION_IDS
+            or not set(observation_ids).issubset(supplied_observations)
+        ):
+            raise ProviderError(
+                "CHALLENGE_OUTPUT_INVALID",
+                "The Challenge provider cited evidence or audience observations outside "
+                "its context.",
+            )
+        return output
+
+    @staticmethod
+    def _validate_evaluation_output_for_execution(
+        output: dict[str, Any],
+        *,
+        supplied_evidence: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        supported_ids = [str(item) for item in output["supported_evidence_ids"]]
+        if len(supported_ids) > MAX_PROVIDER_EVIDENCE_IDS or not set(supported_ids).issubset(
+            supplied_evidence
+        ):
+            raise ProviderError(
+                "CHALLENGE_OUTPUT_INVALID",
+                "The Challenge evaluation cited evidence outside its context.",
+            )
+        if len(output["missing_points"]) > MAX_PROVIDER_MISSING_POINTS:
+            raise ProviderError(
+                "CHALLENGE_OUTPUT_INVALID",
+                "The Challenge evaluation returned too many missing points.",
+            )
+        return output
+
     def _run_provider(
         self,
         *,
@@ -1168,102 +1234,17 @@ class ChallengeService:
         provider: ReasoningProvider,
         request: ReasoningRequest,
         manifest: dict[str, Any],
-    ) -> tuple[Any, str]:
-        run_id = str(uuid.uuid4())
-        started_at = utc_now()
-        with self._storage.project_database(project_id) as connection:
-            current_project = connection.execute(
-                "SELECT privacy_mode FROM project WHERE id = ?", (project_id,)
-            ).fetchone()
-            if current_project is None:
-                raise CoreDomainError("PROJECT_NOT_FOUND", "Project was not found.")
-            if str(current_project["privacy_mode"]) != privacy_mode:
-                raise CoreDomainError(
-                    "CHALLENGE_STATE_INVALID",
-                    "Project privacy changed while Challenge context was being prepared; retry.",
-                )
-            connection.execute(
-                """
-                INSERT INTO provider_runs (
-                    id, session_id, task_type, provider_id, privacy_mode,
-                    started_at, status, context_manifest_json
-                ) VALUES (?, ?, ?, ?, ?, ?, 'started', ?)
-                """,
-                (
-                    run_id,
-                    session_id,
-                    request.task_type,
-                    provider.id,
-                    privacy_mode,
-                    started_at,
-                    json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                ),
-            )
-            connection.commit()
-        manifest_payload = dict(manifest)
-        manifest_payload["provider_id"] = provider.id
-        manifest_payload["provider_run_id"] = run_id
-        if provider.locality == "remote":
-            self._emit("privacy.remote_context_manifest", manifest_payload)
-        started = monotonic()
-        try:
-            result = provider.generate(request)
-            validate_provider_output(
-                request.task_type,
-                result.output,
-                conflict_metadata=request.conflict_metadata,
-            )
-        except ProviderError as error:
-            self._finish_provider_run(
-                project_id, run_id, status="error", error=error, started_monotonic=started
-            )
-            raise
-        except Exception as error:
-            mapped = ProviderError(
-                "PROVIDER_REQUEST_FAILED",
-                "The Challenge reasoning request failed.",
-                retryable=True,
-            )
-            self._finish_provider_run(
-                project_id, run_id, status="error", error=mapped, started_monotonic=started
-            )
-            raise mapped from error
-        self._finish_provider_run(
-            project_id, run_id, status="success", result=result, started_monotonic=started
+        output_validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> ProviderExecutionResult:
+        """Delegate every Challenge provider call to the shared boundary."""
+        del privacy_mode, manifest
+        return self._provider_execution.execute(
+            project_id=project_id,
+            session_id=session_id,
+            provider=provider,
+            request=request,
+            output_validator=output_validator,
         )
-        return result, run_id
-
-    def _finish_provider_run(
-        self,
-        project_id: str,
-        run_id: str,
-        *,
-        status: str,
-        result: Any | None = None,
-        error: ProviderError | None = None,
-        started_monotonic: float | None = None,
-    ) -> None:
-        with self._storage.project_database(project_id) as connection:
-            connection.execute(
-                """
-                UPDATE provider_runs
-                SET ended_at = ?, status = ?, input_token_count = ?, output_token_count = ?,
-                    latency_ms = ?, error_code = ?
-                WHERE id = ?
-                """,
-                (
-                    utc_now(),
-                    status,
-                    getattr(result, "input_token_count", None),
-                    getattr(result, "output_token_count", None),
-                    max(0, int((monotonic() - started_monotonic) * 1000))
-                    if isinstance(started_monotonic, float)
-                    else started_monotonic,
-                    error.code if error is not None else None,
-                    run_id,
-                ),
-            )
-            connection.commit()
 
     def _active_challenge_session(self, project_id: str, session_id: str) -> sqlite3.Row:
         with self._storage.project_database(project_id) as connection:
@@ -1297,10 +1278,7 @@ class ChallengeService:
         )
 
     def _provider_and_health(self) -> tuple[ReasoningProvider | None, Any | None]:
-        if not self._providers.is_enabled():
-            return None, None
-        provider = self._providers.current_provider()
-        return provider, provider.health()
+        return self._providers.current_provider_and_health()
 
     def _availability(self, project_id: str, *, task_type: str) -> dict[str, Any]:
         project = self._project_row(project_id)

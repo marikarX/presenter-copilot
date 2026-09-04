@@ -163,9 +163,12 @@ The OpenAI adapter also maps nested `insufficient_quota`/quota codes before a
 generic HTTP 429, keeps `output_schema` out of the serialized user payload,
 and sends the strict schema only through the adapter request fields.
 
-A deterministic fake provider is required for CI. M3 intentionally leaves full
-user-driven cancellation and resilience semantics for E06/the later provider
-milestone; the OpenAI reference adapter still has a bounded request timeout.
+A deterministic fake provider is required for CI. M8 adds the shared
+core-owned execution boundary used by Teach, Challenge, and Live Assist. Its
+contract tests cover final privacy re-read, payload/manifest parity, provider
+run lifecycle, bounded timeout, logical cancellation, safe health transitions,
+and task-specific failure mapping. Provider calls must occur outside SQLite
+transactions; late output after timeout or cancellation is discarded.
 
 ## 6. ASR tests
 
@@ -386,12 +389,16 @@ Delete project -> project directory removed -> recent list removed -> no retriev
 
 Run app in Local Only with outbound networking blocked/monitored.
 
-The M3 automated scope is the Teach/provider routing boundary. Expected:
+The M8 automated scope covers Teach, Challenge, and Live Assist. Expected:
 
-- all M3 typed Teach acceptance flows supported by the deterministic local/fake
-  adapter;
-- no content-processing network attempt;
-- test fails on unexpected socket/connect call from core path.
+- a Local Only project never calls a remote provider, even when a remote
+  provider is configured;
+- no content-processing network attempt, including socket/connect/sendto;
+- selected-context remote payloads contain only operation-specific bounded
+  metadata and non-private evidence;
+- test fails on an unexpected low-level network call from the core path;
+- cancellation/supersession does not emit a stale Live cue or leave a started
+  ProviderRun unfinished.
 
 M6 adds the already-prepared-model Run path: `asr.start`, local transcription,
 and deterministic debrief must make no download, provider, or content-network
@@ -414,7 +421,8 @@ Assert context manifest precisely identifies sent source IDs/classes.
 M3's real-provider acceptance is separate and opt-in. It uses only synthetic
 content, `OPENAI_API_KEY`, the official OpenAI Responses adapter, `store=false`,
 no tools, and a disposable project; no provider credential is required by
-normal CI.
+normal CI. M8 additionally verifies that the provider sees the same
+metadata-only manifest that core persisted and emitted before invocation.
 
 ## 10. Security tests
 
@@ -468,8 +476,11 @@ CPU/GPU utilization
 Store benchmark result JSON with build/version/hardware metadata; do not store source transcript content.
 
 The M3 provider path records bounded ProviderRun latency and optional token
-counts. It is not a live-cue latency gate, and full cancellation/resilience
-measurement remains deferred with E06.
+counts. M8 applies the request latency budget to every provider invocation and
+keeps Live Assist within its bounded cue target. Record provider health state,
+stable error code, retry guidance, cancellation outcome, and whether the
+retrieval-only fallback was used; never store prompt text or raw provider
+errors in benchmark artifacts.
 
 ## 12. UX/manual acceptance
 
@@ -544,6 +555,25 @@ unavailable model, hardware, compositor, physical-microphone, external-capture,
 and CI evidence precisely. Require hosted Windows and Trusted Local CI on the
 same exact final SHA. Do not merge and do not start M8. K14, E06, L01-L10, and
 all M8 work remain deferred.
+
+### M8 milestone gate
+
+Before opening the M8 review PR, verify the existing M0-M7 migrations and
+acceptance flows remain intact; the shared execution service is the only
+Teach/Challenge/Live provider boundary; Local Only has a final remote guard
+and a low-level socket interception test; Selected Context Cloud and Full
+Context Cloud preserve operation-specific, private-free payloads; manifests
+are derived from the actual payload, persisted and emitted before invocation,
+and exposed only through bounded sanitized history; ProviderRun rows finalize
+exactly once; timeout, cancellation, supersession, auth, quota, rate-limit,
+unavailable, and malformed-output mappings are covered; and Live retrieval-only,
+Teach direct-save, and Challenge stable-unavailable fallbacks are verified.
+Run `pnpm setup`, `pnpm check`, `pnpm build`, `pnpm test:privacy-network`,
+`pnpm test:embedding-real`, `pnpm benchmark:retrieval`, `pnpm benchmark:cue`,
+and `git diff --check`; record unavailable model, hardware, external-provider,
+physical-capture, and CI evidence precisely. Require hosted Windows and
+Trusted Local CI on the same exact final SHA. Do not merge and do not start
+M9.
 
 A pre-1.0 MVP release requires:
 

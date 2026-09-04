@@ -1,5 +1,6 @@
 """Provider-neutral reasoning contracts and M3 adapters."""
 
+from .execution import ProviderExecutionError, ProviderExecutionResult, ProviderExecutionService
 from .fake import DeterministicFakeReasoningProvider
 from .models import (
     CandidateOutput,
@@ -10,6 +11,7 @@ from .models import (
     ReasoningProvider,
     ReasoningRequest,
     ReasoningResult,
+    derive_context_manifest,
     validate_provider_output,
 )
 from .openai import DEFAULT_OPENAI_MODEL, OpenAIReasoningProvider
@@ -23,9 +25,13 @@ __all__ = [
     "ProviderCapabilities",
     "ProviderError",
     "ProviderHealth",
+    "ProviderExecutionError",
+    "ProviderExecutionResult",
+    "ProviderExecutionService",
     "ReasoningProvider",
     "ReasoningRequest",
     "ReasoningResult",
+    "derive_context_manifest",
     "ReasoningRoute",
     "ReasoningRouter",
     "QuestionOutput",

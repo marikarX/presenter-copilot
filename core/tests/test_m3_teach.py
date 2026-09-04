@@ -1881,7 +1881,7 @@ def test_provider_contracts_schema_timeout_and_no_storage_access() -> None:
     assert result.output["focus"] == "tradeoff"
     assert calls[0]["store"] is False
     assert calls[0]["tools"] == []
-    assert calls[0]["timeout"] == 9.0
+    assert calls[0]["timeout"] == 5.0
     assert calls[0]["text"]["format"]["strict"] is True
     assert calls[0]["text"]["format"]["type"] == "json_schema"
     payload = _question_request().to_payload()

@@ -821,3 +821,40 @@ Reason:
 
 HUD placement and keyboard choices follow the user's desktop setup rather than
 one presentation, while the bounded metadata path avoids a new migration.
+
+## D-054 — One core-owned provider execution boundary enforces privacy
+
+**Status:** Accepted for Milestone 8
+
+Teach, Challenge, and Live Assist invoke providers only through one
+core-owned execution service. The service rereads the current project privacy
+mode and remote acknowledgement immediately before a remote call, validates
+the final serialized payload, derives the metadata-only context manifest from
+that payload, persists/emits the manifest before invocation, and keeps the
+provider call outside SQLite transactions. Local Only is a final fail-closed
+remote guard; it never silently falls through to another remote provider.
+
+Reason:
+
+Separate task-level checks can drift or validate an object different from what
+the adapter sends. One boundary makes authority, payload parity, lifecycle,
+and network isolation testable across every reasoning path.
+
+## D-055 — Provider degradation is typed, bounded, and task-specific
+
+**Status:** Accepted for Milestone 8
+
+Provider health exposes only stable renderer-safe statuses and retry guidance.
+Timeout, logical cancellation, supersession, authentication, quota,
+rate-limit, unavailable, and malformed-output outcomes map to stable codes and
+finalize `ProviderRun` exactly once. Live falls back to retrieval-only, Teach
+can save the direct answer locally, and Challenge reports an actionable
+unavailable result without creating partial state. Provider-native transport
+cancellation is optional and never implied by logical cancellation.
+
+Reason:
+
+Transient provider behavior must not become hidden privacy routing, stale Live
+guidance, partial Challenge data, or a renderer-visible secret/error leak.
+Explicit typed degradation preserves user control while keeping local
+functionality available.

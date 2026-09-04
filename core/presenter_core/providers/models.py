@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,6 +48,8 @@ MAX_LIVE_CUE_LINES = 3
 MAX_LIVE_CUE_CONTENT_LINES = 2
 MAX_LIVE_CUE_LINE_CHARS = 180
 MAX_LIVE_CUE_EVIDENCE_IDS = 8
+DEFAULT_REASONING_LATENCY_BUDGET_MS = 10_000
+LIVE_REASONING_LATENCY_BUDGET_MS = 3_000
 LIVE_CUE_TYPES = frozenset({"fact", "structure", "reminder", "source_pointer", "warning"})
 CHALLENGE_INTENSITIES = frozenset({"normal", "skeptical", "adversarial"})
 SOURCE_SUPPORT_STATUSES = frozenset(
@@ -204,6 +207,134 @@ class ReasoningRequest:
     def serialized_input(self) -> str:
         """Serialize the bounded packet for the official provider request."""
         return json.dumps(self.to_payload(), ensure_ascii=False, separators=(",", ":"))
+
+
+def derive_context_manifest(
+    request: ReasoningRequest,
+    *,
+    provider_id: str,
+    payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Derive a metadata-only manifest from the exact adapter payload.
+
+    The builder may use this helper before a request is returned, but the
+    execution boundary calls it again immediately before a provider call.
+    Keeping the source of truth here prevents a second, hand-maintained list
+    of what a provider actually received.
+    """
+    payload = payload if payload is not None else request.to_payload()
+    document_evidence = _manifest_dicts(payload.get("untrusted_retrieved_evidence"))
+    user_knowledge = _manifest_dicts(payload.get("approved_user_knowledge"))
+    speaker_evidence = _manifest_dicts(payload.get("approved_speaker_style_evidence"))
+    conflicts = _manifest_dicts(payload.get("conflict_metadata"))
+    audience_context = _manifest_dicts(payload.get("approved_audience_context"))
+    prior_context = _manifest_dicts(payload.get("prior_question_context"))
+    style_context = payload.get("style_context")
+    style_context = style_context if isinstance(style_context, dict) else {}
+
+    classes = ["application_policy", "style_context"]
+    if payload.get("current_slide_summary"):
+        classes.append("current_slide_summary")
+    if request.task_instruction:
+        classes.append("task_instruction")
+    if payload.get("question"):
+        classes.append("question")
+    if payload.get("user_input"):
+        classes.append("current_user_input")
+    if document_evidence:
+        classes.append("document_excerpt")
+    if user_knowledge:
+        classes.append("user_knowledge")
+    if speaker_evidence:
+        classes.append("speaker_evidence")
+    if conflicts:
+        classes.append("conflict_metadata")
+    if style_context.get("rejected_patterns"):
+        classes.append("rejected_patterns")
+    if audience_context:
+        classes.append("audience_context")
+    if prior_context:
+        classes.append("prior_question_context")
+    if payload.get("challenge_intensity"):
+        classes.append("challenge_intensity")
+    if payload.get("style_policy"):
+        classes.append("style_policy")
+
+    sent_evidence_ids = {
+        str(item["evidence_id"])
+        for item in [*document_evidence, *user_knowledge]
+        if isinstance(item.get("evidence_id"), str)
+    }
+    grounding_ids = {
+        str(item["evidence_id"])
+        for item in request.grounding_evidence
+        if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+    }
+    if sent_evidence_ids.intersection(grounding_ids):
+        classes.append("question_grounding")
+
+    source_ids = sorted(
+        {
+            str(item["source_id"])
+            for item in [*document_evidence, *user_knowledge]
+            if isinstance(item.get("source_id"), str)
+        }
+    )
+    knowledge_items = [
+        *user_knowledge,
+        *(
+            style_context.get("project_preferred_explanations", [])
+            if isinstance(style_context.get("project_preferred_explanations"), list)
+            else []
+        ),
+    ]
+    knowledge_item_ids = sorted(
+        {
+            str(item["knowledge_item_id"])
+            for item in knowledge_items
+            if isinstance(item, dict) and isinstance(item.get("knowledge_item_id"), str)
+        }
+    )
+    speaker_ids = sorted(
+        {str(item["id"]) for item in speaker_evidence if isinstance(item.get("id"), str)}
+    )
+    audience_profile_ids = sorted(
+        {str(item["id"]) for item in audience_context if isinstance(item.get("id"), str)}
+    )
+    audience_observation_ids = sorted(
+        {
+            str(observation["id"])
+            for profile in audience_context
+            for observation in profile.get("observations", [])
+            if isinstance(observation, dict) and isinstance(observation.get("id"), str)
+        }
+    )
+
+    serialized_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return {
+        "provider_content_boundary": "selected_context",
+        "provider_id": provider_id,
+        "task_type": request.task_type,
+        "privacy_mode": request.privacy_mode,
+        "classes_sent": classes,
+        "source_ids": source_ids,
+        "knowledge_item_ids": knowledge_item_ids,
+        "speaker_evidence_ids": speaker_ids,
+        "audience_profile_ids": audience_profile_ids,
+        "audience_observation_ids": audience_observation_ids,
+        "prior_question_count": len(prior_context),
+        "raw_audio_sent": False,
+        "full_document_sent": False,
+        "full_corpus_sent": False,
+        "private_items_sent": any(bool(item.get("private")) for item in user_knowledge),
+        "bounded_context_chars": len(serialized_payload),
+    }
+
+
+def _manifest_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
 @dataclass(frozen=True)

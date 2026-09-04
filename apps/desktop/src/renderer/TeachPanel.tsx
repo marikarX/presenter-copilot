@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  type ContextManifestHistoryItem,
   type JsonObject,
   type KnowledgeItem,
   type ProviderStatus,
+  type PrivacyContextManifestResult,
   type ReadyProjectSummary,
   type RendererCoreMethod,
   type Session,
   type SpeakerEvidence,
   type SpeakerProfile,
   type TeachCandidate,
+  isJsonObject,
   unwrapInvokeResult,
 } from "../shared/protocol";
 
@@ -124,6 +127,38 @@ function providerLabel(provider: ProviderStatus | null): string {
   return `${provider.provider_id} · ${provider.model_id}`;
 }
 
+function providerStatusLabel(status: string): string {
+  return (
+    {
+      ready: "Ready",
+      unconfigured: "Not configured",
+      auth_failed: "Credential rejected",
+      quota_exhausted: "Quota exhausted",
+      rate_limited: "Rate limited",
+      unavailable: "Temporarily unavailable",
+    }[status] ?? "Unavailable"
+  );
+}
+
+function providerGuidance(provider: ProviderStatus | null): string {
+  if (!provider)
+    return "Configure a core-environment provider to enable reasoning.";
+  switch (provider.health.status) {
+    case "ready":
+      return "Provider is ready. Core rechecks project privacy immediately before each remote call.";
+    case "unconfigured":
+      return "Set OPENAI_API_KEY in the core environment, then refresh provider status.";
+    case "auth_failed":
+      return "The core-environment credential was rejected. Update it outside the app and retry.";
+    case "quota_exhausted":
+      return "Provider quota is exhausted. Resolve billing or quota outside the app before retrying.";
+    case "rate_limited":
+      return "Provider rate limit reached. Retry after the provider window recovers.";
+    default:
+      return "Provider is unavailable. Teach can keep your original answer; Live Assist falls back to retrieval-only cues.";
+  }
+}
+
 export function TeachPanel({ project }: TeachPanelProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [question, setQuestion] = useState<TeachPromptResult | null>(null);
@@ -141,6 +176,8 @@ export function TeachPanel({ project }: TeachPanelProps) {
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
   const [speakerEvidence, setSpeakerEvidence] = useState<SpeakerEvidence[]>([]);
   const [provider, setProvider] = useState<ProviderStatus | null>(null);
+  const [contextHistory, setContextHistory] =
+    useState<PrivacyContextManifestResult | null>(null);
   const [providerModel, setProviderModel] = useState("");
   const [promotionId, setPromotionId] = useState<string | null>(null);
   const [promotionText, setPromotionText] = useState("");
@@ -166,6 +203,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
     setKnowledgeItems([]);
     setSpeakerEvidence([]);
     setProvider(null);
+    setContextHistory(null);
     setProviderModel("");
     setPromotionId(null);
     setPromotionText("");
@@ -251,6 +289,34 @@ export function TeachPanel({ project }: TeachPanelProps) {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const removeListener = window.presenterCopilot.core.onEvent((event) => {
+      if (event.event !== "provider.status_changed") return;
+      const nextProvider = event.payload.provider;
+      if (isJsonObject(nextProvider)) {
+        setProvider(nextProvider as unknown as ProviderStatus);
+      }
+    });
+    return removeListener;
+  }, []);
+
+  const loadContextHistory = useCallback(async () => {
+    try {
+      setContextHistory(
+        await requestCore<PrivacyContextManifestResult>(
+          "privacy.list_context_manifests",
+          { project_id: project.id, limit: 10, offset: 0 },
+        ),
+      );
+    } catch (error) {
+      setMessage(errorMessage(error));
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    void loadContextHistory();
+  }, [loadContextHistory]);
+
   const acknowledgeRemote = useCallback(async () => {
     setBusy("acknowledge-remote");
     try {
@@ -304,12 +370,13 @@ export function TeachPanel({ project }: TeachPanelProps) {
       setSession((current) =>
         current ? { ...current, teach_state: result.state } : current,
       );
+      void loadContextHistory();
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
       setBusy(null);
     }
-  }, [project.id, session]);
+  }, [loadContextHistory, project.id, session]);
 
   const stopTeach = useCallback(async () => {
     if (!session) return;
@@ -367,12 +434,13 @@ export function TeachPanel({ project }: TeachPanelProps) {
           ? "A provisional candidate is ready for your review."
           : "No provider candidate was used. Your original answer is ready to save directly.",
       );
+      void loadContextHistory();
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
       setBusy(null);
     }
-  }, [answer, keepLocal, project.id, session]);
+  }, [answer, keepLocal, loadContextHistory, project.id, session]);
 
   const discardAnswer = useCallback(async () => {
     if (!session || !lastSourceUtteranceId || candidate) return;
@@ -1125,7 +1193,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
             <span
               className={`provider-status provider-${provider?.health.status ?? "missing"}`}
             >
-              {provider?.health.status ?? "missing"}
+              {providerStatusLabel(provider?.health.status ?? "unconfigured")}
             </span>
           </div>
           <dl className="provider-facts">
@@ -1143,9 +1211,15 @@ export function TeachPanel({ project }: TeachPanelProps) {
             </div>
             <div>
               <dt>Remote packet</dt>
-              <dd>selected evidence only · no tools · no raw audio</dd>
+              <dd>selected evidence only · private items never remote</dd>
             </div>
           </dl>
+          <p className="muted provider-note">{providerGuidance(provider)}</p>
+          <p className="muted provider-note">
+            {project.privacy_mode === "local_only"
+              ? "Local Only is enforced in core: a remote adapter is rejected immediately before invocation."
+              : "Cloud reasoning uses the operation-specific selected context packet; raw audio and the full corpus stay local."}
+          </p>
           <label>
             Safe model id
             <input
@@ -1165,6 +1239,78 @@ export function TeachPanel({ project }: TeachPanelProps) {
           <p className="muted provider-note">
             The API key is never entered, returned, or stored by the renderer.
           </p>
+        </section>
+
+        <section
+          className="provider-panel"
+          aria-labelledby="context-history-title"
+        >
+          <div className="section-heading compact">
+            <div>
+              <p className="eyebrow">Privacy evidence</p>
+              <h2 id="context-history-title">Provider context history</h2>
+            </div>
+            <span className="count-badge">{contextHistory?.total ?? 0}</span>
+          </div>
+          <p className="muted provider-note">
+            Metadata only: task, route, bounded classes, safe IDs, timing, and
+            outcome. Prompt text, transcript excerpts, responses, and secrets
+            are not shown here.
+          </p>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void loadContextHistory()}
+            disabled={busy !== null}
+          >
+            Refresh context history
+          </button>
+          <div className="provider-history-list">
+            {(contextHistory?.manifests ?? []).map(
+              (item: ContextManifestHistoryItem) => (
+                <article
+                  className="provider-history-item"
+                  key={item.provider_run_id}
+                >
+                  <div className="provider-facts">
+                    <div>
+                      <dt>Task</dt>
+                      <dd>{item.task_type.replaceAll("_", " ")}</dd>
+                    </div>
+                    <div>
+                      <dt>Outcome</dt>
+                      <dd>
+                        {item.status}
+                        {item.error_code ? ` · ${item.error_code}` : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Context</dt>
+                      <dd>
+                        {item.context_manifest.classes_sent?.join(", ") ||
+                          "none"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Bounds</dt>
+                      <dd>
+                        {item.context_manifest.bounded_context_chars ?? 0} chars
+                        · {item.context_manifest.source_ids?.length ?? 0}{" "}
+                        sources ·{" "}
+                        {item.context_manifest.knowledge_item_ids?.length ?? 0}{" "}
+                        knowledge
+                      </dd>
+                    </div>
+                  </div>
+                </article>
+              ),
+            )}
+            {contextHistory && contextHistory.manifests.length === 0 ? (
+              <p className="muted">
+                No provider executions for this project yet.
+              </p>
+            ) : null}
+          </div>
         </section>
       </section>
     </section>

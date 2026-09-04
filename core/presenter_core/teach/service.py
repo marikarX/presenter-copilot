@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from collections.abc import Callable
-from time import monotonic
 from typing import Any, cast
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.providers.context import ProviderContextBuilder
+from presenter_core.providers.execution import ProviderExecutionResult, ProviderExecutionService
 from presenter_core.providers.models import (
     KNOWLEDGE_KINDS,
     ProviderError,
@@ -43,6 +42,8 @@ class TeachService:
         providers: ProviderService,
         context_builder: ProviderContextBuilder,
         event_sink: EventSink | None = None,
+        *,
+        provider_execution: ProviderExecutionService | None = None,
     ) -> None:
         self._storage = storage
         self._sessions = sessions
@@ -51,6 +52,11 @@ class TeachService:
         self._context_builder = context_builder
         self._router = ReasoningRouter()
         self._event_sink = event_sink
+        self._provider_execution = provider_execution or ProviderExecutionService(
+            storage,
+            providers,
+            event_sink=event_sink,
+        )
 
     def next_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "session_id"})
@@ -109,7 +115,7 @@ class TeachService:
                     provider_id=provider.id,
                     allow_private=provider.locality == "local",
                 )
-                result = self._run_provider(
+                execution = self._run_provider(
                     project_id=project_id,
                     session_id=session_id,
                     privacy_mode=effective_privacy_mode,
@@ -117,7 +123,9 @@ class TeachService:
                     request=request,
                     manifest=manifest,
                 )
-                output = validate_provider_output("teach_question", result.output)
+                provider_result = execution.result
+                manifest = execution.context_manifest
+                output = validate_provider_output("teach_question", provider_result.output)
                 question = str(output["question"])
                 focus = str(output["focus"])
                 reasoning_status.update(
@@ -265,7 +273,7 @@ class TeachService:
                     provider_id=provider.id,
                     allow_private=provider.locality == "local",
                 )
-                result = self._run_provider(
+                execution = self._run_provider(
                     project_id=project_id,
                     session_id=session_id,
                     privacy_mode=effective_privacy_mode,
@@ -273,6 +281,8 @@ class TeachService:
                     request=request,
                     manifest=manifest,
                 )
+                result = execution.result
+                manifest = execution.context_manifest
                 output = validate_provider_output("teach_candidate", result.output)
                 candidate_id = str(uuid.uuid4())
                 with self._storage.project_database(project_id) as connection:
@@ -289,7 +299,7 @@ class TeachService:
                             source_utterance_id,
                             output["kind"],
                             output["text"],
-                            self._latest_provider_run_id(project_id, session_id),
+                            execution.provider_run_id,
                             created_at,
                         ),
                     )
@@ -693,112 +703,15 @@ class TeachService:
         provider: ReasoningProvider,
         request: ReasoningRequest,
         manifest: dict[str, Any],
-    ) -> Any:
-        run_id = str(uuid.uuid4())
-        started_at = utc_now()
-        with self._storage.project_database(project_id) as connection:
-            connection.execute(
-                """
-                INSERT INTO provider_runs (
-                    id, session_id, task_type, provider_id, privacy_mode,
-                    started_at, status, context_manifest_json
-                ) VALUES (?, ?, ?, ?, ?, ?, 'started', ?)
-                """,
-                (
-                    run_id,
-                    session_id,
-                    request.task_type,
-                    provider.id,
-                    privacy_mode,
-                    started_at,
-                    json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                ),
-            )
-            connection.commit()
-        manifest_payload = dict(manifest)
-        manifest_payload["provider_id"] = provider.id
-        manifest_payload["provider_run_id"] = run_id
-        if provider.locality == "remote":
-            self._emit("privacy.remote_context_manifest", manifest_payload)
-        started = monotonic()
-        try:
-            result = provider.generate(request)
-            # Keep domain-side validation as a second boundary even when an
-            # adapter already validates its own structured response. A
-            # malformed injected provider must not be recorded as success.
-            validate_provider_output(request.task_type, result.output)
-        except ProviderError as error:
-            self._finish_provider_run(
-                project_id,
-                run_id,
-                status="error",
-                error=error,
-                started_monotonic=started,
-            )
-            raise
-        except Exception as error:
-            mapped = ProviderError(
-                "PROVIDER_REQUEST_FAILED",
-                "The reasoning provider request failed.",
-                retryable=True,
-            )
-            self._finish_provider_run(
-                project_id,
-                run_id,
-                status="error",
-                error=mapped,
-                started_monotonic=started,
-            )
-            raise mapped from error
-        self._finish_provider_run(
-            project_id,
-            run_id,
-            status="success",
-            result=result,
-            started_monotonic=started,
+    ) -> ProviderExecutionResult:
+        """Delegate every Teach provider call to the shared execution boundary."""
+        del privacy_mode, manifest
+        return self._provider_execution.execute(
+            project_id=project_id,
+            session_id=session_id,
+            provider=provider,
+            request=request,
         )
-        return result
-
-    def _finish_provider_run(
-        self,
-        project_id: str,
-        run_id: str,
-        *,
-        status: str,
-        result: Any | None = None,
-        error: ProviderError | None = None,
-        started_monotonic: float | None = None,
-    ) -> None:
-        with self._storage.project_database(project_id) as connection:
-            connection.execute(
-                """
-                UPDATE provider_runs
-                SET ended_at = ?, status = ?, input_token_count = ?, output_token_count = ?,
-                    latency_ms = ?, error_code = ?
-                WHERE id = ?
-                """,
-                (
-                    utc_now(),
-                    status,
-                    getattr(result, "input_token_count", None),
-                    getattr(result, "output_token_count", None),
-                    max(0, int((monotonic() - started_monotonic) * 1000))
-                    if isinstance(started_monotonic, float)
-                    else started_monotonic,
-                    error.code if error is not None else None,
-                    run_id,
-                ),
-            )
-            connection.commit()
-
-    def _latest_provider_run_id(self, project_id: str, session_id: str) -> str | None:
-        with self._storage.project_database(project_id) as connection:
-            row = connection.execute(
-                "SELECT id FROM provider_runs WHERE session_id = ? "
-                "ORDER BY started_at DESC, id DESC LIMIT 1",
-                (session_id,),
-            ).fetchone()
-            return str(row["id"]) if row is not None else None
 
     def _synchronize_semantic_index(self, project_id: str) -> dict[str, Any]:
         # Confirmation changes the current mapping set only if a rebuild
@@ -897,10 +810,7 @@ class TeachService:
         return cast(sqlite3.Row, row)
 
     def _provider_and_health(self) -> tuple[ReasoningProvider | None, Any | None]:
-        if not self._providers.is_enabled():
-            return None, None
-        provider = self._providers.current_provider()
-        return provider, provider.health()
+        return self._providers.current_provider_and_health()
 
     def _fallback_question(self, project_id: str) -> tuple[str, str]:
         retrieval = self._retrieval.query(

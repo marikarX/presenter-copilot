@@ -41,6 +41,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
         self._timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
         self._client_factory = client_factory
         self._client: Any | None = None
+        self._client_timeout_seconds: float | None = None
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -88,7 +89,8 @@ class OpenAIReasoningProvider(ReasoningProvider):
         )
 
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
-        client = self._load_client()
+        effective_timeout = self._effective_timeout_seconds(request)
+        client = self._load_client(timeout_seconds=effective_timeout)
         schema_name = {
             "teach_question": "teach_question",
             "teach_candidate": "teach_candidate",
@@ -133,7 +135,7 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 },
                 tools=[],
                 store=False,
-                timeout=self._timeout_seconds,
+                timeout=effective_timeout,
             )
         except Exception as error:
             raise self._map_error(error) from error
@@ -167,17 +169,27 @@ class OpenAIReasoningProvider(ReasoningProvider):
 
     def close(self) -> None:
         self._client = None
+        self._client_timeout_seconds = None
 
-    def _load_client(self) -> Any:
+    def _load_client(self, *, timeout_seconds: float | None = None) -> Any:
         if not self._api_key:
             raise ProviderError("PROVIDER_UNCONFIGURED", "OpenAI credentials are not configured.")
-        if self._client is not None:
+        effective_timeout = (
+            self._timeout_seconds if timeout_seconds is None else float(timeout_seconds)
+        )
+        if (
+            self._client is not None
+            and self._client_timeout_seconds is not None
+            and self._client_timeout_seconds == effective_timeout
+        ):
             return self._client
+        self._client = None
+        self._client_timeout_seconds = None
         try:
             if self._client_factory is not None:
                 self._client = self._client_factory(
                     api_key=self._api_key,
-                    timeout=self._timeout_seconds,
+                    timeout=effective_timeout,
                     max_retries=0,
                 )
             else:
@@ -185,9 +197,10 @@ class OpenAIReasoningProvider(ReasoningProvider):
 
                 self._client = OpenAI(
                     api_key=self._api_key,
-                    timeout=self._timeout_seconds,
+                    timeout=effective_timeout,
                     max_retries=0,
                 )
+            self._client_timeout_seconds = effective_timeout
         except Exception as error:
             raise ProviderError(
                 "PROVIDER_UNAVAILABLE",
@@ -195,6 +208,16 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 retryable=True,
             ) from error
         return self._client
+
+    def _effective_timeout_seconds(self, request: ReasoningRequest) -> float:
+        """Keep the adapter timeout inside the core-owned request budget."""
+        if not isinstance(request.latency_budget_ms, int) or request.latency_budget_ms <= 0:
+            raise ProviderError(
+                "PROVIDER_TIMEOUT",
+                "The reasoning request has no positive latency budget.",
+                retryable=True,
+            )
+        return min(self._timeout_seconds, request.latency_budget_ms / 1000.0)
 
     @staticmethod
     def _extract_output_text(response: Any) -> str:
@@ -236,9 +259,14 @@ class OpenAIReasoningProvider(ReasoningProvider):
             return ProviderError(
                 "PROVIDER_QUOTA_EXCEEDED", "The OpenAI provider quota was exceeded."
             )
-        if status == 401 or "authentication" in name or "permission" in name:
+        if (
+            status == 401
+            or provider_code in {"invalid_api_key", "authentication_error", "unauthorized"}
+            or "authentication" in name
+            or "permission" in name
+        ):
             return ProviderError("PROVIDER_AUTH_FAILED", "The OpenAI credential was rejected.")
-        if status == 429 or "rate" in name:
+        if status == 429 or "rate" in name or "rate_limit" in provider_code:
             return ProviderError(
                 "PROVIDER_RATE_LIMITED",
                 "The OpenAI provider rate limit was reached.",

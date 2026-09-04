@@ -213,12 +213,24 @@ protection status. Automatic question segmentation is intentionally deferred.
 - provider health/auth/quota states;
 - provider cancellation/timeouts;
 - retrieval-only fallback;
-- optional local-model adapter if practical;
-- experimental Codex adapter only if official integration remains appropriate and does not block release.
+- optional local-model adapter if practical (deferred in this branch);
+- experimental Codex adapter only if official integration remains appropriate and does not block release (deferred in this branch).
 
 ### Exit
 
 Local Only passes network-isolation tests; Selected Context Cloud fake-provider capture contains only expected minimum context; provider failure falls back without ending the session.
+
+M8 implementation status for this branch: Teach, Challenge, and Live Assist
+share one `ProviderExecutionService`. It rereads the project privacy row and
+remote acknowledgement immediately before invocation, rejects remote calls
+from Local Only, validates the exact serialized payload, derives a
+metadata-only manifest from that payload, and commits the `ProviderRun`
+started state before provider I/O. Provider failures update process-local
+health with stable actionable states; bounded timeout and logical
+supersession/cancellation finalize runs exactly once and discard ineligible
+results. `privacy.list_context_manifests` exposes only bounded run metadata
+and sanitized manifests. OS secret storage and optional local/Codex adapters
+remain deferred; no M9 work is included.
 
 ## Milestone 9 — Deletion, security, packaging, performance
 

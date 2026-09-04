@@ -69,5 +69,8 @@ jobs:
       - name: Run formatting, lint, typecheck, and tests
         run: pnpm check
 
+      - name: Run privacy network isolation gate
+        run: pnpm test:privacy-network
+
       - name: Build desktop application
         run: pnpm build

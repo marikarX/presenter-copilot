@@ -104,7 +104,8 @@
             "provider.list",
             "provider.configure",
             "provider.test",
-            "provider.status"
+            "provider.status",
+            "privacy.list_context_manifests"
           ],
           "events": [
             "core.ready",
@@ -273,7 +274,8 @@
             "provider.list",
             "provider.configure",
             "provider.test",
-            "provider.status"
+            "provider.status",
+            "privacy.list_context_manifests"
           ],
           "events": [
             "core.ready",
