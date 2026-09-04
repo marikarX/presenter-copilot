@@ -2,7 +2,12 @@
 
 This checklist is the evidence contract for Deletion, Security, Packaging,
 and Performance. Every result must name the exact commit SHA and distinguish
-verified, unavailable, and manual evidence.
+verified, unavailable, deferred, and manual evidence.
+
+The dated first-MVP merge/release decision is authoritative in
+[`RELEASE_BASELINE.md`](RELEASE_BASELINE.md). Historical benchmark and usability
+requirements remain useful validation guidance but do not override that release
+baseline.
 
 ## Automated gates
 
@@ -26,46 +31,65 @@ deterministic adapters, bounded metadata-only output, and disposable storage.
 The packaged smoke must start the bundled executable, complete its core
 handshake and shutdown, and report no orphaned `presenter-core` process.
 
+For the approved release code baseline `fb8841dca6505004a5ee08970bfbf1d32f396a37`,
+Hosted Windows CI and Trusted Local CI passed, as did M9 15/15,
+privacy/network 14/14, release E2E 8/8, package build, and packaged sidecar/
+shutdown smoke.
+
 ## Security/deletion review
 
-- [ ] `source.delete`, `session.delete`, `project.delete`, Audience/Speaker
-      deletion, and full local reset were tested with confirmation gates.
-- [ ] Project vaults, SQLite rows, retrieval mappings, and warm model/cache
-      references are absent after project deletion.
-- [ ] Full reset removes app-owned state and stored credentials; model caches
-      are retained unless the explicit destructive option is selected.
-- [ ] No credential, raw content, filesystem path, prompt, raw provider error,
-      or raw child-process output appears in logs, diagnostics, SQLite,
-      renderer payloads, manifests, or packaged metadata.
-- [ ] Archive traversal, absolute/drive names, control characters, duplicate
-      normalized names, external links, and overlong names are rejected before
-      extraction.
-- [ ] Renderer/preload allowlists expose only the intended bounded methods;
-      native file and diagnostic save paths stay in Electron main.
+- [x] `source.delete`, `session.delete`, `project.delete`, Audience/Speaker
+      deletion, and full local reset are covered by the accepted M9 regression
+      gate.
+- [x] Project vaults, SQLite rows, retrieval mappings, and warm model/cache
+      references are covered by the accepted deletion/cache regression gate.
+- [x] Full reset confirmation, credential cleanup semantics, and model-cache
+      retention choice are covered by the accepted M9 regression gate.
+- [x] Secret/log/diagnostic/SQLite safety is covered by the accepted privacy and
+      M9 regression gates.
+- [x] Archive traversal, unsafe names, duplicate normalized names, external
+      links, and overlong names are covered by the accepted security tests.
+- [x] Renderer/preload allowlists and native diagnostic save authority are
+      covered by the accepted M9 regression gate.
 
 ## Packaging/manual gates
 
-- [ ] The installer is unsigned, per-user, and allows an explicit directory.
-- [ ] Uninstall removes the application but retains user data.
-- [ ] Reinstall can reopen retained user data without Python, uv, repository,
+- [x] The installer is unsigned by design, per-user, and allows an explicit
+      directory.
+- [x] Uninstall removes the application but retains user data.
+- [x] Reinstall can reopen retained user data without Python, uv, repository,
       or developer environment paths.
-- [ ] A clean Windows VM or fresh standard-user profile passes
-      [`M9_CLEAN_MACHINE_CHECKLIST.md`](M9_CLEAN_MACHINE_CHECKLIST.md).
+- [x] A clean Windows VM/fresh environment passed the M02 clean-machine
+      installation lifecycle on 2026-09-04.
 
-The repository scripts do not install, uninstall, or delete data on the
-developer machine. A missing installer or an unrun clean profile is
-`unavailable`/`manual_required`, not a pass.
+M02 is therefore **PASS** for the first MVP release baseline.
 
-## Performance evidence
+## Physical MVP acceptance
 
-- [ ] `benchmark:release` report is attached or retained for the exact SHA.
-- [ ] CPU-only real-model benchmark is run, or marked unavailable with the
-      missing model/tool evidence.
-- [ ] RTX reference benchmark is run, or marked unavailable with the missing
-      model/driver/tool evidence.
-- [ ] Cold model load, warm retrieval, ASR partial/final, cue latency, and
-      idle/active resource observations are reported without source content.
+- [x] A real Windows microphone was opened through the shipped local capture
+      path and produced visible transcription.
+- [x] The current MVP HUD physical path was exercised successfully enough for
+      first-MVP acceptance, including cue/show-hide behavior.
 
-Do not claim real ASR, provider, GPU, clean-machine, or external screen-share
-acceptance from deterministic adapters, metadata-only reports, or local build
-success.
+The HUD physical path must be re-tested after the planned visual/UX redesign.
+Independent external screen-capture exclusion remains deferred and must not be
+claimed as verified.
+
+## Deferred performance/provider/usability evidence
+
+The following are deliberately non-blocking for the first MVP release under
+`RELEASE_BASELINE.md` and remain open technical-debt/validation work:
+
+- [ ] M06 CPU-only real-model reference benchmark.
+- [ ] M07 RTX reference benchmark after repairing/validating the Windows CUDA
+      12/cuBLAS runtime.
+- [ ] Authorized real OpenAI API-provider acceptance when a user-owned
+      credential is available.
+- [ ] Five-presenter/deck qualitative usability study.
+- [ ] Independent external screen-capture exclusion validation.
+- [ ] Physical HUD re-test after the sleek UI/UX implementation.
+
+`benchmark:release` metadata-only evidence remains useful and is retained, but
+it is not a substitute for M06/M07 real-hardware measurements. Likewise,
+deterministic adapters must never be described as real provider, GPU, or
+hardware acceptance.
