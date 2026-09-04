@@ -104,7 +104,38 @@ Build:
 
 This phase is strategically more important than adding broad presentation-authoring features.
 
-## Phase 6 — Integrations
+## Phase 6 — Immersive audience simulation
+
+Goal: extend rehearsal from question generation into a socially realistic presentation simulation without coupling the core product to one rendering stack.
+
+Build in stages:
+
+1. **Behavioral desktop simulation**
+   - synthetic/role-based audience;
+   - participant attention, comprehension, skepticism, support, and patience state;
+   - visible reactions, interruptions, and grounded questions;
+   - reproducible scenario seeds;
+   - post-run audience-state debrief.
+2. **Spatial 3D room**
+   - participant seating/positioning;
+   - foreground interactive participants plus lower-cost background crowd;
+   - local GPU quality scaling;
+   - renderer failure isolated from rehearsal/session state.
+3. **High-fidelity synthetic audience**
+   - improved animation, facial behavior, lighting, and lip sync only if behavioral simulation already proves useful.
+4. **XR client**
+   - headset rendering using the same renderer-independent simulation contract;
+   - optional spatial interaction and gaze coaching after privacy review.
+
+Architectural rule: the Audience Simulation Engine owns canonical participant behavior; desktop/3D/XR renderers only visualize typed simulation events.
+
+Safety rule: synthetic audience identities are the default. Photorealistic cloning, face recognition, voice cloning, emotion recognition, and claims that the system predicts exactly how a named person will react are outside the default roadmap.
+
+Investment gate: do not prioritize photorealism or XR until a lightweight behavioral prototype demonstrates measurable value over normal Challenge/Run rehearsal.
+
+See [`docs/IMMERSIVE/`](IMMERSIVE/README.md) for the specification, architecture, privacy/safety requirements, and validation plan.
+
+## Phase 7 — Integrations
 
 Candidates:
 
@@ -116,7 +147,7 @@ Candidates:
 
 Integrations should follow validated user demand, not precede core product quality.
 
-## Phase 7 — Team / enterprise layer
+## Phase 8 — Team / enterprise layer
 
 Possible commercial features:
 
@@ -129,7 +160,8 @@ Possible commercial features:
 - SSO;
 - audit/retention controls;
 - analytics on recurring objections and weak answers;
-- managed deployment.
+- managed deployment;
+- curated immersive scenario libraries after individual simulation value is proven.
 
 ## Open-source strategy checkpoint
 
