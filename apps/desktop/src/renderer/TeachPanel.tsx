@@ -709,14 +709,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
         : "Not used";
 
   return (
-    <section
-      className="m3-grid"
-      aria-label="Milestone 3 Teach and Speaker Profile"
-    >
+    <section className="m3-grid" aria-label="Teach and Speaker Profile">
       <section className="teach-panel" aria-labelledby="teach-title">
         <div className="section-heading compact">
           <div>
-            <p className="eyebrow">Milestone 3 · typed text path</p>
+            <p className="eyebrow">IN YOUR OWN WORDS</p>
             <h2 id="teach-title">Teach</h2>
           </div>
           <span className="count-badge">
@@ -816,6 +813,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
             <label>
               Your explanation
               <textarea
+                aria-label="Your explanation"
                 value={answer}
                 onChange={(event) => setAnswer(event.target.value)}
                 maxLength={4000}
@@ -1188,7 +1186,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
           <div className="section-heading compact">
             <div>
               <p className="eyebrow">Models &amp; Providers</p>
-              <h2 id="provider-title">OpenAI reference adapter</h2>
+              <h2 id="provider-title">Reasoning provider</h2>
             </div>
             <span
               className={`provider-status provider-${provider?.health.status ?? "missing"}`}

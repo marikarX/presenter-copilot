@@ -697,7 +697,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     >
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">Milestone 5 · typed rehearsal</p>
+          <p className="eyebrow">PRACTICE WITH PURPOSE</p>
           <h2>Challenge mode</h2>
         </div>
         <span className="count-badge">

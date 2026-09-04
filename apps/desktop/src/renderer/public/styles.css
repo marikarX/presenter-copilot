@@ -1,6 +1,6 @@
 :root {
-  color: #e7edf8;
-  background: #0b1220;
+  color: #30343b;
+  background: #fbfbfc;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -17,10 +17,10 @@ body {
   background:
     radial-gradient(
       circle at top right,
-      rgba(74, 108, 177, 0.22),
+      rgba(109, 107, 139, 0.045),
       transparent 42%
     ),
-    #0b1220;
+    #fbfbfc;
 }
 
 button {
@@ -48,7 +48,7 @@ button {
 
 .eyebrow {
   margin: 0 0 10px;
-  color: #8ca8d4;
+  color: #697184;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -63,7 +63,7 @@ p {
 
 h1 {
   margin-bottom: 12px;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: clamp(2.3rem, 6vw, 4.6rem);
   letter-spacing: -0.055em;
   line-height: 0.98;
@@ -71,7 +71,7 @@ h1 {
 
 h2 {
   margin-bottom: 0;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: 1.2rem;
   letter-spacing: -0.02em;
 }
@@ -80,16 +80,16 @@ h2 {
 .section-copy {
   max-width: 580px;
   margin-bottom: 0;
-  color: #9aaac4;
+  color: #626a78;
   line-height: 1.65;
 }
 
 .status-pill,
 .transport-label,
 .event-label {
-  border: 1px solid rgba(143, 171, 213, 0.23);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 999px;
-  color: #b9c9e3;
+  color: #616877;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -108,25 +108,25 @@ h2 {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #8291aa;
+  background: #87909e;
 }
 
 .status-ready .status-dot {
-  background: #66d7a2;
-  box-shadow: 0 0 0 4px rgba(102, 215, 162, 0.12);
+  background: #278667;
+  box-shadow: 0 0 0 4px rgba(39, 134, 103, 0.09);
 }
 
 .status-unavailable .status-dot {
-  background: #ff8e83;
+  background: #bf453e;
 }
 
 .architecture-card,
 .status-grid,
 .panel {
-  border: 1px solid rgba(143, 171, 213, 0.17);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 20px;
-  background: rgba(17, 28, 48, 0.84);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+  background: rgba(109, 107, 139, 0.045);
+  box-shadow: 0 24px 70px rgba(35, 35, 50, 0.04);
 }
 
 .architecture-card {
@@ -136,7 +136,7 @@ h2 {
 
 .transport-label {
   padding: 8px 11px;
-  color: #8ca8d4;
+  color: #697184;
   white-space: nowrap;
 }
 
@@ -152,10 +152,10 @@ h2 {
 .release-controls {
   margin-top: 20px;
   padding: 28px;
-  border: 1px solid rgba(143, 171, 213, 0.17);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 20px;
-  background: rgba(17, 28, 48, 0.84);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+  background: rgba(109, 107, 139, 0.045);
+  box-shadow: 0 24px 70px rgba(35, 35, 50, 0.04);
 }
 
 .release-copy {
@@ -178,9 +178,9 @@ h2 {
   gap: 18px;
   min-width: 0;
   padding: 14px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(6, 13, 25, 0.48);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .model-card > div:first-child,
@@ -191,7 +191,7 @@ h2 {
 
 .model-label {
   margin: 0 0 6px;
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -202,7 +202,7 @@ h2 {
 .release-subsection strong {
   display: block;
   overflow: hidden;
-  color: #e7edf8;
+  color: #30343b;
   font-size: 0.88rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -212,7 +212,7 @@ h2 {
   display: block;
   overflow: hidden;
   margin-top: 5px;
-  color: #8194b3;
+  color: #717784;
   font-size: 0.75rem;
   line-height: 1.45;
   text-overflow: ellipsis;
@@ -250,13 +250,13 @@ h2 {
   margin-top: 14px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(102, 215, 162, 0.09);
-  color: #a9edc9;
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
   font-size: 0.78rem;
 }
 
 .diagnostic-preview small {
-  color: #8194b3;
+  color: #717784;
 }
 
 .diagnostic-sections {
@@ -270,13 +270,13 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #b8c9e3;
+  color: #626877;
   font-size: 0.76rem;
 }
 
 .diagnostic-section-option input {
   width: auto;
-  accent-color: #76a5eb;
+  accent-color: #7064b5;
 }
 
 .diagnostic-preview pre {
@@ -284,10 +284,10 @@ h2 {
   margin: 6px 0 0;
   overflow: auto;
   padding: 10px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 6px;
-  background: rgba(6, 13, 25, 0.52);
-  color: #c7d7ee;
+  background: rgba(109, 107, 139, 0.045);
+  color: #3e4654;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 0.7rem;
   line-height: 1.45;
@@ -303,13 +303,13 @@ h2 {
   flex: none;
   align-items: center;
   gap: 8px;
-  color: #b8c9e3;
+  color: #626877;
   font-size: 0.76rem;
 }
 
 .reset-checkbox input {
   width: auto;
-  accent-color: #76a5eb;
+  accent-color: #7064b5;
 }
 
 .compact {
@@ -318,7 +318,7 @@ h2 {
 
 .event-label {
   padding: 8px 11px;
-  color: #9aaac4;
+  color: #626a78;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -335,12 +335,12 @@ h2 {
   min-height: 86px;
   padding: 15px;
   border-radius: 12px;
-  background: rgba(9, 17, 31, 0.64);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 dt {
   margin-bottom: 10px;
-  color: #8194b3;
+  color: #717784;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -349,7 +349,7 @@ dt {
 
 dd {
   margin: 0;
-  color: #e7edf8;
+  color: #30343b;
   font-size: 1.08rem;
   font-weight: 650;
 }
@@ -358,27 +358,27 @@ dd {
   margin: 0 0 20px;
   padding: 12px 14px;
   border-radius: 10px;
-  background: rgba(172, 59, 64, 0.16);
-  color: #ffb2aa;
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834;
   line-height: 1.45;
 }
 
 .health-button {
   padding: 11px 16px;
-  border: 1px solid #668fd4;
+  border: 1px solid #7064b5;
   border-radius: 10px;
-  background: #31578f;
-  color: #f5f8ff;
+  background: #292a30;
+  color: #24262d;
   cursor: pointer;
   font-weight: 700;
 }
 
 .health-button:hover:not(:disabled) {
-  background: #3b69a9;
+  background: #41424b;
 }
 
 .health-button:focus-visible {
-  outline: 3px solid rgba(131, 181, 255, 0.52);
+  outline: 3px solid rgba(109, 107, 139, 0.045);
   outline-offset: 3px;
 }
 
@@ -407,24 +407,24 @@ dd {
 }
 
 .primary-button {
-  background: #3969a8;
-  color: #f5f8ff;
+  background: #292a30;
+  color: #24262d;
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #4a7fc2;
+  background: #41424b;
 }
 
 .secondary-button {
-  border: 1px solid rgba(143, 171, 213, 0.34);
-  background: rgba(50, 76, 116, 0.5);
-  color: #dce8fb;
+  border: 1px solid rgba(70, 75, 90, 0.14);
+  background: rgba(109, 107, 139, 0.045);
+  color: #404550;
 }
 
 .danger-button {
-  border: 1px solid rgba(255, 142, 131, 0.38);
-  background: rgba(132, 47, 54, 0.35);
-  color: #ffb2aa;
+  border: 1px solid rgba(191, 69, 62, 0.09);
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834;
 }
 
 .secondary-button:hover:not(:disabled),
@@ -464,8 +464,8 @@ dd {
   justify-content: center;
   padding: 6px 9px;
   border-radius: 999px;
-  background: rgba(102, 215, 162, 0.12);
-  color: #9be7c0;
+  background: rgba(39, 134, 103, 0.09);
+  color: #287450;
   font-size: 0.74rem;
   font-weight: 750;
 }
@@ -484,10 +484,10 @@ input,
 select,
 textarea {
   width: 100%;
-  border: 1px solid rgba(143, 171, 213, 0.25);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 8px;
-  background: rgba(6, 13, 25, 0.62);
-  color: #e7edf8;
+  background: rgba(109, 107, 139, 0.045);
+  color: #30343b;
   font: inherit;
   outline: none;
   padding: 10px 11px;
@@ -496,8 +496,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: #76a5eb;
-  box-shadow: 0 0 0 3px rgba(118, 165, 235, 0.16);
+  border-color: #7064b5;
+  box-shadow: 0 0 0 3px rgba(70, 75, 90, 0.14);
 }
 
 select {
@@ -521,21 +521,21 @@ textarea {
   width: 100%;
   padding: 13px;
   border-radius: 10px;
-  background: rgba(8, 16, 29, 0.52);
-  color: #dce8fb;
+  background: rgba(109, 107, 139, 0.045);
+  color: #404550;
   cursor: pointer;
   text-align: left;
 }
 
 .project-item:hover,
 .project-item.selected {
-  background: rgba(54, 91, 143, 0.46);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .project-item-name,
 .source-name {
   overflow: hidden;
-  color: #f5f8ff;
+  color: #24262d;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -545,7 +545,7 @@ textarea {
 .source-meta,
 .muted,
 .boundary-note {
-  color: #8f9fba;
+  color: #6b707b;
   font-size: 0.82rem;
   line-height: 1.5;
 }
@@ -553,7 +553,7 @@ textarea {
 .boundary-note {
   margin: 20px 0 0;
   padding-top: 16px;
-  border-top: 1px solid rgba(143, 171, 213, 0.12);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .empty-state {
@@ -576,7 +576,7 @@ textarea {
 .settings-grid label {
   display: grid;
   gap: 7px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -593,7 +593,7 @@ textarea {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 8px;
-  color: #b8c9e3;
+  color: #626877;
   font-size: 0.78rem;
   letter-spacing: 0;
   text-transform: none;
@@ -601,7 +601,7 @@ textarea {
 
 .settings-grid label.settings-checkbox input {
   width: auto;
-  accent-color: #76a5eb;
+  accent-color: #7064b5;
 }
 
 .settings-grid input,
@@ -614,7 +614,7 @@ textarea {
   align-items: center;
   margin-top: 34px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .source-actions {
@@ -631,22 +631,22 @@ textarea {
   margin: 14px 0 0;
   padding: 10px 12px;
   border-radius: 8px;
-  color: #c6dcff;
+  color: #4d5365;
   font-size: 0.86rem;
 }
 
 .progress-message {
-  background: rgba(74, 108, 177, 0.18);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .notice-message {
-  background: rgba(102, 215, 162, 0.12);
-  color: #a9edc9;
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
 }
 
 .notice-message.warning {
-  background: rgba(240, 132, 132, 0.14);
-  color: #ffc4c4;
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834;
 }
 
 .source-list {
@@ -658,14 +658,14 @@ textarea {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(8, 16, 29, 0.45);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .source-item.selected {
-  border-color: rgba(118, 165, 235, 0.55);
-  background: rgba(45, 76, 123, 0.3);
+  border-color: rgba(70, 75, 90, 0.14);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .source-main {
@@ -688,31 +688,31 @@ textarea {
 .text-button {
   padding: 5px 2px;
   background: transparent;
-  color: #9fc5ff;
+  color: #555179;
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 700;
 }
 
 .text-button:hover:not(:disabled) {
-  color: #d3e4ff;
+  color: #474064;
 }
 
 .danger-text {
-  color: #ff9d96;
+  color: #a63834;
 }
 
 .preview {
   margin-top: 26px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .unit-card {
   margin-top: 12px;
   padding: 16px;
   border-radius: 12px;
-  background: rgba(6, 13, 25, 0.58);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .unit-heading {
@@ -720,14 +720,14 @@ textarea {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
 .unit-heading strong {
   overflow: hidden;
-  color: #e7edf8;
+  color: #30343b;
   font-size: 0.83rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -737,16 +737,16 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 9px;
-  color: #9fc5ff;
+  color: #555179;
 }
 
 .transcript-cue-heading strong {
-  color: #e7edf8;
+  color: #30343b;
 }
 
 .transcript-provenance-label {
   margin: 8px 0 0;
-  color: #8194b3;
+  color: #717784;
   font-size: 0.75rem;
 }
 
@@ -754,7 +754,7 @@ textarea {
   overflow: auto;
   max-height: 360px;
   margin: 12px 0 0;
-  color: #dce8fb;
+  color: #404550;
   font: inherit;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -764,13 +764,13 @@ textarea {
 .notes {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid rgba(143, 171, 213, 0.12);
-  color: #b8c9e3;
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
+  color: #626877;
   font-size: 0.84rem;
 }
 
 .notes span {
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -786,13 +786,13 @@ textarea {
 .retrieval-inspector {
   margin-top: 28px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .inspector-note {
   max-width: 700px;
   margin: 14px 0 0;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.84rem;
   line-height: 1.55;
 }
@@ -808,13 +808,13 @@ textarea {
   min-width: 0;
   padding: 11px;
   border-radius: 9px;
-  background: rgba(6, 13, 25, 0.58);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .retrieval-health-grid span,
 .retrieval-query-form label,
 .retrieval-result-summary span {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -825,7 +825,7 @@ textarea {
   display: block;
   overflow: hidden;
   margin-top: 7px;
-  color: #e7edf8;
+  color: #30343b;
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -836,16 +836,16 @@ textarea {
   gap: 5px;
   margin: 14px 0 0;
   padding: 11px 13px;
-  border: 1px solid rgba(255, 193, 112, 0.28);
+  border: 1px solid rgba(188, 135, 48, 0.1);
   border-radius: 9px;
-  background: rgba(166, 101, 34, 0.14);
-  color: #ffd39c;
+  background: rgba(188, 135, 48, 0.1);
+  color: #875a16;
   font-size: 0.82rem;
   line-height: 1.45;
 }
 
 .inspector-warning small {
-  color: #e9bd83;
+  color: #875a16;
 }
 
 .retrieval-actions {
@@ -894,13 +894,13 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.8rem;
 }
 
 .retrieval-result-summary strong {
   margin-left: 4px;
-  color: #e7edf8;
+  color: #30343b;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -908,29 +908,29 @@ textarea {
 .retrieval-hit {
   margin-top: 10px;
   padding: 13px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(6, 13, 25, 0.48);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .retrieval-hit-heading {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.82rem;
 }
 
 .retrieval-hit-heading span {
   flex: none;
-  color: #9be7c0;
+  color: #287450;
   font-variant-numeric: tabular-nums;
   font-weight: 750;
 }
 
 .retrieval-hit p {
   margin: 8px 0 0;
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.86rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -941,28 +941,28 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 10px;
-  color: #8f9fba;
+  color: #6b707b;
   font-size: 0.72rem;
 }
 
 .conflict-warning {
   margin-top: 16px;
-  border-color: rgba(255, 142, 131, 0.35);
-  background: rgba(172, 59, 64, 0.16);
-  color: #ffb2aa;
+  border-color: rgba(191, 69, 62, 0.09);
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834;
 }
 
 .run-panel {
   margin-top: 34px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .run-state-badge {
   padding: 7px 10px;
   border-radius: 999px;
-  background: rgba(143, 171, 213, 0.13);
-  color: #b8c9e3;
+  background: rgba(70, 75, 90, 0.14);
+  color: #626877;
   font-size: 0.7rem;
   font-weight: 750;
   letter-spacing: 0.06em;
@@ -970,14 +970,14 @@ textarea {
 }
 
 .run-state-badge.listening {
-  background: rgba(102, 215, 162, 0.15);
-  color: #a9edc9;
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
 }
 
 .run-note {
   max-width: 720px;
   margin: 14px 0 0;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.84rem;
   line-height: 1.55;
 }
@@ -996,8 +996,8 @@ textarea {
   min-width: 0;
   padding: 12px;
   border-radius: 10px;
-  background: rgba(6, 13, 25, 0.48);
-  color: #9aaac4;
+  background: rgba(109, 107, 139, 0.045);
+  color: #626a78;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1013,7 +1013,7 @@ textarea {
 
 .run-check strong {
   overflow: hidden;
-  color: #e7edf8;
+  color: #30343b;
   font-size: 0.86rem;
   text-overflow: ellipsis;
   text-transform: none;
@@ -1022,7 +1022,7 @@ textarea {
 
 .run-check small {
   overflow: hidden;
-  color: #8194b3;
+  color: #717784;
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0;
@@ -1034,10 +1034,10 @@ textarea {
 .run-warning {
   margin: 14px 0 0;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 193, 112, 0.28);
+  border: 1px solid rgba(188, 135, 48, 0.1);
   border-radius: 8px;
-  background: rgba(166, 101, 34, 0.14);
-  color: #ffd39c;
+  background: rgba(188, 135, 48, 0.1);
+  color: #875a16;
   font-size: 0.8rem;
 }
 
@@ -1058,7 +1058,7 @@ textarea {
   display: grid;
   gap: 8px;
   margin-top: 16px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1081,14 +1081,14 @@ textarea {
   display: grid;
   gap: 6px;
   min-width: 0;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.7rem;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .shortcut-settings small {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.72rem;
   font-weight: 500;
   letter-spacing: 0;
@@ -1107,7 +1107,7 @@ textarea {
   min-width: 0;
   padding: 12px;
   border-radius: 10px;
-  background: rgba(6, 13, 25, 0.52);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .run-facts dd {
@@ -1124,16 +1124,16 @@ textarea {
   min-width: 0;
   margin-top: 12px;
   padding: 12px 14px;
-  border: 1px solid rgba(102, 215, 162, 0.24);
+  border: 1px solid rgba(39, 134, 103, 0.09);
   border-radius: 10px;
-  background: rgba(102, 215, 162, 0.08);
-  color: #c9f4dc;
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
   font-size: 0.84rem;
 }
 
 .run-live-row > span:last-child {
   overflow: hidden;
-  color: #a9edc9;
+  color: #276c52;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1147,21 +1147,21 @@ textarea {
   height: 9px;
   flex: none;
   border-radius: 50%;
-  background: #66d7a2;
-  box-shadow: 0 0 0 4px rgba(102, 215, 162, 0.12);
+  background: #278667;
+  box-shadow: 0 0 0 4px rgba(39, 134, 103, 0.09);
 }
 
 .run-transcript,
 .run-debrief {
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid rgba(143, 171, 213, 0.12);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .run-transcript h3,
 .run-debrief h3 {
   margin: 0;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: 1rem;
 }
 
@@ -1174,11 +1174,11 @@ textarea {
 .run-transcript-item {
   padding: 11px 13px;
   border-radius: 9px;
-  background: rgba(6, 13, 25, 0.46);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .run-transcript-item span {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1187,7 +1187,7 @@ textarea {
 
 .run-transcript-item p {
   margin: 7px 0 0;
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.86rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1199,7 +1199,7 @@ textarea {
   gap: 7px;
   margin: 14px 0 0;
   padding-left: 20px;
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.84rem;
   line-height: 1.45;
 }
@@ -1218,7 +1218,7 @@ textarea {
   gap: 16px;
   margin-top: 30px;
   padding-top: 26px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .teach-panel,
@@ -1227,9 +1227,9 @@ textarea {
 .provider-panel {
   min-width: 0;
   padding: 18px;
-  border: 1px solid rgba(143, 171, 213, 0.14);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 14px;
-  background: rgba(6, 13, 25, 0.4);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .m3-side-stack {
@@ -1255,7 +1255,7 @@ textarea {
 .teach-session-meta,
 .field-label,
 .provider-facts dt {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -1272,20 +1272,20 @@ textarea {
 }
 
 .teach-question {
-  border: 1px solid rgba(118, 165, 235, 0.35);
-  background: rgba(45, 76, 123, 0.25);
+  border: 1px solid rgba(70, 75, 90, 0.14);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .teach-question p {
   margin: 12px 0 8px;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: 1.08rem;
   line-height: 1.5;
 }
 
 .teach-question small,
 .provider-note {
-  color: #9aaac4;
+  color: #626a78;
   line-height: 1.45;
 }
 
@@ -1304,7 +1304,7 @@ textarea {
 .promotion-form label {
   display: grid;
   gap: 7px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1316,7 +1316,7 @@ textarea {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 7px !important;
-  color: #b8c9e3 !important;
+  color: #626877 !important;
   font-size: 0.78rem !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -1324,20 +1324,20 @@ textarea {
 
 .checkbox-row input {
   width: auto;
-  accent-color: #76a5eb;
+  accent-color: #7064b5;
 }
 
 .teach-candidate {
-  border: 1px solid rgba(255, 193, 112, 0.35);
-  background: rgba(166, 101, 34, 0.12);
+  border: 1px solid rgba(188, 135, 48, 0.1);
+  background: rgba(188, 135, 48, 0.1);
 }
 
 .provisional-badge,
 .provider-status {
   padding: 5px 8px;
   border-radius: 999px;
-  background: rgba(255, 193, 112, 0.16);
-  color: #ffd39c;
+  background: rgba(188, 135, 48, 0.1);
+  color: #875a16;
   font-size: 0.68rem;
   font-weight: 750;
   letter-spacing: 0.05em;
@@ -1361,7 +1361,7 @@ textarea {
 .knowledge-item p,
 .profile-evidence p {
   margin: 8px 0 0;
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.86rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -1377,13 +1377,13 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  border: 1px solid rgba(102, 215, 162, 0.3);
-  background: rgba(102, 215, 162, 0.09);
+  border: 1px solid rgba(39, 134, 103, 0.09);
+  background: rgba(39, 134, 103, 0.09);
 }
 
 .direct-save-card p {
   margin: 7px 0 0;
-  color: #b8c9e3;
+  color: #626877;
   font-size: 0.84rem;
   line-height: 1.45;
 }
@@ -1391,9 +1391,9 @@ textarea {
 .privacy-callout {
   display: grid;
   gap: 8px;
-  border: 1px solid rgba(255, 193, 112, 0.35);
-  background: rgba(166, 101, 34, 0.12);
-  color: #ffd39c;
+  border: 1px solid rgba(188, 135, 48, 0.1);
+  background: rgba(188, 135, 48, 0.1);
+  color: #875a16;
   font-size: 0.82rem;
   line-height: 1.45;
 }
@@ -1408,9 +1408,9 @@ textarea {
 .knowledge-item,
 .profile-evidence {
   padding: 12px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(8, 16, 29, 0.45);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .knowledge-item-heading,
@@ -1423,14 +1423,14 @@ textarea {
 
 .knowledge-item-heading strong,
 .profile-evidence strong {
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.78rem;
   text-transform: capitalize;
 }
 
 .knowledge-item-heading span,
 .profile-evidence span {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.72rem;
 }
 
@@ -1440,23 +1440,23 @@ textarea {
 
 .flag-button {
   padding: 4px 7px;
-  border: 1px solid rgba(143, 171, 213, 0.2);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 999px;
   background: transparent;
-  color: #8f9fba;
+  color: #6b707b;
   cursor: pointer;
   font-size: 0.68rem;
 }
 
 .flag-button.active {
-  border-color: rgba(102, 215, 162, 0.35);
-  background: rgba(102, 215, 162, 0.1);
-  color: #a9edc9;
+  border-color: rgba(39, 134, 103, 0.09);
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
 }
 
 .promotion-form {
   padding-top: 12px;
-  border-top: 1px solid rgba(143, 171, 213, 0.12);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .profile-evidence p {
@@ -1470,7 +1470,7 @@ textarea {
 }
 
 .provider-facts dd {
-  color: #cbd8ec;
+  color: #555c69;
   font-size: 0.8rem;
   font-weight: 500;
   line-height: 1.4;
@@ -1494,9 +1494,9 @@ textarea {
 
 .provider-history-item {
   padding: 11px;
-  border: 1px solid rgba(143, 171, 213, 0.12);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(8, 16, 29, 0.45);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .provider-history-item .provider-facts {
@@ -1509,27 +1509,27 @@ textarea {
 }
 
 .provider-ready {
-  background: rgba(102, 215, 162, 0.12);
-  color: #a9edc9;
+  background: rgba(39, 134, 103, 0.09);
+  color: #276c52;
 }
 
 .provider-unconfigured,
 .provider-missing,
 .provider-unavailable {
-  background: rgba(255, 142, 131, 0.14);
-  color: #ffb2aa;
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834;
 }
 
 .audience-panel {
   margin-top: 34px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .audience-panel h3,
 .audience-panel h4 {
   margin: 0;
-  color: #f5f8ff;
+  color: #24262d;
 }
 
 .audience-panel h3 {
@@ -1543,7 +1543,7 @@ textarea {
 .audience-subsection {
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid rgba(143, 171, 213, 0.11);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .audience-speaker-list,
@@ -1559,9 +1559,9 @@ textarea {
 .audience-observation {
   min-width: 0;
   padding: 13px;
-  border: 1px solid rgba(143, 171, 213, 0.14);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 11px;
-  background: rgba(8, 16, 29, 0.45);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .audience-speaker,
@@ -1586,13 +1586,13 @@ textarea {
 }
 
 .audience-speaker strong {
-  color: #e7edf8;
+  color: #30343b;
 }
 
 .audience-speaker span,
 .audience-observation-heading span,
 .audience-observation-heading small {
-  color: #8f9fba;
+  color: #6b707b;
   font-size: 0.76rem;
   line-height: 1.45;
 }
@@ -1617,7 +1617,7 @@ textarea {
 .audience-user-observation-form label {
   display: grid;
   gap: 6px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1642,8 +1642,8 @@ textarea {
   margin: 14px 0 0;
   padding: 10px;
   border-radius: 8px;
-  background: rgba(74, 108, 177, 0.13);
-  color: #b8c9e3;
+  background: rgba(109, 107, 139, 0.045);
+  color: #626877;
   font-size: 0.82rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1651,13 +1651,13 @@ textarea {
 }
 
 .audience-user-notes strong {
-  color: #9fc5ff;
+  color: #555179;
 }
 
 .audience-observation-block {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid rgba(143, 171, 213, 0.1);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .audience-block-heading {
@@ -1670,13 +1670,13 @@ textarea {
 }
 
 .audience-observation.candidate {
-  border-color: rgba(255, 193, 112, 0.25);
-  background: rgba(166, 101, 34, 0.1);
+  border-color: rgba(188, 135, 48, 0.1);
+  background: rgba(188, 135, 48, 0.1);
 }
 
 .audience-observation.stale {
-  border-color: rgba(255, 142, 131, 0.34);
-  background: rgba(132, 47, 54, 0.14);
+  border-color: rgba(191, 69, 62, 0.09);
+  background: rgba(191, 69, 62, 0.09);
 }
 
 .audience-observation-heading {
@@ -1684,7 +1684,7 @@ textarea {
 }
 
 .audience-observation-heading span {
-  color: #c6dcff;
+  color: #4d5365;
   font-weight: 700;
 }
 
@@ -1697,12 +1697,12 @@ textarea {
 }
 
 .audience-evidence {
-  border-top: 1px solid rgba(143, 171, 213, 0.1);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
   padding-top: 9px;
 }
 
 .audience-evidence summary {
-  color: #9fc5ff;
+  color: #555179;
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 700;
@@ -1718,13 +1718,13 @@ textarea {
 .audience-evidence li {
   display: grid;
   gap: 3px;
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.8rem;
   line-height: 1.45;
 }
 
 .audience-evidence li strong {
-  color: #9fc5ff;
+  color: #555179;
 }
 
 .audience-evidence li span {
@@ -1735,12 +1735,12 @@ textarea {
 .challenge-panel {
   margin-top: 34px;
   padding-top: 24px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .challenge-panel h3 {
   margin: 0;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: 1rem;
 }
 
@@ -1755,7 +1755,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 9px 16px;
-  color: #8f9fba;
+  color: #6b707b;
   font-size: 0.78rem;
   line-height: 1.45;
 }
@@ -1764,12 +1764,12 @@ textarea {
   margin-top: 18px;
   padding: 11px 13px;
   border-radius: 9px;
-  background: rgba(6, 13, 25, 0.52);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-status-row strong,
 .challenge-config-summary strong {
-  color: #dce8fb;
+  color: #404550;
   font-weight: 700;
 }
 
@@ -1786,9 +1786,9 @@ textarea {
 .challenge-setup,
 .challenge-closed-card {
   padding: 16px;
-  border: 1px solid rgba(143, 171, 213, 0.14);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 12px;
-  background: rgba(6, 13, 25, 0.4);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-setup-heading {
@@ -1800,7 +1800,7 @@ textarea {
 
 .challenge-selection-count {
   flex: none;
-  color: #9be7c0;
+  color: #287450;
   font-size: 0.76rem;
   font-weight: 750;
 }
@@ -1817,22 +1817,22 @@ textarea {
   gap: 10px;
   min-width: 0;
   padding: 12px;
-  border: 1px solid rgba(143, 171, 213, 0.16);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 10px;
-  background: rgba(8, 16, 29, 0.45);
-  color: #dce8fb;
+  background: rgba(109, 107, 139, 0.045);
+  color: #404550;
   cursor: pointer;
 }
 
 .challenge-profile-option.selected {
-  border-color: rgba(118, 165, 235, 0.52);
-  background: rgba(45, 76, 123, 0.3);
+  border-color: rgba(70, 75, 90, 0.14);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-profile-option input {
   width: auto;
   margin-top: 3px;
-  accent-color: #76a5eb;
+  accent-color: #7064b5;
 }
 
 .challenge-profile-option span {
@@ -1843,13 +1843,13 @@ textarea {
 
 .challenge-profile-option strong {
   overflow: hidden;
-  color: #f5f8ff;
+  color: #24262d;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .challenge-profile-option small {
-  color: #8f9fba;
+  color: #6b707b;
   font-size: 0.74rem;
   line-height: 1.4;
 }
@@ -1863,7 +1863,7 @@ textarea {
 .challenge-settings-grid label:not(.checkbox-row) {
   display: grid;
   gap: 7px;
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1883,17 +1883,17 @@ textarea {
 .challenge-config-summary span {
   padding: 5px 8px;
   border-radius: 999px;
-  background: rgba(74, 108, 177, 0.14);
-  color: #b9c9e3;
+  background: rgba(109, 107, 139, 0.045);
+  color: #616877;
 }
 
 .challenge-closed-card {
-  color: #cbd8ec;
+  color: #555c69;
   line-height: 1.5;
 }
 
 .challenge-closed-card strong {
-  color: #ffd39c;
+  color: #875a16;
 }
 
 .challenge-closed-card .secondary-button {
@@ -1902,9 +1902,9 @@ textarea {
 
 .challenge-question-card {
   padding: 16px;
-  border: 1px solid rgba(118, 165, 235, 0.35);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 12px;
-  background: rgba(45, 76, 123, 0.25);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-question-audience {
@@ -1913,7 +1913,7 @@ textarea {
 }
 
 .challenge-question-audience span {
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -1921,23 +1921,23 @@ textarea {
 }
 
 .challenge-question-audience strong {
-  color: #9fc5ff;
+  color: #555179;
 }
 
 .challenge-question-text {
   margin: 0;
-  color: #f5f8ff;
+  color: #24262d;
   font-size: 1.18rem;
   line-height: 1.5;
 }
 
 .challenge-grounding {
   padding-top: 12px;
-  border-top: 1px solid rgba(143, 171, 213, 0.16);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .challenge-grounding summary {
-  color: #9fc5ff;
+  color: #555179;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 700;
@@ -1945,7 +1945,7 @@ textarea {
 
 .challenge-grounding p {
   margin: 12px 0 0;
-  color: #cbd8ec;
+  color: #555c69;
   font-size: 0.84rem;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -1959,7 +1959,7 @@ textarea {
 .challenge-grounding > div > strong,
 .challenge-support-heading strong,
 .challenge-missing-card > strong {
-  color: #dce8fb;
+  color: #404550;
   font-size: 0.76rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1970,17 +1970,17 @@ textarea {
   gap: 7px;
   margin: 9px 0 0;
   padding-left: 18px;
-  color: #cbd8ec;
+  color: #555c69;
   font-size: 0.8rem;
   line-height: 1.45;
 }
 
 .challenge-source-list strong {
-  color: #9fc5ff;
+  color: #555179;
 }
 
 .challenge-source-unavailable {
-  color: #ffb2aa;
+  color: #a63834;
 }
 
 .challenge-answer-form {
@@ -1990,7 +1990,7 @@ textarea {
 }
 
 .challenge-answer-form > label {
-  color: #9aaac4;
+  color: #626a78;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -2010,9 +2010,9 @@ textarea {
 
 .challenge-evaluation {
   padding: 16px;
-  border: 1px solid rgba(102, 215, 162, 0.22);
+  border: 1px solid rgba(39, 134, 103, 0.09);
   border-radius: 12px;
-  background: rgba(6, 25, 22, 0.28);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-score-grid {
@@ -2026,7 +2026,7 @@ textarea {
   min-width: 0;
   padding: 12px;
   border-radius: 9px;
-  background: rgba(6, 13, 25, 0.54);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-score-card {
@@ -2035,7 +2035,7 @@ textarea {
 }
 
 .challenge-score-card > span {
-  color: #8194b3;
+  color: #717784;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -2043,7 +2043,7 @@ textarea {
 }
 
 .challenge-score-card strong {
-  color: #9be7c0;
+  color: #287450;
   font-size: 1rem;
 }
 
@@ -2052,7 +2052,7 @@ textarea {
 .challenge-prior-phrasing p,
 .challenge-answer-history-item p {
   margin: 0;
-  color: #cbd8ec;
+  color: #555c69;
   font-size: 0.8rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2069,7 +2069,7 @@ textarea {
 .challenge-support-heading > span {
   padding: 4px 7px;
   border-radius: 999px;
-  color: #a9edc9;
+  color: #276c52;
   font-size: 0.68rem;
   font-weight: 750;
   letter-spacing: 0.05em;
@@ -2078,31 +2078,31 @@ textarea {
 
 .challenge-support-conflicted,
 .challenge-support-unsupported {
-  background: rgba(255, 142, 131, 0.14);
-  color: #ffb2aa !important;
+  background: rgba(191, 69, 62, 0.09);
+  color: #a63834 !important;
 }
 
 .challenge-support-partially_supported {
-  background: rgba(255, 193, 112, 0.16);
-  color: #ffd39c !important;
+  background: rgba(188, 135, 48, 0.1);
+  color: #875a16 !important;
 }
 
 .challenge-support-supported {
-  background: rgba(102, 215, 162, 0.14);
+  background: rgba(39, 134, 103, 0.09);
 }
 
 .challenge-missing-card {
-  border: 1px solid rgba(255, 193, 112, 0.25);
+  border: 1px solid rgba(188, 135, 48, 0.1);
 }
 
 .challenge-prior-phrasing {
   padding: 12px;
-  border-left: 3px solid #76a5eb;
-  background: rgba(74, 108, 177, 0.13);
+  border-left: 3px solid #7064b5;
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-prior-phrasing > span {
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -2123,7 +2123,7 @@ textarea {
 
 .challenge-advisory-note {
   margin: 0;
-  color: #8194b3;
+  color: #717784;
   font-size: 0.74rem;
   line-height: 1.5;
 }
@@ -2132,7 +2132,7 @@ textarea {
   align-items: center;
   margin-top: 24px;
   padding-top: 18px;
-  border-top: 1px solid rgba(143, 171, 213, 0.14);
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
 }
 
 .challenge-history-toolbar > div:first-child {
@@ -2144,9 +2144,9 @@ textarea {
   display: grid;
   gap: 10px;
   padding: 14px;
-  border: 1px solid rgba(143, 171, 213, 0.14);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 11px;
-  background: rgba(8, 16, 29, 0.45);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-history-heading {
@@ -2154,18 +2154,18 @@ textarea {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  color: #9fc5ff;
+  color: #555179;
   font-size: 0.76rem;
 }
 
 .challenge-history-heading strong {
-  color: #dce8fb;
+  color: #404550;
   text-align: right;
 }
 
 .challenge-history-question {
   margin: 0;
-  color: #f5f8ff;
+  color: #24262d;
   line-height: 1.5;
 }
 
@@ -2179,11 +2179,11 @@ textarea {
   gap: 7px;
   padding: 10px;
   border-radius: 8px;
-  background: rgba(6, 13, 25, 0.54);
+  background: rgba(109, 107, 139, 0.045);
 }
 
 .challenge-answer-history-item .challenge-history-heading span:last-child {
-  color: #8194b3;
+  color: #717784;
   text-transform: capitalize;
 }
 
@@ -2206,21 +2206,21 @@ textarea {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(3, 8, 16, 0.78);
+  background: rgba(25, 27, 35, 0.32);
 }
 
 .modal-card {
   width: min(520px, 100%);
   padding: 26px;
-  border: 1px solid rgba(143, 171, 213, 0.28);
+  border: 1px solid rgba(70, 75, 90, 0.14);
   border-radius: 16px;
-  background: #111c30;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  background: #ffffff;
+  box-shadow: 0 24px 80px rgba(35, 35, 50, 0.04);
 }
 
 .modal-card p:not(.eyebrow) {
   margin: 16px 0 0;
-  color: #cbd8ec;
+  color: #555c69;
   line-height: 1.6;
 }
 

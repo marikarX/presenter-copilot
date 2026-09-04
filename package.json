@@ -36,7 +36,8 @@
     "package:win": "pnpm build:sidecar && pnpm build && pnpm --filter @presenter-copilot/desktop exec electron-builder --win --config electron-builder.yml",
     "test:packaged": "node scripts/test-packaged.mjs",
     "test:install-smoke": "node scripts/test-install-smoke.mjs",
-    "test:e2e:release": "node scripts/release-acceptance.mjs"
+    "test:e2e:release": "node scripts/release-acceptance.mjs",
+    "test:ui": "pnpm build && node apps/desktop/scripts/test-workspace.mjs"
   },
   "devDependencies": {
     "electron-builder": "26.15.3"

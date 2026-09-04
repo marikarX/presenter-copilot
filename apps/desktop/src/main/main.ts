@@ -102,12 +102,12 @@ function createWindow(
   rendererPolicy: RendererValidationOptions,
 ): BrowserWindow {
   const window = new BrowserWindow({
-    width: 980,
-    height: 720,
+    width: 1200,
+    height: 820,
     minWidth: 720,
     minHeight: 520,
     show: false,
-    backgroundColor: "#0b1220",
+    backgroundColor: "#f6f7fa",
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
       contextIsolation: true,
