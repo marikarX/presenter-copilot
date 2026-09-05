@@ -27,6 +27,9 @@ for (const key of Object.keys(env)) {
 }
 env.PRESENTER_COPILOT_DATA_ROOT = path.join(temporary, "core");
 env.PRESENTER_CORE_DIR = path.join(root, "core");
+env.PRESENTER_COPILOT_DEV_MODE = "1";
+env.PRESENTER_COPILOT_TEST_PROVIDER = "deterministic_fake";
+env.PRESENTER_COPILOT_TEST_ASR = "deterministic_fake";
 const errors = [];
 const checks = [];
 let app;
@@ -184,6 +187,42 @@ try {
   checks.push(
     "A real Teach session and its unsaved answer survive mode navigation",
   );
+  await navigate("Audience");
+  await page.getByLabel("Display name", { exact: true }).fill("Test audience");
+  await page
+    .getByRole("button", { name: "Create profile", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Test audience", exact: true })
+    .waitFor();
+  await navigate("Challenge");
+  const challengeProfile = page.locator(".challenge-profile-option").filter({
+    hasText: "Test audience",
+  });
+  await challengeProfile.getByRole("checkbox").check();
+  await page
+    .getByRole("button", { name: "Start Challenge", exact: true })
+    .click();
+  await page
+    .getByLabel("Your typed answer", { exact: true })
+    .fill("Keep this Challenge draft while I review the rehearsal flow.");
+  await navigate("Run");
+  await page.getByRole("button", { name: "Start Run", exact: true }).click();
+  await page.getByRole("button", { name: "Stop Run", exact: true }).click();
+  await page.getByRole("button", { name: "Start Run", exact: true }).waitFor();
+  await navigate("Teach");
+  assert.equal(
+    await page.getByLabel("Your explanation", { exact: true }).inputValue(),
+    "Keep this draft while I review my audience.",
+  );
+  await navigate("Challenge");
+  assert.equal(
+    await page.getByLabel("Your typed answer", { exact: true }).inputValue(),
+    "Keep this Challenge draft while I review the rehearsal flow.",
+  );
+  checks.push(
+    "Teach and Challenge drafts survive a deterministic Run start and stop",
+  );
   for (const name of [
     "Audience",
     "Teach",
@@ -199,13 +238,51 @@ try {
   await page
     .getByLabel("Project name", { exact: true })
     .fill("Draft project name");
+  await page
+    .getByLabel("Privacy mode", { exact: true })
+    .selectOption("selected_context_cloud");
+  await page.getByLabel("Style policy", { exact: true }).selectOption("custom");
+  await page
+    .getByLabel("Custom guidance", { exact: true })
+    .fill("Keep the explanation grounded in the approved project voice.");
+  await page
+    .getByLabel(/Use this project style override/, { exact: false })
+    .check();
   await navigate("Sources");
+  await navigate("Project settings");
+  await page
+    .getByRole("button", { name: "Quarterly strategy review", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Quarterly strategy review", exact: true })
+    .first()
+    .waitFor();
   await navigate("Project settings");
   assert.equal(
     await page.getByLabel("Project name", { exact: true }).inputValue(),
     "Draft project name",
   );
-  checks.push("All project views render; unsaved settings survive navigation");
+  assert.equal(
+    await page.getByLabel("Privacy mode", { exact: true }).inputValue(),
+    "selected_context_cloud",
+  );
+  assert.equal(
+    await page.getByLabel("Style policy", { exact: true }).inputValue(),
+    "custom",
+  );
+  assert.equal(
+    await page.getByLabel("Custom guidance", { exact: true }).inputValue(),
+    "Keep the explanation grounded in the approved project voice.",
+  );
+  assert.equal(
+    await page
+      .getByLabel(/Use this project style override/, { exact: false })
+      .isChecked(),
+    true,
+  );
+  checks.push(
+    "All project views render; unsaved settings survive navigation and current-project clicks",
+  );
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => !window.isDestroyed() && window.isVisible())
@@ -245,7 +322,7 @@ try {
         checks,
         rendererErrors: errors,
         scope:
-          "Real Electron and local core; disposable profile; no microphone capture, model downloads, or remote provider calls",
+          "Real Electron and local core; disposable profile; deterministic fake capture only; no hardware microphone, model downloads, or remote provider calls",
       },
       null,
       2,

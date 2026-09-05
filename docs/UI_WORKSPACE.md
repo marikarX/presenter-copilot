@@ -27,7 +27,9 @@ asks only for a name before moving directly to source import.
 Run `pnpm check`, `pnpm build`, and `pnpm test:ui` on Windows. The UI test uses
 the pinned Playwright driver with the repository's Electron binary and real
 Python core. It creates disposable core and Electron profiles, does not use
-the user's projects, and makes no microphone recording or model download.
+the user's projects, and makes no hardware microphone recording or model
+download. Its capture-retention scenario uses the explicit deterministic fake
+audio/ASR adapters configured by the UI smoke script.
 
 The UI scenarios cover fresh-profile walkthrough, dismissal/restart, native
 dialog interaction, real project creation, transcript-consent cancellation,

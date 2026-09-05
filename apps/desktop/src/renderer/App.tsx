@@ -297,6 +297,10 @@ export function App() {
   const selectProject = useCallback(
     async (project: ProjectSummary) => {
       if (runActive) return;
+      if (selectedProject?.id === project.id) {
+        setView("overview");
+        return;
+      }
       setBusy("open-project");
       setNotice(null);
       try {
@@ -321,7 +325,7 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources, runActive],
+    [loadRetrievalHealth, loadSources, runActive, selectedProject],
   );
 
   const createProject = useCallback(async () => {
@@ -891,15 +895,19 @@ export function App() {
               ) : null}
             </div>
             <div hidden={view !== "teach"}>
-              {selectedProject.storage_status === "ready" && !runActive ? (
-                <TeachPanel project={selectedProject} />
+              {selectedProject.storage_status === "ready" ? (
+                <TeachPanel
+                  project={selectedProject}
+                  captureActive={runActive}
+                />
               ) : null}
             </div>
             <div hidden={view !== "challenge"}>
-              {selectedProject.storage_status === "ready" && !runActive ? (
+              {selectedProject.storage_status === "ready" ? (
                 <ChallengePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
+                  captureActive={runActive}
                 />
               ) : null}
             </div>

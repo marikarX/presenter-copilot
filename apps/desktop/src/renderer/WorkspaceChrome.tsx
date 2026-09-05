@@ -119,7 +119,13 @@ export function WorkspaceChrome({
                 className={`sidebar-project ${project?.id === item.id ? "selected" : ""}`}
                 title={item.name}
                 disabled={busy || recording}
-                onClick={() => onOpen(item)}
+                onClick={() => {
+                  if (project?.id === item.id) {
+                    onNavigate("overview");
+                    return;
+                  }
+                  onOpen(item);
+                }}
               >
                 <Icon name="folder" size={17} />
                 <span>{item.name}</span>

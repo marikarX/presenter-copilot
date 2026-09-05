@@ -2,7 +2,7 @@
 :root {
   color-scheme: light;
   --ink: #292b32;
-  --muted: #69707b;
+  --muted: #5f636d;
   --line: #e7e7ed;
   --surface: #fff;
   --accent: #7064aa;
@@ -156,7 +156,7 @@ svg {
   justify-content: space-between;
   padding: 30px 12px 12px;
   font-size: 11px;
-  color: #7b7d88;
+  color: var(--muted);
 }
 .project-search {
   display: flex;
@@ -164,7 +164,7 @@ svg {
   gap: 7px;
   padding: 0 10px;
   margin-bottom: 10px;
-  color: #838591;
+  color: var(--muted);
 }
 .project-search input {
   min-width: 0;
@@ -345,7 +345,7 @@ svg {
   color: #86789e;
 }
 .eyebrow {
-  color: #7b7a87;
+  color: var(--muted);
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 600;
@@ -366,7 +366,7 @@ h1 {
   color: #8d8298;
 }
 .home-intro > p:not(.eyebrow) {
-  color: #7a7c86;
+  color: var(--muted);
   line-height: 1.7;
   font-size: 14px;
   margin-bottom: 23px;
@@ -470,7 +470,7 @@ h1 {
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: #6c6578;
+  color: var(--muted);
   margin-top: 22px;
 }
 .recent-heading {
@@ -485,7 +485,7 @@ h1 {
 }
 .recent-heading > span {
   font-size: 11px;
-  color: #90929c;
+  color: var(--muted);
 }
 .recent-projects {
   display: grid;
@@ -534,7 +534,7 @@ h1 {
   border: 1px dashed #e3e1e9;
   padding: 24px;
   border-radius: 12px;
-  color: #85818d;
+  color: var(--muted);
   font-size: 12px;
 }
 .home-privacy {
@@ -543,7 +543,7 @@ h1 {
   justify-content: center;
   gap: 7px;
   font-size: 10px;
-  color: #898c94;
+  color: var(--muted);
   margin-top: 30px;
 }
 .project-workspace {
@@ -602,14 +602,14 @@ h1 {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 12px;
-  color: #7a738b;
+  color: var(--muted);
 }
 .workflow-card:hover {
   background: #faf8fd;
   border-color: #d5cde2;
 }
 .workflow-card small {
-  color: #a09aaa;
+  color: var(--muted);
 }
 .workflow-card strong,
 .workflow-card span {
@@ -684,7 +684,7 @@ h1 {
   padding: 0 18px;
 }
 .setup-guide article > span {
-  color: #8b7c9c;
+  color: var(--muted);
   font-size: 12px;
 }
 .setup-guide h3 {
@@ -847,7 +847,7 @@ h1 {
   align-items: center;
   font-size: 9px;
   letter-spacing: 1.6px;
-  color: #8b8397;
+  color: var(--muted);
 }
 .tour-art {
   display: flex;
@@ -881,7 +881,7 @@ h1 {
 }
 .tour-art-note {
   font-size: 11px;
-  color: #8a7b96;
+  color: var(--muted);
 }
 .tour-body {
   text-align: center;
@@ -897,7 +897,7 @@ h1 {
 }
 .tour-detail {
   font-size: 11px;
-  color: #82798d;
+  color: var(--muted);
   line-height: 1.7;
   min-height: 38px;
 }
@@ -928,7 +928,7 @@ h1 {
   font-size: 10px !important;
   text-align: center;
   margin: 20px 0 0;
-  color: #938c9c !important;
+  color: var(--muted) !important;
 }
 @media (max-width: 1100px) {
   .workspace-sidebar {
