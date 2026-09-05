@@ -83,12 +83,11 @@ conflicts with that dated baseline, the release baseline controls.
 - [x] E09 Local OpenAI-compatible/local-model adapter. Implemented with bounded
       HTTP transport, explicit selection, loopback/LAN privacy routing, health,
       and deterministic transport/execution regressions; see [providers](../PROVIDERS.md).
-- [ ] E10 Investigate and implement ChatGPT-authenticated inference through an
-      officially supported OpenAI/ChatGPT or Codex mechanism where available.
-      This is inference entitlement, not identity-only sign-in; do not scrape or
-      reuse undocumented ChatGPT/Codex tokens. Preserve the existing provider
-      privacy boundary and keep API-key fallback until an official path is
-      validated.
+- [x] E10 ChatGPT-authenticated inference through a Presenter-owned official
+      Codex App Server, with managed sign-in/status/logout, version-scoped
+      containment, Selected Context manifests, and synthetic real-account
+      acceptance. OpenAI API-key inference remains independently selectable;
+      no automatic remote fallback. See [containment and evidence](../PROVIDERS.md#e10-chatgpt-managed-codex).
 
 ## Epic F — Speaker Profile and style preservation
 

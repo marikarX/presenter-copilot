@@ -440,8 +440,10 @@ class ProviderExecutionService:
         deadline = monotonic() + budget_ms / 1000.0
         while not finished.wait(timeout=0.025):
             if cancellation_check is not None and cancellation_check():
+                provider.cancel(invocation)
                 raise _ExecutionCancelled
             if monotonic() >= deadline:
+                provider.cancel(invocation)
                 raise _ExecutionTimedOut
         if cancellation_check is not None and cancellation_check():
             raise _ExecutionCancelled

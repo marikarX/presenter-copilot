@@ -38,7 +38,9 @@
     "test:packaged": "node scripts/test-packaged.mjs",
     "test:install-smoke": "node scripts/test-install-smoke.mjs",
     "test:e2e:release": "node scripts/release-acceptance.mjs",
-    "test:ui": "pnpm build && node apps/desktop/scripts/test-workspace.mjs"
+    "test:ui": "pnpm build && node apps/desktop/scripts/test-workspace.mjs",
+    "test:codex-containment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-codex-containment.ps1",
+    "test:codex-real": "uv run --directory core --project . --locked python -m presenter_core.tools.codex_acceptance --real"
   },
   "devDependencies": {
     "electron-builder": "26.15.3"

@@ -88,6 +88,9 @@ export const CORE_METHODS = [
   "speaker_profile.remove_evidence",
   "speaker_profile.update_settings",
   "speaker_profile.reset",
+  "provider.codex.sign_in",
+  "provider.codex.status",
+  "provider.codex.sign_out",
   "provider.list",
   "provider.configure",
   "provider.test",
@@ -221,6 +224,9 @@ export const RENDERER_CORE_METHODS = [
   "speaker_profile.remove_evidence",
   "speaker_profile.update_settings",
   "speaker_profile.reset",
+  "provider.codex.sign_in",
+  "provider.codex.status",
+  "provider.codex.sign_out",
   "provider.list",
   "provider.configure",
   "provider.test",
@@ -1091,6 +1097,12 @@ export interface SpeakerEvidence {
   user_approved: boolean;
   created_at: string;
   origin_project_name?: string | null;
+}
+
+export interface CodexAuthStatus {
+  state: "signed_out" | "signing_in" | "signed_in" | "error";
+  error_code: string | null;
+  runtime_version: string | null;
 }
 
 export interface ProviderStatus {

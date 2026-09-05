@@ -18,6 +18,8 @@ from presenter_core.errors import invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.storage.service import StorageManager
 
+from .codex import CodexReasoningProvider
+from .codex_policy import CODEX_MODEL
 from .local import LocalReasoningProvider, validate_endpoint
 from .models import (
     ProviderError,
@@ -47,6 +49,7 @@ class ProviderService:
         self._credential_store = credential_store or WindowsCredentialStore()
         self._openai_instance: OpenAIReasoningProvider | None = None
         self._local_instance: LocalReasoningProvider | None = None
+        self._codex = CodexReasoningProvider()
         self._runtime_health: dict[str, ProviderHealth] = {}
         self._event_sink = event_sink
 
@@ -63,6 +66,10 @@ class ProviderService:
         local = self._local_provider()
         local_row = self._config_row(local.id)
         providers = [
+            self._provider_dict(
+                self._codex,
+                enabled=bool((self._config_row(self._codex.id) or {"enabled": False})["enabled"]),
+            ),
             self._provider_dict(provider, enabled=enabled),
             self._provider_dict(local, enabled=bool(local_row and local_row["enabled"])),
         ]
@@ -72,14 +79,23 @@ class ProviderService:
     def configure(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id", "enabled", "model_id", "endpoint"})
         provider_id = params.get("provider_id", "openai")
-        if provider_id not in {"openai", "local_openai"}:
+        if provider_id not in {"openai", "local_openai", "codex_chatgpt"}:
             raise invalid_request(
                 "The requested provider is not configurable.", field="provider_id"
             )
         enabled = params.get("enabled", True)
         if not isinstance(enabled, bool):
             raise invalid_request("enabled must be a boolean.", field="enabled")
-        model_id = params.get("model_id", DEFAULT_OPENAI_MODEL if provider_id == "openai" else "")
+        model_id = params.get(
+            "model_id",
+            CODEX_MODEL
+            if provider_id == "codex_chatgpt"
+            else DEFAULT_OPENAI_MODEL
+            if provider_id == "openai"
+            else "",
+        )
+        if provider_id == "codex_chatgpt" and model_id != CODEX_MODEL:
+            raise invalid_request("Codex uses the validated model.", field="model_id")
         if not isinstance(model_id, str) or not model_id.strip() or len(model_id.strip()) > 120:
             raise invalid_request("model_id must be a non-empty bounded string.", field="model_id")
         if any(ord(character) < 32 for character in model_id):
@@ -95,7 +111,11 @@ class ProviderService:
         elif "endpoint" in params:
             raise invalid_request("OpenAI uses its official endpoint.", field="endpoint")
         safe_credential_source = (
-            self._credential_source() if provider_id == "openai" else "environment"
+            self._credential_source()
+            if provider_id == "openai"
+            else "chatgpt_managed"
+            if provider_id == "codex_chatgpt"
+            else "environment"
         )
         with self._storage.app_database() as connection:
             if enabled:
@@ -135,10 +155,25 @@ class ProviderService:
             connection.commit()
         self._runtime_health.pop(provider_id, None)
         provider = (
-            self._local_provider() if provider_id == "local_openai" else self._openai_provider()
+            self._codex
+            if provider_id == "codex_chatgpt"
+            else self._local_provider()
+            if provider_id == "local_openai"
+            else self._openai_provider()
         )
         result = {"provider": self._provider_dict(provider, enabled=enabled)}
         self._emit("provider.status_changed", result)
+        return result
+
+    def codex_auth(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        reject_unknown_fields(params, set())
+        operation = {
+            "sign_in": self._codex.sign_in,
+            "status": self._codex.auth_status,
+            "sign_out": self._codex.sign_out,
+        }[action]
+        result = operation()
+        self._emit_status(self._codex)
         return result
 
     def credentials_status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -266,6 +301,7 @@ class ProviderService:
     ) -> dict[str, Any]:
         """Remove and verify only the OS entry; environment credentials stay external."""
         del plan
+        self._codex.sign_out()
         preflight = self.prepare_reset_credential_cleanup()
         stored_present = bool(preflight["stored_credential_present"])
         removed = False
@@ -298,11 +334,16 @@ class ProviderService:
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})
         provider_id = params.get("provider_id")
-        if provider_id not in {None, "openai", "local_openai"} and self._injected_provider is None:
+        if (
+            provider_id not in {None, "openai", "local_openai", "codex_chatgpt"}
+            and self._injected_provider is None
+        ):
             raise invalid_request("The requested provider is not supported.", field="provider_id")
         provider = (
             self.current_provider()
             if self._injected_provider is not None or provider_id is None
+            else self._codex
+            if provider_id == "codex_chatgpt"
             else self._local_provider()
             if provider_id == "local_openai"
             else self._openai_provider()
@@ -363,6 +404,9 @@ class ProviderService:
     def current_provider(self) -> ReasoningProvider:
         if self._injected_provider is not None:
             return self._injected_provider
+        codex_row = self._config_row("codex_chatgpt")
+        if codex_row is not None and codex_row["enabled"]:
+            return self._codex
         row = self._config_row("local_openai")
         if row is not None and row["enabled"]:
             return self._local_provider()
@@ -379,6 +423,8 @@ class ProviderService:
         """Return base health overlaid with this process's recent safe outcome."""
         selected = provider or self.current_provider()
         base = selected.health()
+        if selected is self._codex and base.status != "ready":
+            return base
         runtime = self._runtime_health.get(selected.id)
         if runtime is None:
             return base
@@ -446,6 +492,7 @@ class ProviderService:
         if self._local_instance is not None:
             self._local_instance.close()
             self._local_instance = None
+        self._codex.close()
         self._runtime_health.clear()
 
     def is_enabled(self) -> bool:
@@ -502,6 +549,8 @@ class ProviderService:
             if provider.id == "openai"
             else "environment"
             if provider.id == "local_openai"
+            else "chatgpt_managed"
+            if provider.id == "codex_chatgpt"
             else "test",
             "safe_config": {
                 "endpoint": provider.endpoint,

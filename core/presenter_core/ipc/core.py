@@ -683,6 +683,10 @@ class CoreService:
             return make_response(request_id, result=self._speaker_profile.update_settings(params))
         if method == "speaker_profile.reset":
             return make_response(request_id, result=self._speaker_profile.reset(params))
+        if method in {"provider.codex.sign_in", "provider.codex.status", "provider.codex.sign_out"}:
+            return make_response(
+                request_id, result=self._providers.codex_auth(method.rsplit(".", 1)[1], params)
+            )
         if method == "provider.list":
             return make_response(request_id, result=self._providers.list(params))
         if method == "provider.configure":
