@@ -241,19 +241,33 @@ try {
     await noOverflow(name);
     await shot(`view-${name.toLowerCase().replaceAll(" ", "-")}`);
   }
-  await page
-    .getByLabel("Project name", { exact: true })
-    .fill("Draft project name");
-  await page
-    .getByLabel("Privacy mode", { exact: true })
-    .selectOption("selected_context_cloud");
-  await page.getByLabel("Style policy", { exact: true }).selectOption("custom");
-  await page
-    .getByLabel("Custom guidance", { exact: true })
-    .fill("Keep the explanation grounded in the approved project voice.");
-  await page
-    .getByLabel(/Use this project style override/, { exact: false })
-    .check();
+  const settingsGrid = page.locator(".settings-grid");
+  const projectNameField = settingsGrid
+    .locator("label")
+    .filter({ hasText: /^Project name/ })
+    .locator("input");
+  const privacyModeField = settingsGrid
+    .locator("label")
+    .filter({ hasText: /^Privacy mode/ })
+    .locator("select");
+  const stylePolicyField = settingsGrid
+    .locator("label")
+    .filter({ hasText: /^Style policy/ })
+    .locator("select");
+  const customGuidanceField = settingsGrid
+    .locator("label")
+    .filter({ hasText: /^Custom guidance/ })
+    .locator("textarea");
+  const styleOverrideField = settingsGrid.locator(
+    ".settings-checkbox input[type=checkbox]",
+  );
+  await projectNameField.fill("Draft project name");
+  await privacyModeField.selectOption("selected_context_cloud");
+  await stylePolicyField.selectOption("custom");
+  await customGuidanceField.fill(
+    "Keep the explanation grounded in the approved project voice.",
+  );
+  await styleOverrideField.check();
   await navigate("Sources");
   await navigate("Project settings");
   await page
@@ -264,28 +278,14 @@ try {
     .first()
     .waitFor();
   await navigate("Project settings");
+  assert.equal(await projectNameField.inputValue(), "Draft project name");
+  assert.equal(await privacyModeField.inputValue(), "selected_context_cloud");
+  assert.equal(await stylePolicyField.inputValue(), "custom");
   assert.equal(
-    await page.getByLabel("Project name", { exact: true }).inputValue(),
-    "Draft project name",
-  );
-  assert.equal(
-    await page.getByLabel("Privacy mode", { exact: true }).inputValue(),
-    "selected_context_cloud",
-  );
-  assert.equal(
-    await page.getByLabel("Style policy", { exact: true }).inputValue(),
-    "custom",
-  );
-  assert.equal(
-    await page.getByLabel("Custom guidance", { exact: true }).inputValue(),
+    await customGuidanceField.inputValue(),
     "Keep the explanation grounded in the approved project voice.",
   );
-  assert.equal(
-    await page
-      .getByLabel(/Use this project style override/, { exact: false })
-      .isChecked(),
-    true,
-  );
+  assert.equal(await styleOverrideField.isChecked(), true);
   checks.push(
     "All project views render; unsaved settings survive navigation and current-project clicks",
   );
