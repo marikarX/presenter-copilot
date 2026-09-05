@@ -20,7 +20,7 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 
 ## Core modes
 
-- **Teach** — enrich the project through voice/text conversation in the user's own words.
+- **Teach** — enrich the project through typed conversation in the user's own words. Voice-first Teach is deferred to backlog item G09.
 - **Challenge** — rehearse against grounded audience questions and follow-ups.
 - **Run** — uninterrupted presentation rehearsal with post-run debrief.
 - **Live Assist** — private webcam-adjacent source-grounded cues with an explicit push-to-assist fallback.
@@ -176,13 +176,13 @@ developer machine; use [`docs/MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](docs/MVP/M9_CL
 for that manual gate.
 
 Known limitations: Windows 11 is the reference platform; local models require
-explicit bootstrap; automatic question segmentation, Teams/Webex connectors,
-biometric speaker/face recognition, and mobile/cloud accounts are not part of
-this MVP. Microphone capture protection is best effort. Real CPU/RTX model
-benchmarks, physical microphone recognition quality, clean-machine
-install/uninstall, external capture behavior, and the five-presenter
-qualitative study require separate evidence and are not implied by
-deterministic tests or a successful package build.
+explicit bootstrap; voice-first Teach, automatic question segmentation,
+Teams/Webex connectors, biometric speaker/face recognition, and mobile/cloud
+accounts are not part of this MVP. Microphone capture protection is best
+effort. Real CPU/RTX model benchmarks, physical microphone recognition quality,
+clean-machine install/uninstall, external capture behavior, and the
+five-presenter qualitative study require separate evidence and are not implied
+by deterministic tests or a successful package build.
 
 ## Broader documentation
 
