@@ -1,4 +1,4 @@
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
@@ -36,7 +36,7 @@ describe("sidecar command configuration", () => {
     expect(command.args).toEqual(["-u", "-m", "presenter_core"]);
   });
 
-  it("resolves the frozen Windows sidecar under resources, including spaces", () => {
+  it("resolves the frozen Windows sidecar and bundled Codex under resources", () => {
     const root = mkdtempSync(`${tmpdir()}\\Presenter Copilot resources-`);
     const sidecarDirectory = `${root}\\sidecar\\presenter-core`;
     mkdirSync(sidecarDirectory, { recursive: true });
@@ -52,6 +52,8 @@ describe("sidecar command configuration", () => {
           OPENAI_API_KEY: "explicit-bootstrap-only",
           NODE_OPTIONS: "--inspect",
           PYTHONPATH: "C:\\untrusted",
+          PRESENTER_CODEX_EXECUTABLE: "C:\\untrusted\\codex.exe",
+          PRESENTER_CODEX_BUNDLED: "0",
         },
       });
       expect(command.command).toBe(executable);
@@ -61,6 +63,10 @@ describe("sidecar command configuration", () => {
       expect(command.env.OPENAI_API_KEY).toBe("explicit-bootstrap-only");
       expect(command.env.NODE_OPTIONS).toBeUndefined();
       expect(command.env.PYTHONPATH).toBeUndefined();
+      expect(command.env.PRESENTER_CODEX_EXECUTABLE).toBe(
+        join(root, "codex", "codex.exe"),
+      );
+      expect(command.env.PRESENTER_CODEX_BUNDLED).toBe("1");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

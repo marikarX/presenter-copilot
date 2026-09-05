@@ -3,12 +3,21 @@
 ## E10: ChatGPT-managed Codex
 
 Settings → Reasoning Providers → Codex offers sign-in, status, sign-out, and
-explicit provider selection. Install the official Windows Codex executable
-separately: supported versions are exactly **0.153.1 and 0.153.4**, with model
-**gpt-5.4-mini**. Other versions/models are rejected pending containment testing.
-Core resolves `codex` or the backend-only `PRESENTER_CODEX_EXECUTABLE` absolute
-executable path; the renderer cannot supply a binary, filesystem path, token,
-environment, tool, or arbitrary App Server RPC.
+explicit provider selection. Packaged Windows builds are self-contained: the
+installer includes the exact official Codex CLI **0.153.4** Windows x64 runtime
+used by the E10 acceptance path, with model **gpt-5.4-mini**. The release build
+fetches the pinned upstream binary, verifies SHA-256 and `--version`, and places
+it under Electron resources together with the upstream Apache-2.0 `LICENSE` and
+`NOTICE`. End users do not install Node, npm, or Codex separately, and first run
+does not download the reasoning runtime.
+
+Packaged Electron sets `PRESENTER_CODEX_EXECUTABLE` to its own resource path
+after minimizing the sidecar environment, so a system Codex binary or caller
+`PATH` cannot replace the bundled runtime. Development and explicit acceptance
+workflows may still use `PRESENTER_CODEX_EXECUTABLE` or `codex` on `PATH` with
+exactly supported versions **0.153.1 or 0.153.4**. Other versions/models are
+rejected pending containment testing. The renderer cannot supply a binary,
+filesystem path, token, environment, tool, or arbitrary App Server RPC.
 
 Authentication uses official App Server `account/login/start` with `type: chatgpt`,
 `account/read`, `account/login/cancel`, and `account/logout`. The official browser
@@ -79,6 +88,11 @@ path and requires renewed acceptance when discovered.
   untrusted evidence. It checks structured results and successful manifest-backed
   runs, then logs out. Real-model prompts do not force the model to call tools;
   the unauthenticated deterministic probe provides that forced-call evidence.
+- `pnpm package:win` prepares only the pinned official 0.153.4 Windows x64 Codex
+  binary and fails closed on upstream SHA-256/version mismatch. `pnpm
+  test:packaged` verifies the exact binary digest/version and bundled upstream
+  license/notice inside `win-unpacked`; it also runs the existing packaged
+  sidecar smoke with a system-only `PATH`.
 - `pnpm test:privacy-network` and `pnpm test:providers-ui`: preserve existing
   network/privacy behavior and verify real Electron typed Codex status/sign-out,
   fixed model selection, credential exclusion, and independent local inference.
@@ -98,6 +112,7 @@ Windows npm runtimes, with binary SHA-256 recorded below:
 
 Version acceptance is exact-version based; binary digests record the tested
 distribution, rather than claiming every same-version distribution is identical.
+Packaged release builds additionally require the exact 0.153.4 digest above.
 Model changes also require regression: `gpt-5.6-luna` exposed an additional
 execution wrapper and was rejected by the drift gate. Do not broaden the runtime
 or model allowlist without forced probes and synthetic real-account acceptance.

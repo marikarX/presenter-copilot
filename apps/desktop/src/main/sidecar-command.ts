@@ -83,6 +83,14 @@ export function resolvePackagedSidecarPath(
   return path.join(resourcesPath, "sidecar", "presenter-core", executableName);
 }
 
+export function resolvePackagedCodexPath(
+  resourcesPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const executableName = platform === "win32" ? "codex.exe" : "codex";
+  return path.join(resourcesPath, "codex", executableName);
+}
+
 function minimizedPackagedEnvironment(
   source: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
@@ -116,11 +124,17 @@ export function createSidecarCommand(
     );
     const command = resolvePackagedSidecarPath(resourcesPath, platform);
     if (!isUsableExecutable(command)) throw new SidecarResolutionError(command);
+    const packagedEnv = minimizedPackagedEnvironment(env);
+    packagedEnv.PRESENTER_CODEX_EXECUTABLE = resolvePackagedCodexPath(
+      resourcesPath,
+      platform,
+    );
+    packagedEnv.PRESENTER_CODEX_BUNDLED = "1";
     return {
       command,
       args: [],
       cwd: path.dirname(command),
-      env: minimizedPackagedEnvironment(env),
+      env: packagedEnv,
       shell: false,
     };
   }
