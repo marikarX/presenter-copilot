@@ -139,9 +139,15 @@ try {
     "Project creation uses real core; transcript authorization still precedes picker",
   );
   const fixture = path.join(temporary, "strategy-notes.md");
+  // Keep the fixture source-backed but lexical-fallback-ready: Challenge's
+  // audience query includes these decision terms when no embedding model is
+  // available in offline CI.
   await writeFile(
     fixture,
-    "# Strategy review\n\nThe proposed service targets a recovery time of 15 minutes.\n",
+    "# Strategy review\n\nThe proposed service targets a recovery time of 15 minutes. " +
+      "The decision rationale weighs cost, operational risk, and the tradeoff " +
+      "between faster recovery and migration complexity; this evidence supports " +
+      "the target.\n",
   );
   // Substitute only the native picker result. Main-process import and parsing remain real.
   await app.evaluate(({ dialog }, fixturePath) => {
