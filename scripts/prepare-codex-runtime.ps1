@@ -8,7 +8,7 @@ $DownloadUrl = "https://github.com/openai/codex/releases/download/rust-v0.153.4/
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TargetDirectory = Join-Path $RepositoryRoot "artifacts\codex"
 $TargetPath = Join-Path $TargetDirectory "codex.exe"
-$TemporaryPath = Join-Path $TargetDirectory "codex.exe.download"
+$TemporaryPath = Join-Path $TargetDirectory "codex.download.exe"
 
 function Test-CodexRuntime([string] $Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
