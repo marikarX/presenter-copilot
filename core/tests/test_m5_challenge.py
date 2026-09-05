@@ -9,7 +9,15 @@ from typing import Any
 
 import pytest
 
-from presenter_core.__main__ import _explicit_developer_provider
+from presenter_core.__main__ import (
+    _explicit_developer_asr,
+    _explicit_developer_provider,
+)
+from presenter_core.asr.adapters import (
+    FAKE_ASR_ADAPTER_ID,
+    DeterministicFakeASRAdapter,
+)
+from presenter_core.asr.audio import DeterministicFakeAudioInput
 from presenter_core.ipc.core import CoreService
 from presenter_core.providers import context as provider_context
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
@@ -48,6 +56,21 @@ def test_deterministic_fake_provider_requires_explicit_developer_flags(monkeypat
     assert provider is not None
     assert provider.id == "fake-test"
     assert provider.locality == "local"
+
+
+def test_deterministic_fake_asr_requires_explicit_developer_flags(monkeypatch: Any) -> None:
+    monkeypatch.delenv("PRESENTER_COPILOT_DEV_MODE", raising=False)
+    monkeypatch.delenv("PRESENTER_COPILOT_TEST_ASR", raising=False)
+    assert _explicit_developer_asr() == (None, None)
+
+    monkeypatch.setenv("PRESENTER_COPILOT_DEV_MODE", "1")
+    assert _explicit_developer_asr() == (None, None)
+
+    monkeypatch.setenv("PRESENTER_COPILOT_TEST_ASR", "deterministic_fake")
+    audio_input, adapters = _explicit_developer_asr()
+    assert isinstance(audio_input, DeterministicFakeAudioInput)
+    assert adapters is not None
+    assert isinstance(adapters[FAKE_ASR_ADAPTER_ID], DeterministicFakeASRAdapter)
 
 
 def call(core: CoreService, request_id: str, method: str, params: dict[str, Any]) -> dict[str, Any]:

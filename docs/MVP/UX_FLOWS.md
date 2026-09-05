@@ -25,6 +25,21 @@ Settings
 
 The product should feel project-centric, not chat-centric.
 
+### Desktop workspace implementation (September 2026)
+
+The post-MVP desktop shell provides Home, Setup & settings, searchable local
+projects, and per-project Overview, Sources, Audience, Teach, Challenge, Run,
+Live Assist, and Project settings. Session history stays within its relevant
+mode; Speaker Profile remains beside Teach and shortcut configuration remains
+in Live Assist. These are the implemented locations for the conceptual map above.
+
+The main window uses a light workspace with a collapsible sidebar. Mode views
+remain mounted during navigation to retain unsaved answers and form state.
+Active Run/Live Assist sessions lock navigation to their owning mode, with a
+persistent return-to-session action. Audio/model readiness refreshes on entry
+without resetting the session. Project switching retains the existing
+project-scoped state reset behavior.
+
 ## 2. First-run flow
 
 1. Welcome.
@@ -37,6 +52,20 @@ The product should feel project-centric, not chat-centric.
    - optional provider integrations when implemented.
 6. Select default privacy mode; recommend `Selected Context Cloud` only if a remote provider is configured, otherwise `Local Only`.
 7. Offer optional `Build my Speaker Profile later`; do not force onboarding speech training.
+
+The desktop presents this introduction as a five-step, skippable walkthrough.
+`Restart walkthrough` is always available in the sidebar when no recording is
+active. Dismissal is a versioned, non-sensitive preference in the Electron
+profile's local storage, survives restart, and resets after a successful
+Reset Local Data action. Storage failure does not prevent app launch.
+Native dialogs contain keyboard focus, support Escape, and restore focus.
+
+Completion opens Setup & settings; it does not mark hardware or providers as
+verified. Setup explains explicit model preparation, an optional Windows-stored
+provider credential, and project privacy choices. The ten-second microphone
+check is a short user-started Run rehearsal with final-transcript review, not
+an automatic recording. Models, microphone capture, and remote calls never
+start from the walkthrough. Core diagnostics are expandable troubleshooting.
 
 ## 3. Create project
 

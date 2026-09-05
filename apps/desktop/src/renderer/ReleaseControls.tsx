@@ -13,6 +13,7 @@ import { DIAGNOSTIC_SECTIONS, unwrapInvokeResult } from "../shared/protocol";
 
 interface ReleaseControlsProps {
   coreReady: boolean;
+  visible?: boolean;
   runActive: boolean;
   onResetComplete: () => void;
 }
@@ -61,6 +62,7 @@ function sameSections(
 
 export function ReleaseControls({
   coreReady,
+  visible = true,
   runActive,
   onResetComplete,
 }: ReleaseControlsProps) {
@@ -97,10 +99,10 @@ export function ReleaseControls({
   }, []);
 
   useEffect(() => {
-    if (!coreReady) return;
+    if (!coreReady || !visible) return;
     void loadModels();
     void loadCredentials();
-  }, [coreReady, loadCredentials, loadModels]);
+  }, [coreReady, visible, loadCredentials, loadModels]);
 
   const prepareModel = useCallback(
     async (model: ModelStatusSummary) => {
@@ -300,7 +302,7 @@ export function ReleaseControls({
     >
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">M9 · Release controls</p>
+          <p className="eyebrow">Models & connections</p>
           <h2 id="release-controls-title">
             Models, credentials, and diagnostics
           </h2>
@@ -308,9 +310,9 @@ export function ReleaseControls({
         <span className="event-label">No silent model downloads</span>
       </div>
       <p className="section-copy release-copy">
-        Normal runtime uses local files only. Preparing a model is an explicit
-        action; credentials stay in the operating-system store and never enter
-        the renderer.
+        Models run on this device. Preparing a model may download its files.
+        Optional cloud reasoning follows your project privacy settings; stored
+        credentials are protected by Windows.
       </p>
 
       <div className="model-list">
@@ -320,7 +322,7 @@ export function ReleaseControls({
               <p className="model-label">{modelLabel(model)}</p>
               <strong>{model.model_id}</strong>
               <span className="model-meta">
-                {model.status} ·{" "}
+                {model.status.replaceAll("_", " ")} ·{" "}
                 {model.local_only ? "local only" : "policy unavailable"} ·{" "}
                 {model.cache_location}
               </span>
@@ -334,7 +336,7 @@ export function ReleaseControls({
               >
                 {busy === `prepare-${model.kind}`
                   ? "Preparing…"
-                  : "Prepare explicitly"}
+                  : "Prepare model"}
               </button>
               <button
                 type="button"
@@ -358,8 +360,18 @@ export function ReleaseControls({
             Provider credential
           </p>
           <strong>
-            {credentials?.configured ? "Configured" : "Not configured"}
+            {credentials
+              ? credentials.configured
+                ? "Configured"
+                : "Not configured"
+              : "Checking credential status…"}
           </strong>
+          <p className="provider-setup-help">
+            Optional: set OPENAI_API_KEY in your Windows user environment, then
+            restart Presenter Copilot. When detected, save it to Windows
+            Credential Manager here. Never paste a key into a project or
+            conversation. Local Only does not require a key.
+          </p>
           <span className="model-meta">
             Source: {credentials?.credential_source ?? "checking"}
             {credentials?.environment_detected ? " · environment detected" : ""}

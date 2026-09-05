@@ -18,6 +18,7 @@ import {
 type RunPanelProps = {
   project: ReadyProjectSummary;
   blocked?: boolean;
+  visible?: boolean;
   onActiveChange: (active: boolean) => void;
 };
 
@@ -104,6 +105,7 @@ function runEventSessionId(event: EventEnvelope): string | null {
 export function RunPanel({
   project,
   blocked = false,
+  visible = true,
   onActiveChange,
 }: RunPanelProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
@@ -124,6 +126,35 @@ export function RunPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+
+  // Refresh setup metadata on entry without resetting session state or drafts.
+  useEffect(() => {
+    if (!visible) return;
+    let current = true;
+    void Promise.all([
+      requestCore<DeviceListResult>("asr.list_devices"),
+      requestCore<ASRStatus>("asr.status"),
+    ])
+      .then(([result, nextStatus]) => {
+        if (!current) return;
+        setDevices(result.devices);
+        setAsrStatus(nextStatus);
+        setSelectedDeviceId((selected) =>
+          result.devices.some((device) => device.device_id === selected)
+            ? selected
+            : (nextStatus.config.device_id ??
+              result.devices.find((device) => device.is_default)?.device_id ??
+              result.devices[0]?.device_id ??
+              ""),
+        );
+      })
+      .catch((error: unknown) => {
+        if (current) setMessage(errorMessage(error));
+      });
+    return () => {
+      current = false;
+    };
+  }, [visible]);
 
   const refreshRunData = useCallback(
     async (nextSession: Session | null) => {
@@ -613,7 +644,7 @@ export function RunPanel({
     <section className="run-panel" aria-labelledby="run-title">
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">Milestone 6 · local voice</p>
+          <p className="eyebrow">YOUR REHEARSAL SPACE</p>
           <h2 id="run-title">Run mode</h2>
         </div>
         <span className={`run-state-badge ${active ? "listening" : ""}`}>
@@ -622,8 +653,8 @@ export function RunPanel({
       </div>
 
       <p className="run-note">
-        Microphone audio stays in the local core and is never sent through the
-        renderer or a cloud speech provider.
+        Rehearse without interruptions. Speech is processed on this device; only
+        the final transcript is saved, not your audio.
       </p>
 
       {!active ? (
@@ -649,7 +680,9 @@ export function RunPanel({
           </label>
           <div className="run-check">
             <span className="field-label">ASR model</span>
-            <strong>{asrStatus?.model_status ?? "checking…"}</strong>
+            <strong>
+              {asrStatus?.model_status.replaceAll("_", " ") ?? "checking…"}
+            </strong>
             <small>{asrStatus?.model_id ?? "local model"}</small>
           </div>
           <div className="run-check">

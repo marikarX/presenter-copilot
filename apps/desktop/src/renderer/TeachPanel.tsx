@@ -18,6 +18,7 @@ import {
 
 type TeachPanelProps = {
   project: ReadyProjectSummary;
+  captureActive?: boolean;
 };
 
 type SessionListResult = { sessions: Session[] };
@@ -159,7 +160,10 @@ function providerGuidance(provider: ProviderStatus | null): string {
   }
 }
 
-export function TeachPanel({ project }: TeachPanelProps) {
+export function TeachPanel({
+  project,
+  captureActive = false,
+}: TeachPanelProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [question, setQuestion] = useState<TeachPromptResult | null>(null);
   const [answer, setAnswer] = useState("");
@@ -318,6 +322,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
   }, [loadContextHistory]);
 
   const acknowledgeRemote = useCallback(async () => {
+    if (captureActive) return;
     setBusy("acknowledge-remote");
     try {
       const result = await requestCore<{ project: ReadyProjectSummary }>(
@@ -333,9 +338,10 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [project.id]);
+  }, [captureActive, project.id]);
 
   const startTeach = useCallback(async () => {
+    if (captureActive) return;
     setBusy("start-teach");
     setMessage(null);
     try {
@@ -355,10 +361,10 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [project.id]);
+  }, [captureActive, project.id]);
 
   const nextPrompt = useCallback(async () => {
-    if (!session) return;
+    if (captureActive || !session) return;
     setBusy("next-prompt");
     setMessage(null);
     try {
@@ -376,10 +382,10 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [loadContextHistory, project.id, session]);
+  }, [captureActive, loadContextHistory, project.id, session]);
 
   const stopTeach = useCallback(async () => {
-    if (!session) return;
+    if (captureActive || !session) return;
     setBusy("stop-teach");
     try {
       await requestCore<SessionResult>("session.stop", {
@@ -400,10 +406,10 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [project.id, session]);
+  }, [captureActive, project.id, session]);
 
   const submitAnswer = useCallback(async () => {
-    if (!session || !answer.trim()) return;
+    if (captureActive || !session || !answer.trim()) return;
     setBusy("submit-answer");
     setMessage(null);
     const submitted = answer.trim();
@@ -440,10 +446,18 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [answer, keepLocal, loadContextHistory, project.id, session]);
+  }, [
+    answer,
+    captureActive,
+    keepLocal,
+    loadContextHistory,
+    project.id,
+    session,
+  ]);
 
   const discardAnswer = useCallback(async () => {
-    if (!session || !lastSourceUtteranceId || candidate) return;
+    if (captureActive || !session || !lastSourceUtteranceId || candidate)
+      return;
     setBusy("discard-answer");
     setMessage(null);
     try {
@@ -470,11 +484,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [candidate, lastSourceUtteranceId, project.id, session]);
+  }, [candidate, captureActive, lastSourceUtteranceId, project.id, session]);
 
   const confirmKnowledge = useCallback(
     async (sourceUtteranceId: string, candidateId?: string) => {
-      if (!session || !candidateText.trim()) return;
+      if (captureActive || !session || !candidateText.trim()) return;
       setBusy(candidateId ? "confirm-candidate" : "save-answer");
       setMessage(null);
       try {
@@ -509,6 +523,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
     [
       candidateKind,
       candidateText,
+      captureActive,
       loadData,
       preferred,
       privateItem,
@@ -520,7 +535,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
   );
 
   const rejectCandidate = useCallback(async () => {
-    if (!session || !candidate) return;
+    if (captureActive || !session || !candidate) return;
     setBusy("reject-candidate");
     setMessage(null);
     try {
@@ -543,13 +558,14 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [candidate, project.id, session]);
+  }, [candidate, captureActive, project.id, session]);
 
   const updateKnowledge = useCallback(
     async (
       item: KnowledgeItem,
       field: "use_live" | "use_rehearsal" | "preferred" | "private",
     ) => {
+      if (captureActive) return;
       setBusy(`knowledge-${item.id}`);
       try {
         await requestCore("knowledge.update_flags", {
@@ -564,11 +580,12 @@ export function TeachPanel({ project }: TeachPanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [captureActive, loadData, project.id],
   );
 
   const deleteKnowledge = useCallback(
     async (item: KnowledgeItem) => {
+      if (captureActive) return;
       if (!window.confirm("Delete this confirmed project knowledge item?"))
         return;
       setBusy(`delete-knowledge-${item.id}`);
@@ -585,11 +602,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
         setBusy(null);
       }
     },
-    [loadData, project.id],
+    [captureActive, loadData, project.id],
   );
 
   const promoteKnowledge = useCallback(async () => {
-    if (!promotionId || !promotionText.trim()) return;
+    if (captureActive || !promotionId || !promotionText.trim()) return;
     setBusy("promote-profile");
     try {
       await requestCore("speaker_profile.approve_evidence", {
@@ -609,9 +626,17 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [loadData, project.id, promotionId, promotionText, promotionType]);
+  }, [
+    captureActive,
+    loadData,
+    project.id,
+    promotionId,
+    promotionText,
+    promotionType,
+  ]);
 
   const saveProfile = useCallback(async () => {
+    if (captureActive) return;
     const secondsText = preferredSeconds.trim();
     const seconds = secondsText ? Number(secondsText) : null;
     if (
@@ -639,10 +664,10 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [preferredSeconds, profileGuidance, profilePolicy]);
+  }, [captureActive, preferredSeconds, profileGuidance, profilePolicy]);
 
   const configureProvider = useCallback(async () => {
-    if (!providerModel.trim()) return;
+    if (captureActive || !providerModel.trim()) return;
     setBusy("configure-provider");
     try {
       const result = await requestCore<{ provider: ProviderStatus }>(
@@ -662,10 +687,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [providerModel]);
+  }, [captureActive, providerModel]);
 
   const removeEvidence = useCallback(
     async (item: SpeakerEvidence) => {
+      if (captureActive) return;
       if (!window.confirm("Remove this approved Speaker Profile evidence?"))
         return;
       setBusy(`remove-evidence-${item.id}`);
@@ -681,10 +707,11 @@ export function TeachPanel({ project }: TeachPanelProps) {
         setBusy(null);
       }
     },
-    [loadData],
+    [captureActive, loadData],
   );
 
   const resetProfile = useCallback(async () => {
+    if (captureActive) return;
     if (!window.confirm("Reset all learned Speaker Profile evidence?")) return;
     setBusy("reset-profile");
     try {
@@ -696,7 +723,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [loadData]);
+  }, [captureActive, loadData]);
 
   const remoteNeedsAcknowledgement =
     project.privacy_mode !== "local_only" && !acknowledgedRemote;
@@ -711,12 +738,14 @@ export function TeachPanel({ project }: TeachPanelProps) {
   return (
     <section
       className="m3-grid"
-      aria-label="Milestone 3 Teach and Speaker Profile"
+      aria-label="Teach and Speaker Profile"
+      aria-disabled={captureActive || undefined}
+      inert={captureActive}
     >
       <section className="teach-panel" aria-labelledby="teach-title">
         <div className="section-heading compact">
           <div>
-            <p className="eyebrow">Milestone 3 · typed text path</p>
+            <p className="eyebrow">IN YOUR OWN WORDS</p>
             <h2 id="teach-title">Teach</h2>
           </div>
           <span className="count-badge">
@@ -816,6 +845,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
             <label>
               Your explanation
               <textarea
+                aria-label="Your explanation"
                 value={answer}
                 onChange={(event) => setAnswer(event.target.value)}
                 maxLength={4000}
@@ -1188,7 +1218,7 @@ export function TeachPanel({ project }: TeachPanelProps) {
           <div className="section-heading compact">
             <div>
               <p className="eyebrow">Models &amp; Providers</p>
-              <h2 id="provider-title">OpenAI reference adapter</h2>
+              <h2 id="provider-title">Reasoning provider</h2>
             </div>
             <span
               className={`provider-status provider-${provider?.health.status ?? "missing"}`}

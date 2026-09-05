@@ -6,6 +6,12 @@ import os
 import sys
 from io import TextIOWrapper
 
+from presenter_core.asr.adapters import (
+    FAKE_ASR_ADAPTER_ID,
+    DeterministicFakeASRAdapter,
+)
+from presenter_core.asr.audio import DeterministicFakeAudioInput
+from presenter_core.asr.interfaces import ASRAdapter, AudioInputAdapter
 from presenter_core.ipc.core import CoreService
 from presenter_core.ipc.server import SidecarServer
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
@@ -31,6 +37,19 @@ def _explicit_developer_provider() -> ReasoningProvider | None:
     return None
 
 
+def _explicit_developer_asr() -> tuple[AudioInputAdapter | None, dict[str, ASRAdapter] | None]:
+    """Return fixture capture only for an explicit disposable UI smoke run."""
+    if (
+        os.environ.get("PRESENTER_COPILOT_DEV_MODE") == "1"
+        and os.environ.get("PRESENTER_COPILOT_TEST_ASR") == "deterministic_fake"
+    ):
+        return (
+            DeterministicFakeAudioInput(),
+            {FAKE_ASR_ADAPTER_ID: DeterministicFakeASRAdapter()},
+        )
+    return None, None
+
+
 def main() -> int:
     """Run the sidecar and keep stdout reserved for protocol messages."""
     try:
@@ -40,10 +59,15 @@ def main() -> int:
             stdin.reconfigure(encoding="utf-8", errors="replace")
         if isinstance(stdout, TextIOWrapper):
             stdout.reconfigure(encoding="utf-8", errors="strict", newline="\n")
+        audio_input, asr_adapters = _explicit_developer_asr()
         return SidecarServer(
             stdin,
             stdout,
-            core=CoreService(reasoning_provider=_explicit_developer_provider()),
+            core=CoreService(
+                reasoning_provider=_explicit_developer_provider(),
+                audio_input=audio_input,
+                asr_adapters=asr_adapters,
+            ),
         ).run()
     except BrokenPipeError:
         return 0

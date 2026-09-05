@@ -26,6 +26,23 @@ import {
   type SourceImportKind,
 } from "./transcript-import-gate";
 
+import {
+  WorkspaceChrome,
+  ProjectOverview,
+  SetupGuide,
+} from "./WorkspaceChrome";
+import { Modal } from "./Modal";
+import { Walkthrough } from "./Walkthrough";
+import { WorkspaceIcon } from "./WorkspaceIcon";
+import {
+  canNavigate,
+  projectViews,
+  needsWalkthrough,
+  rememberWalkthrough,
+  walkthroughKey,
+  type WorkspaceView,
+} from "./workspace-navigation";
+
 const initialStatus: CoreStatus = {
   state: "starting",
   protocolVersion: null,
@@ -81,6 +98,15 @@ function formatTimestamp(value: number | null): string | null {
 }
 
 export function App() {
+  const [view, setView] = useState<WorkspaceView>("home");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(() => {
+    try {
+      return needsWalkthrough(window.localStorage);
+    } catch {
+      return true;
+    }
+  });
   const [status, setStatus] = useState<CoreStatus>(initialStatus);
   const [health, setHealth] = useState<HealthResult | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -99,7 +125,7 @@ export function App() {
   const [stylePolicy, setStylePolicy] = useState("preserve_voice");
   const [customGuidance, setCustomGuidance] = useState("");
   const [styleOverrideEnabled, setStyleOverrideEnabled] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("Board proposal");
+  const [newProjectName, setNewProjectName] = useState("");
   const [importKind, setImportKind] = useState<SourceImportKind>("supporting");
   const [transcriptDisclosureOpen, setTranscriptDisclosureOpen] =
     useState(false);
@@ -125,6 +151,18 @@ export function App() {
   const [runPanelActive, setRunPanelActive] = useState(false);
   const [livePanelActive, setLivePanelActive] = useState(false);
   const runActive = runPanelActive || livePanelActive;
+
+  const navigate = (next: WorkspaceView) => {
+    if (canNavigate(next, runPanelActive, livePanelActive)) setView(next);
+  };
+  const closeTour = () => {
+    try {
+      rememberWalkthrough(window.localStorage);
+    } catch {
+      /* Storage can be unavailable. */
+    }
+    setTourOpen(false);
+  };
 
   const checkHealth = useCallback(async () => {
     setHealthState("checking");
@@ -259,6 +297,10 @@ export function App() {
   const selectProject = useCallback(
     async (project: ProjectSummary) => {
       if (runActive) return;
+      if (selectedProject?.id === project.id) {
+        setView("overview");
+        return;
+      }
       setBusy("open-project");
       setNotice(null);
       try {
@@ -266,6 +308,7 @@ export function App() {
           project_id: project.id,
         });
         setSelectedProject(result.project);
+        setView("overview");
         setProjectName(result.project.name);
         setPrivacyMode(result.project.privacy_mode);
         setStylePolicy(result.project.default_style_policy);
@@ -282,7 +325,7 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources, runActive],
+    [loadRetrievalHealth, loadSources, runActive, selectedProject],
   );
 
   const createProject = useCallback(async () => {
@@ -304,7 +347,12 @@ export function App() {
       setRetrievalResult(null);
       await loadProjects();
       await loadRetrievalHealth(result.project.id);
-      setNotice("Project created in the local vault.");
+      setCreateOpen(false);
+      setNewProjectName("");
+      setView("sources");
+      setNotice(
+        "Project created. Add your presentation or supporting material to get started.",
+      );
     } catch (error) {
       setNotice(errorMessage(error));
     } finally {
@@ -586,7 +634,6 @@ export function App() {
     slideWindow,
   ]);
 
-  const statusLabel = status.state.toUpperCase();
   const healthLabel =
     healthState === "checking"
       ? "Checking…"
@@ -595,7 +642,14 @@ export function App() {
         : (health?.status.toUpperCase() ?? "Not checked");
 
   const handleResetComplete = useCallback(() => {
+    try {
+      window.localStorage.removeItem(walkthroughKey);
+    } catch {
+      /* Preferences may be unavailable. */
+    }
+    setTourOpen(true);
     setSelectedProject(null);
+    setView("home");
     setSources([]);
     setPreview(null);
     setSelectedSourceId(null);
@@ -605,146 +659,143 @@ export function App() {
   }, [loadProjects]);
 
   return (
-    <main className="app-shell">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">Milestone 6 · Local ASR + Run mode</p>
-          <h1>Presenter Copilot</h1>
-          <p className="lede">
-            Import presentation material, preserve its boundaries, and inspect
-            every fact with its source.
-          </p>
+    <WorkspaceChrome
+      view={view}
+      onNavigate={navigate}
+      projects={projects}
+      project={selectedProject}
+      status={status}
+      busy={busy !== null}
+      runActive={runPanelActive}
+      liveActive={livePanelActive}
+      onCreate={() => {
+        setNotice(null);
+        setCreateOpen(true);
+      }}
+      onOpen={(project) => void selectProject(project)}
+      onTour={() => setTourOpen(true)}
+    >
+      {notice ? (
+        <div className="workspace-notice" role="status">
+          <span>{notice}</span>
+          <button
+            className="icon-button"
+            aria-label="Dismiss notification"
+            onClick={() => setNotice(null)}
+          >
+            <WorkspaceIcon name="close" size={16} />
+          </button>
         </div>
-        <div
-          className={`status-pill status-${status.state}`}
-          aria-label={`Core status: ${statusLabel}`}
-        >
-          <span aria-hidden="true" className="status-dot" />
-          <span>CORE {statusLabel}</span>
-        </div>
-      </header>
-
-      <section className="status-grid" aria-labelledby="status-title">
-        <div className="section-heading compact">
-          <div>
-            <p className="eyebrow">Local handshake</p>
-            <h2 id="status-title">Core status</h2>
-          </div>
-          <span className="event-label" aria-live="polite">
-            Last event: {lastEvent}
-          </span>
-        </div>
-        <dl className="facts">
-          <div>
-            <dt>Protocol</dt>
-            <dd>{status.protocolVersion ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Core version</dt>
-            <dd>{status.coreVersion ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Health</dt>
-            <dd>{healthLabel}</dd>
-          </div>
-          <div>
-            <dt>Migration</dt>
-            <dd>{status.state === "ready" ? "Ready" : "—"}</dd>
-          </div>
-        </dl>
-        {status.error ? (
-          <p className="error-message" role="alert">
-            {status.error.code}: {status.error.message}
-          </p>
-        ) : null}
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => void checkHealth()}
-          disabled={healthState === "checking"}
-        >
-          {healthState === "checking" ? "Checking core…" : "Check Core Health"}
-        </button>
-      </section>
-
-      <ReleaseControls
-        coreReady={status.state === "ready"}
-        runActive={runActive}
-        onResetComplete={handleResetComplete}
-      />
-
-      <div className="workspace-grid">
-        <aside className="panel project-panel" aria-labelledby="projects-title">
-          <div className="section-heading compact">
-            <div>
-              <p className="eyebrow">Vault registry</p>
-              <h2 id="projects-title">Projects</h2>
+      ) : null}
+      {status.error && view !== "setup" ? (
+        <p className="error-message" role="alert">
+          {status.error.message} Open Setup & settings to check core health.
+        </p>
+      ) : null}
+      <div hidden={view !== "setup"} className="setup-view">
+        <SetupGuide
+          hasProject={selectedProject !== null}
+          onNavigate={navigate}
+          onCreate={() => setCreateOpen(true)}
+          onTour={() => setTourOpen(true)}
+        />
+        <ReleaseControls
+          visible={view === "setup"}
+          coreReady={status.state === "ready"}
+          runActive={runActive}
+          onResetComplete={handleResetComplete}
+        />
+        <details className="core-details">
+          <summary>Core health & troubleshooting</summary>
+          <section className="status-grid" aria-labelledby="status-title">
+            <div className="section-heading compact">
+              <div>
+                <p className="eyebrow">Troubleshooting</p>
+                <h2 id="status-title">Core status</h2>
+              </div>
+              <span className="event-label" aria-live="polite">
+                Last event: {lastEvent}
+              </span>
             </div>
-            <span className="count-badge">{projects.length}</span>
-          </div>
-          <div className="create-row">
-            <input
-              aria-label="New project name"
-              value={newProjectName}
-              onChange={(event) => setNewProjectName(event.target.value)}
-              maxLength={120}
-            />
+            <dl className="facts">
+              <div>
+                <dt>Protocol</dt>
+                <dd>{status.protocolVersion ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Core version</dt>
+                <dd>{status.coreVersion ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Health</dt>
+                <dd>{healthLabel}</dd>
+              </div>
+              <div>
+                <dt>Migration</dt>
+                <dd>{status.state === "ready" ? "Ready" : "—"}</dd>
+              </div>
+            </dl>
+            {status.error ? (
+              <p className="error-message" role="alert">
+                {status.error.code}: {status.error.message}
+              </p>
+            ) : null}
             <button
               type="button"
-              className="primary-button"
-              onClick={() => void createProject()}
-              disabled={busy !== null || runActive || status.state !== "ready"}
+              className="secondary-button"
+              onClick={() => void checkHealth()}
+              disabled={healthState === "checking"}
             >
-              Create
+              {healthState === "checking"
+                ? "Checking core…"
+                : "Check Core Health"}
             </button>
+          </section>
+        </details>
+      </div>
+      <section
+        hidden={view === "home" || view === "setup"}
+        className="panel project-workspace"
+        aria-labelledby="project-title"
+      >
+        {!selectedProject ? (
+          <div className="empty-state">
+            <p className="eyebrow">Choose a project</p>
+            <h2 id="project-title">Choose your next presentation</h2>
+            <p className="muted">
+              Create a project from the sidebar, or open an existing
+              presentation.
+            </p>
           </div>
-          <div className="project-list">
-            {projects.length === 0 ? (
-              <p className="muted">No local projects yet.</p>
-            ) : null}
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                className={`project-item ${selectedProject?.id === project.id ? "selected" : ""}`}
-                onClick={() => void selectProject(project)}
-                disabled={busy !== null || runActive}
-              >
-                <span className="project-item-name">{project.name}</span>
-                <span className="project-item-meta">
-                  {project.storage_status === "ready"
-                    ? `${project.source_count} sources · ready`
-                    : `unavailable · ${project.storage_error_code}`}
-                </span>
-              </button>
-            ))}
-          </div>
-          <p className="boundary-note">
-            The renderer never receives a filesystem path. Imports open a native
-            main-process picker.
-          </p>
-        </aside>
-
-        <section
-          className="panel project-workspace"
-          aria-labelledby="project-title"
-        >
-          {!selectedProject ? (
-            <div className="empty-state">
-              <p className="eyebrow">Choose a project</p>
-              <h2 id="project-title">Create or open a local vault</h2>
-              <p className="muted">
-                Your project database and copied source snapshots stay under the
-                application data root.
+        ) : (
+          <>
+            <div className="page-heading">
+              <p className="eyebrow">
+                {selectedProject.storage_status === "ready" &&
+                selectedProject.privacy_mode === "local_only"
+                  ? "LOCAL ONLY"
+                  : "CLOUD CONTEXT ENABLED"}{" "}
+                · {sources.length} SOURCES
+              </p>
+              <h1>
+                {view === "overview"
+                  ? selectedProject.name
+                  : projectViews.find((item) => item.id === view)?.label}
+              </h1>
+              <p>
+                {projectViews.find((item) => item.id === view)?.description}
               </p>
             </div>
-          ) : (
-            <>
+            <div hidden={view !== "overview"}>
+              <ProjectOverview
+                sourceCount={sources.length}
+                onNavigate={navigate}
+              />
+            </div>
+            <div hidden={view !== "project-settings"}>
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">
-                    Project Brain · local only by default
-                  </p>
+                  <p className="eyebrow">Presentation preferences</p>
                   <h2 id="project-title">{selectedProject.name}</h2>
                 </div>
                 <button
@@ -822,37 +873,48 @@ export function App() {
               >
                 Save settings
               </button>
-
+            </div>
+            <div hidden={view !== "run"}>
               {selectedProject.storage_status === "ready" ? (
                 <RunPanel
+                  visible={view === "run"}
                   project={selectedProject}
                   blocked={livePanelActive}
                   onActiveChange={setRunPanelActive}
                 />
               ) : null}
-
+            </div>
+            <div hidden={view !== "live"}>
               {selectedProject.storage_status === "ready" ? (
                 <LiveAssistPanel
+                  visible={view === "live"}
                   project={selectedProject}
                   blocked={runPanelActive}
                   onActiveChange={setLivePanelActive}
                 />
               ) : null}
-
-              {selectedProject.storage_status === "ready" && !runActive ? (
-                <TeachPanel project={selectedProject} />
+            </div>
+            <div hidden={view !== "teach"}>
+              {selectedProject.storage_status === "ready" ? (
+                <TeachPanel
+                  project={selectedProject}
+                  captureActive={runActive}
+                />
               ) : null}
-
-              {selectedProject.storage_status === "ready" && !runActive ? (
+            </div>
+            <div hidden={view !== "challenge"}>
+              {selectedProject.storage_status === "ready" ? (
                 <ChallengePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
+                  captureActive={runActive}
                 />
               ) : null}
-
+            </div>
+            <div hidden={view !== "sources"}>
               <div className="source-heading section-heading">
                 <div>
-                  <p className="eyebrow">Snapshot → parse → chunk</p>
+                  <p className="eyebrow">Your project library</p>
                   <h2>Sources</h2>
                 </div>
                 <div className="source-actions">
@@ -889,17 +951,12 @@ export function App() {
                   : {progress}
                 </p>
               ) : null}
-              {notice ? (
-                <p className="notice-message" role="status">
-                  {notice}
-                </p>
-              ) : null}
               <div className="source-list">
                 {sources.length === 0 ? (
                   <p className="muted">
-                    No sources imported. Add the canonical PPTX, PDF, and
-                    Markdown fixtures, or an authorized transcript, to inspect
-                    provenance.
+                    Add a presentation, supporting notes, or an authorized
+                    transcript. Choose the source type above, then select Import
+                    source.
                   </p>
                 ) : null}
                 {sources.map((source) => (
@@ -918,8 +975,15 @@ export function App() {
                       </span>
                       <span className="source-meta">
                         {source.source_type.toUpperCase()} ·{" "}
-                        {source.parse_status} · {source.source_units_count}{" "}
-                        units · {source.chunks_count} chunks
+                        {source.parse_status.replaceAll("_", " ")} ·{" "}
+                        {source.source_units_count}{" "}
+                        {source.source_type === "pptx"
+                          ? "slides"
+                          : source.source_type === "pdf"
+                            ? "pages"
+                            : source.kind === "transcript"
+                              ? "segments"
+                              : "sections"}
                       </span>
                     </button>
                     <div className="source-item-actions">
@@ -948,7 +1012,7 @@ export function App() {
                 <section className="preview" aria-labelledby="preview-title">
                   <div className="section-heading compact">
                     <div>
-                      <p className="eyebrow">Bounded source preview</p>
+                      <p className="eyebrow">Source preview</p>
                       <h2 id="preview-title">
                         {preview.document.original_name}
                       </h2>
@@ -1002,7 +1066,8 @@ export function App() {
                   })}
                 </section>
               ) : null}
-
+            </div>
+            <div hidden={view !== "audience"}>
               {selectedProject.storage_status === "ready" ? (
                 <AudiencePanel
                   project={selectedProject}
@@ -1010,274 +1075,338 @@ export function App() {
                   onAudienceChange={refreshAudiencePanels}
                 />
               ) : null}
-
-              {import.meta.env.DEV ? (
-                <section
-                  className="retrieval-inspector"
-                  aria-labelledby="retrieval-inspector-title"
-                >
-                  <div className="section-heading compact">
-                    <div>
-                      <p className="eyebrow">
-                        Developer diagnostics · local only
-                      </p>
-                      <h2 id="retrieval-inspector-title">
-                        Retrieval inspector
-                      </h2>
-                    </div>
-                    <span className="count-badge">M2 · M3</span>
-                  </div>
-                  <p className="inspector-note">
-                    Semantic retrieval is derived project data. Queries never
-                    download a model or read source files directly.
-                  </p>
-                  <div className="retrieval-health-grid">
-                    <div>
-                      <span>Status</span>
-                      <strong>
-                        {retrievalHealth?.status ?? "not checked"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Coverage</span>
-                      <strong>
-                        {retrievalHealth
-                          ? `${Math.round(retrievalHealth.semantic_coverage * 100)}%`
-                          : "—"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Model</span>
-                      <strong>
-                        {retrievalHealth?.model_available
-                          ? "available"
-                          : "offline / missing"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Dimensions</span>
-                      <strong>{retrievalHealth?.dimension ?? "—"}</strong>
-                    </div>
-                    <div>
-                      <span>Indexed entities</span>
-                      <strong>
-                        {retrievalHealth
-                          ? `${retrievalHealth.current_indexed_mappings} / ${retrievalHealth.current_indexable_entity_count}`
-                          : "—"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Knowledge items</span>
-                      <strong>
-                        {retrievalHealth?.current_knowledge_item_count ?? "—"}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Generation</span>
-                      <strong>
-                        {retrievalHealth?.active_generation_id
-                          ? retrievalHealth.active_generation_id.slice(0, 8)
-                          : "not built"}
-                      </strong>
-                    </div>
-                  </div>
-                  {retrievalHealth?.stale_reason ? (
-                    <p className="inspector-warning" role="status">
-                      {retrievalHealth.stale_reason}
+            </div>
+            {import.meta.env.DEV && view === "project-settings" ? (
+              <section
+                className="retrieval-inspector"
+                aria-labelledby="retrieval-inspector-title"
+              >
+                <div className="section-heading compact">
+                  <div>
+                    <p className="eyebrow">
+                      Developer diagnostics · local only
                     </p>
-                  ) : null}
-                  <div className="retrieval-actions">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        void loadRetrievalHealth(selectedProject.id)
+                    <h2 id="retrieval-inspector-title">Retrieval inspector</h2>
+                  </div>
+                  <span className="count-badge">M2 · M3</span>
+                </div>
+                <p className="inspector-note">
+                  Semantic retrieval is derived project data. Queries never
+                  download a model or read source files directly.
+                </p>
+                <div className="retrieval-health-grid">
+                  <div>
+                    <span>Status</span>
+                    <strong>{retrievalHealth?.status ?? "not checked"}</strong>
+                  </div>
+                  <div>
+                    <span>Coverage</span>
+                    <strong>
+                      {retrievalHealth
+                        ? `${Math.round(retrievalHealth.semantic_coverage * 100)}%`
+                        : "—"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Model</span>
+                    <strong>
+                      {retrievalHealth?.model_available
+                        ? "available"
+                        : "offline / missing"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Dimensions</span>
+                    <strong>{retrievalHealth?.dimension ?? "—"}</strong>
+                  </div>
+                  <div>
+                    <span>Indexed entities</span>
+                    <strong>
+                      {retrievalHealth
+                        ? `${retrievalHealth.current_indexed_mappings} / ${retrievalHealth.current_indexable_entity_count}`
+                        : "—"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Knowledge items</span>
+                    <strong>
+                      {retrievalHealth?.current_knowledge_item_count ?? "—"}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Generation</span>
+                    <strong>
+                      {retrievalHealth?.active_generation_id
+                        ? retrievalHealth.active_generation_id.slice(0, 8)
+                        : "not built"}
+                    </strong>
+                  </div>
+                </div>
+                {retrievalHealth?.stale_reason ? (
+                  <p className="inspector-warning" role="status">
+                    {retrievalHealth.stale_reason}
+                  </p>
+                ) : null}
+                <div className="retrieval-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void loadRetrievalHealth(selectedProject.id)}
+                    disabled={busy !== null || runActive}
+                  >
+                    Refresh health
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void rebuildRetrieval()}
+                    disabled={busy !== null || runActive}
+                  >
+                    {busy === "retrieval-rebuild"
+                      ? "Building index…"
+                      : "Build / rebuild index"}
+                  </button>
+                </div>
+                <div className="retrieval-query-form">
+                  <label className="retrieval-query-field">
+                    Query
+                    <textarea
+                      value={retrievalQuery}
+                      onChange={(event) =>
+                        setRetrievalQuery(event.target.value)
                       }
-                      disabled={busy !== null || runActive}
+                      rows={2}
+                      maxLength={500}
+                    />
+                  </label>
+                  <label>
+                    Limit
+                    <input
+                      inputMode="numeric"
+                      value={retrievalLimit}
+                      onChange={(event) =>
+                        setRetrievalLimit(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Current slide
+                    <input
+                      inputMode="numeric"
+                      placeholder="optional"
+                      value={currentSlide}
+                      onChange={(event) => setCurrentSlide(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Slide window
+                    <input
+                      inputMode="numeric"
+                      value={slideWindow}
+                      onChange={(event) => setSlideWindow(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Source type
+                    <select
+                      value={retrievalSourceType}
+                      onChange={(event) =>
+                        setRetrievalSourceType(event.target.value)
+                      }
                     >
-                      Refresh health
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() => void rebuildRetrieval()}
-                      disabled={busy !== null || runActive}
-                    >
-                      {busy === "retrieval-rebuild"
-                        ? "Building index…"
-                        : "Build / rebuild index"}
-                    </button>
-                  </div>
-                  <div className="retrieval-query-form">
-                    <label className="retrieval-query-field">
-                      Query
-                      <textarea
-                        value={retrievalQuery}
-                        onChange={(event) =>
-                          setRetrievalQuery(event.target.value)
-                        }
-                        rows={2}
-                        maxLength={500}
-                      />
-                    </label>
-                    <label>
-                      Limit
-                      <input
-                        inputMode="numeric"
-                        value={retrievalLimit}
-                        onChange={(event) =>
-                          setRetrievalLimit(event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Current slide
-                      <input
-                        inputMode="numeric"
-                        placeholder="optional"
-                        value={currentSlide}
-                        onChange={(event) =>
-                          setCurrentSlide(event.target.value)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Slide window
-                      <input
-                        inputMode="numeric"
-                        value={slideWindow}
-                        onChange={(event) => setSlideWindow(event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Source type
-                      <select
-                        value={retrievalSourceType}
-                        onChange={(event) =>
-                          setRetrievalSourceType(event.target.value)
-                        }
-                      >
-                        <option value="">all types</option>
-                        <option value="pptx">PPTX</option>
-                        <option value="pdf">PDF</option>
-                        <option value="markdown">Markdown</option>
-                        <option value="txt">Text</option>
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button retrieval-query-button"
-                      onClick={() => void runRetrievalQuery()}
-                      disabled={busy !== null || runActive}
-                    >
-                      {busy === "retrieval-query" ? "Querying…" : "Run query"}
-                    </button>
-                  </div>
-                  {retrievalResult ? (
-                    <div className="retrieval-results">
-                      <div className="retrieval-result-summary">
-                        <span>
-                          Mode <strong>{retrievalResult.mode}</strong>
-                        </span>
-                        <span>
-                          Latency{" "}
-                          <strong>
-                            {retrievalResult.latency_ms.toFixed(1)} ms
-                          </strong>
-                        </span>
-                        <span>
-                          Hits <strong>{retrievalResult.hits.length}</strong>
-                        </span>
-                      </div>
-                      {retrievalResult.hits.map((hit) => (
-                        <article
-                          className="retrieval-hit"
-                          key={hit.evidence.evidence_id}
-                        >
-                          <div className="retrieval-hit-heading">
-                            <strong>{hit.evidence.label}</strong>
-                            <span>{hit.scores.final.toFixed(3)}</span>
-                          </div>
-                          <p>{hit.evidence.text}</p>
-                          <div className="retrieval-score-line">
-                            <span>
-                              semantic {hit.scores.semantic.toFixed(3)}
-                            </span>
-                            <span>lexical {hit.scores.lexical.toFixed(3)}</span>
-                            <span>
-                              slide {hit.scores.slide_boost.toFixed(3)}
-                            </span>
-                            <span>
-                              {hit.reasons.join(" · ") || "candidate"}
-                            </span>
-                          </div>
-                        </article>
-                      ))}
-                      {retrievalResult.conflicts.map((conflict, index) => (
-                        <div
-                          className="inspector-warning conflict-warning"
-                          key={`${conflict.subject}-${index}`}
-                          role="alert"
-                        >
-                          <strong>
-                            Potential source conflict: {conflict.subject}
-                          </strong>
-                          <span>
-                            {conflict.values
-                              .map((value) => value.normalized_value)
-                              .join(" · ")}
-                          </span>
-                          <small>
-                            {conflict.evidence
-                              .map((item) => item.label)
-                              .join(" · ")}
-                          </small>
-                        </div>
-                      ))}
+                      <option value="">all types</option>
+                      <option value="pptx">PPTX</option>
+                      <option value="pdf">PDF</option>
+                      <option value="markdown">Markdown</option>
+                      <option value="txt">Text</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="secondary-button retrieval-query-button"
+                    onClick={() => void runRetrievalQuery()}
+                    disabled={busy !== null || runActive}
+                  >
+                    {busy === "retrieval-query" ? "Querying…" : "Run query"}
+                  </button>
+                </div>
+                {retrievalResult ? (
+                  <div className="retrieval-results">
+                    <div className="retrieval-result-summary">
+                      <span>
+                        Mode <strong>{retrievalResult.mode}</strong>
+                      </span>
+                      <span>
+                        Latency{" "}
+                        <strong>
+                          {retrievalResult.latency_ms.toFixed(1)} ms
+                        </strong>
+                      </span>
+                      <span>
+                        Hits <strong>{retrievalResult.hits.length}</strong>
+                      </span>
                     </div>
-                  ) : null}
-                </section>
-              ) : null}
-            </>
-          )}
-        </section>
-      </div>
-      {transcriptDisclosureOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="transcript-disclosure-title"
+                    {retrievalResult.hits.map((hit) => (
+                      <article
+                        className="retrieval-hit"
+                        key={hit.evidence.evidence_id}
+                      >
+                        <div className="retrieval-hit-heading">
+                          <strong>{hit.evidence.label}</strong>
+                          <span>{hit.scores.final.toFixed(3)}</span>
+                        </div>
+                        <p>{hit.evidence.text}</p>
+                        <div className="retrieval-score-line">
+                          <span>semantic {hit.scores.semantic.toFixed(3)}</span>
+                          <span>lexical {hit.scores.lexical.toFixed(3)}</span>
+                          <span>slide {hit.scores.slide_boost.toFixed(3)}</span>
+                          <span>{hit.reasons.join(" · ") || "candidate"}</span>
+                        </div>
+                      </article>
+                    ))}
+                    {retrievalResult.conflicts.map((conflict, index) => (
+                      <div
+                        className="inspector-warning conflict-warning"
+                        key={`${conflict.subject}-${index}`}
+                        role="alert"
+                      >
+                        <strong>
+                          Potential source conflict: {conflict.subject}
+                        </strong>
+                        <span>
+                          {conflict.values
+                            .map((value) => value.normalized_value)
+                            .join(" · ")}
+                        </span>
+                        <small>
+                          {conflict.evidence
+                            .map((item) => item.label)
+                            .join(" · ")}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </>
+        )}
+      </section>
+      {createOpen ? (
+        <Modal
+          titleId="create-project-title"
+          onClose={() => {
+            if (busy === null) setCreateOpen(false);
+          }}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createProject();
+            }}
           >
-            <p className="eyebrow">Before transcript import</p>
-            <h2 id="transcript-disclosure-title">
-              Confirm you are authorized to use this transcript
-            </h2>
+            <div className="dialog-heading">
+              <span className="card-icon lavender">
+                <WorkspaceIcon name="folder" />
+              </span>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close new project"
+                disabled={busy !== null}
+                onClick={() => setCreateOpen(false)}
+              >
+                <WorkspaceIcon name="close" />
+              </button>
+            </div>
+            <h2 id="create-project-title">What are you presenting?</h2>
             <p>
-              Only analyze recordings or transcripts you are authorized to use.
-              Local processing does not change your legal or organizational
-              obligations.
+              Give your project a name. Add your deck and supporting material
+              next.
             </p>
+            <label className="dialog-label">
+              Project name
+              <input
+                autoFocus
+                aria-label="New project name"
+                placeholder="e.g. Quarterly strategy review"
+                value={newProjectName}
+                onChange={(event) => setNewProjectName(event.target.value)}
+                maxLength={120}
+                disabled={busy !== null}
+              />
+            </label>
+            <p className="privacy-hint">
+              <WorkspaceIcon name="shield" size={16} />
+              Starts in Local Only, with Preserve my voice.
+            </p>
+            {notice ? <p role="status">{notice}</p> : null}
             <div className="modal-actions">
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setTranscriptDisclosureOpen(false)}
+                disabled={busy !== null}
+                onClick={() => setCreateOpen(false)}
               >
                 Cancel
               </button>
               <button
-                type="button"
+                type="submit"
                 className="primary-button"
-                onClick={continueTranscriptImport}
+                disabled={
+                  busy !== null ||
+                  runActive ||
+                  status.state !== "ready" ||
+                  !newProjectName.trim()
+                }
               >
-                Continue to file picker
+                {busy === "create-project" ? "Creating…" : "Create project"}
               </button>
             </div>
-          </section>
-        </div>
+          </form>
+        </Modal>
       ) : null}
-    </main>
+      {tourOpen ? (
+        <Walkthrough
+          onClose={closeTour}
+          onSetup={() => {
+            closeTour();
+            navigate("setup");
+          }}
+        />
+      ) : null}
+      {transcriptDisclosureOpen ? (
+        <Modal
+          titleId="transcript-disclosure-title"
+          onClose={() => setTranscriptDisclosureOpen(false)}
+        >
+          <p className="eyebrow">Before transcript import</p>
+          <h2 id="transcript-disclosure-title">
+            Confirm you are authorized to use this transcript
+          </h2>
+          <p>
+            Only analyze recordings or transcripts you are authorized to use.
+            Local processing does not change your legal or organizational
+            obligations.
+          </p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setTranscriptDisclosureOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={continueTranscriptImport}
+            >
+              Continue to file picker
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+    </WorkspaceChrome>
   );
 }

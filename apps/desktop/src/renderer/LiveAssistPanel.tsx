@@ -19,6 +19,7 @@ import { unwrapInvokeResult } from "../shared/protocol";
 type LiveAssistPanelProps = {
   project: ReadyProjectSummary;
   blocked?: boolean;
+  visible?: boolean;
   onActiveChange: (active: boolean) => void;
 };
 
@@ -73,6 +74,7 @@ function eventSessionId(event: EventEnvelope): string | null {
 export function LiveAssistPanel({
   project,
   blocked = false,
+  visible = true,
   onActiveChange,
 }: LiveAssistPanelProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
@@ -89,6 +91,35 @@ export function LiveAssistPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
+
+  // Refresh setup metadata on entry without resetting session state or drafts.
+  useEffect(() => {
+    if (!visible) return;
+    let current = true;
+    void Promise.all([
+      requestCore<DeviceListResult>("asr.list_devices"),
+      requestCore<ASRStatus>("asr.status"),
+    ])
+      .then(([result, nextStatus]) => {
+        if (!current) return;
+        setDevices(result.devices);
+        setAsrStatus(nextStatus);
+        setDeviceId((selected) =>
+          result.devices.some((device) => device.device_id === selected)
+            ? selected
+            : (nextStatus.config.device_id ??
+              result.devices.find((device) => device.is_default)?.device_id ??
+              result.devices[0]?.device_id ??
+              ""),
+        );
+      })
+      .catch((error: unknown) => {
+        if (current) setMessage(errorMessage(error));
+      });
+    return () => {
+      current = false;
+    };
+  }, [visible]);
 
   const load = useCallback(async () => {
     setMessage(null);
@@ -351,7 +382,7 @@ export function LiveAssistPanel({
     >
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">Milestone 7 · push-to-assist</p>
+          <p className="eyebrow">SUPPORT IN THE MOMENT</p>
           <h2 id="live-assist-title">Live Assist HUD</h2>
         </div>
         <span className={`run-state-badge ${active ? "listening" : ""}`}>
@@ -359,10 +390,9 @@ export function LiveAssistPanel({
         </span>
       </div>
       <p className="run-note">
-        Audio remains in the Python core. Push-to-assist uses the current
-        bounded audience question, recent final audience utterances, current
-        slide, and live-eligible project evidence. Automatic question
-        segmentation is not enabled.
+        Ask for a cue when you need one. Your copilot uses the recent audience
+        question, current slide, and approved project sources. Audio stays on
+        this device. Questions are not detected automatically.
       </p>
       {hudStatus ? (
         <p
@@ -395,7 +425,9 @@ export function LiveAssistPanel({
           </label>
           <div className="run-check">
             <span className="field-label">ASR model</span>
-            <strong>{asrStatus?.model_status ?? "checking…"}</strong>
+            <strong>
+              {asrStatus?.model_status.replaceAll("_", " ") ?? "checking…"}
+            </strong>
             <small>Local capture only</small>
           </div>
           <div className="run-check">

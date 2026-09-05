@@ -22,6 +22,7 @@ import {
 type ChallengePanelProps = {
   project: ReadyProjectSummary;
   refreshToken: number;
+  captureActive?: boolean;
 };
 
 type ProfileListResult = { profiles: AudienceProfile[] };
@@ -301,7 +302,11 @@ function HistoryView({
   );
 }
 
-export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
+export function ChallengePanel({
+  project,
+  refreshToken,
+  captureActive = false,
+}: ChallengePanelProps) {
   const [profiles, setProfiles] = useState<AudienceProfile[]>([]);
   const [observations, setObservations] = useState<AudienceObservation[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -467,6 +472,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
   }, [activeSession, project.id]);
 
   const startChallenge = useCallback(async () => {
+    if (captureActive) return;
     if (!canStartSetup) {
       setMessage(
         "Select 1–3 active audience profiles and a valid scope first.",
@@ -509,6 +515,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
   }, [
     allowFollowUps,
     canStartSetup,
+    captureActive,
     ensureActiveSession,
     intensity,
     loadState,
@@ -521,7 +528,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
 
   const askNextQuestion = useCallback(
     async (followUpToQuestionId?: string) => {
-      if (!activeSession) return;
+      if (captureActive || !activeSession) return;
       setBusy(followUpToQuestionId ? "follow-up" : "next-question");
       setMessage(null);
       try {
@@ -543,11 +550,11 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
         setBusy(null);
       }
     },
-    [activeSession, loadState, project.id],
+    [activeSession, captureActive, loadState, project.id],
   );
 
   const submitAnswer = useCallback(async () => {
-    if (!activeSession || !question || !answer.trim()) return;
+    if (captureActive || !activeSession || !question || !answer.trim()) return;
     setBusy("submit-answer");
     setMessage(null);
     try {
@@ -567,10 +574,10 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [activeSession, answer, loadState, project.id, question]);
+  }, [activeSession, answer, captureActive, loadState, project.id, question]);
 
   const retryQuestion = useCallback(async () => {
-    if (!activeSession || !question) return;
+    if (captureActive || !activeSession || !question) return;
     setBusy("retry-question");
     setMessage(null);
     try {
@@ -589,11 +596,11 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [activeSession, loadState, project.id, question]);
+  }, [activeSession, captureActive, loadState, project.id, question]);
 
   const savePreferred = useCallback(
     async (answerVersion: ChallengeAnswerVersion) => {
-      if (!activeSession || !question) return;
+      if (captureActive || !activeSession || !question) return;
       setBusy(`save-preferred-${answerVersion.id}`);
       setMessage(null);
       try {
@@ -615,7 +622,15 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
         setBusy(null);
       }
     },
-    [activeSession, historyOpen, loadHistory, loadState, project.id, question],
+    [
+      activeSession,
+      captureActive,
+      historyOpen,
+      loadHistory,
+      loadState,
+      project.id,
+      question,
+    ],
   );
 
   const toggleHistory = useCallback(async () => {
@@ -637,6 +652,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
   }, [historyOpen, loadHistory, session]);
 
   const beginNewChallenge = useCallback(() => {
+    if (captureActive) return;
     setSession(null);
     setChallengeState(null);
     setHistory(null);
@@ -649,10 +665,10 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     setSlideEnd("1");
     setAnswer("");
     setMessage(null);
-  }, []);
+  }, [captureActive]);
 
   const deleteChallengeSession = useCallback(async () => {
-    if (!session) return;
+    if (captureActive || !session) return;
     if (
       !window.confirm(
         "Delete this Challenge session and its unsaved history? Explicitly saved preferred answers remain in Project Brain.",
@@ -676,7 +692,7 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     } finally {
       setBusy(null);
     }
-  }, [beginNewChallenge, project.id, session]);
+  }, [beginNewChallenge, captureActive, project.id, session]);
 
   const observationById = useMemo(
     () => new Map(observations.map((item) => [item.id, item])),
@@ -694,10 +710,12 @@ export function ChallengePanel({ project, refreshToken }: ChallengePanelProps) {
     <section
       className="challenge-panel"
       aria-label="Milestone 5 Challenge mode"
+      aria-disabled={captureActive || undefined}
+      inert={captureActive}
     >
       <div className="section-heading compact">
         <div>
-          <p className="eyebrow">Milestone 5 · typed rehearsal</p>
+          <p className="eyebrow">PRACTICE WITH PURPOSE</p>
           <h2>Challenge mode</h2>
         </div>
         <span className="count-badge">
