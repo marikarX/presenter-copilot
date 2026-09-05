@@ -882,3 +882,18 @@ Task budgets differ by operation, especially for Live Assist. Making that
 budget part of client identity churns connection pools and can discard clients
 without closing them. Request-scoped timeout preserves the latency contract
 without coupling transport lifecycle to task policy.
+
+## D-057 — Local inference identity and off-machine transport are separate
+
+**Status:** Accepted for E09
+
+Keep `local_openai` a local provider, with a Core-owned `leaves_machine`
+transport property. Loopback is eligible for Local Only; private LAN requires
+the same project acknowledgement, minimum-context manifests, and private-item
+exclusion as cloud transport. Use literal IPs, no redirects/proxies, bounded
+standard-library HTTP, existing output validators, and explicit single-provider
+selection. Configuration reuses the existing safe JSON column. Local credentials
+are optional Core environment inputs; no new durable authentication state exists.
+
+This prevents a local-network label from bypassing Local Only and keeps backend
+compatibility in one adapter rather than adding renderer authority or new privacy modes.

@@ -367,7 +367,7 @@ class ChallengeService:
                 else None
             ),
             provider_id=provider.id,
-            allow_private=provider.locality == "local",
+            allow_private=not provider.leaves_machine,
             retrieval_query=self._audience_query(audience_context, intensity),
             slide_start=int(slide_start) if slide_start is not None else None,
             slide_end=int(slide_end) if slide_end is not None else None,
@@ -455,8 +455,7 @@ class ChallengeService:
                     connection,
                     project_id,
                     evidence_id,
-                    allow_private=str(project["privacy_mode"]) == "local_only"
-                    or provider.locality == "local",
+                    allow_private=not provider.leaves_machine,
                 )
                 supplied = supplied_evidence.get(evidence_id)
                 if reference is None or supplied is None:
@@ -632,7 +631,7 @@ class ChallengeService:
                 connection,
                 project_id,
                 question_id,
-                allow_private=provider.locality == "local",
+                allow_private=not provider.leaves_machine,
             )
         request, manifest = self._context_builder.build(
             project_id=project_id,
@@ -647,7 +646,7 @@ class ChallengeService:
                 else None
             ),
             provider_id=provider.id,
-            allow_private=provider.locality == "local",
+            allow_private=not provider.leaves_machine,
             retrieval_query=f"{str(question['text'])} {answer_text}"[:500],
             slide_start=int(slide_start) if slide_start is not None else None,
             slide_end=int(slide_end) if slide_end is not None else None,
@@ -714,8 +713,7 @@ class ChallengeService:
                     connection,
                     project_id,
                     evidence_id,
-                    allow_private=str(project["privacy_mode"]) == "local_only"
-                    or provider.locality == "local",
+                    allow_private=not provider.leaves_machine,
                 )
                 if reference is None:
                     raise CoreDomainError(

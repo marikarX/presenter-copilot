@@ -93,8 +93,12 @@ reasoning context -> local only
 
 For M8 Teach, Challenge, and Live Assist, a remote provider is impossible in this mode. A configured local
 provider may be used locally; otherwise the typed direct-save/retrieval-only
-path remains available. No provider/network request is allowed from the
-content-processing path. Update checks/optional external links must be
+path remains available. E09 permits only an explicitly configured loopback
+provider connection in Local Only; content cannot leave the machine. Private-LAN
+inference is still a local provider, but its off-machine transport requires the
+existing acknowledgement, minimum-context manifest, and private-item exclusion.
+Endpoint validation rejects public/DNS destinations and redirects. See
+[provider transport policy](../PROVIDERS.md). Update checks/optional external links must be
 separable from session processing and disabled in the network-isolation test
 environment.
 

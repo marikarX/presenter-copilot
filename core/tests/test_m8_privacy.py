@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from test_m7_live_assist import seed_private_knowledge
 
 from presenter_core.ipc.core import CoreService
 from presenter_core.providers.context import APPLICATION_POLICY
@@ -276,10 +277,15 @@ def test_m8_local_only_has_a_low_level_network_denial_and_no_remote_run(
 
 
 class _ObservedProvider(DeterministicFakeReasoningProvider):
-    def __init__(self) -> None:
-        super().__init__(locality="remote")
+    def __init__(self, locality: str = "remote") -> None:
+        super().__init__(locality=locality)
         self.observations: list[dict[str, Any]] = []
         self.manifest_event_seen: Callable[[str], dict[str, Any] | None] | None = None
+
+    @property
+    def leaves_machine(self) -> bool:
+        # A private-LAN backend is local inference with off-machine transport.
+        return True
 
     def generate(self, request: ReasoningRequest) -> ReasoningResult:
         assert self.manifest_event_seen is not None
@@ -296,8 +302,11 @@ class _ObservedProvider(DeterministicFakeReasoningProvider):
         return super().generate(request)
 
 
-def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(tmp_path: Path) -> None:
-    provider = _ObservedProvider()
+@pytest.mark.parametrize("locality", ["remote", "local"], ids=["cloud", "private-lan"])
+def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(
+    tmp_path: Path, locality: str
+) -> None:
+    provider = _ObservedProvider(locality=locality)
     event_lock = threading.Lock()
     order: list[str] = []
     manifest_snapshots: dict[str, dict[str, Any]] = {}
@@ -338,6 +347,28 @@ def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(tmp_pat
             {"project_id": project_id},
         )
         _seed_source(core, project_id)
+
+        # Seed both public and private knowledge, alongside public documents.
+        # The public item is rehearsal-only so Live still exercises inference.
+        public_text = "The warm standby public ownership boundary is documented."
+        seed_private_knowledge(core, project_id)
+        with core._storage.project_database(project_id) as connection:
+            public_id = connection.execute("SELECT id FROM knowledge_items").fetchone()[0]
+            connection.execute(
+                "UPDATE knowledge_items SET private = 0, use_live = 0, "
+                "kind = 'rationale', text = ?",
+                (public_text,),
+            )
+            connection.execute("UPDATE user_statements SET text = ?", (public_text,))
+            connection.commit()
+        seed_private_knowledge(core, project_id)
+        private_ids = {
+            item["id"]
+            for item in _call(core, "knowledge.list", {"project_id": project_id})["knowledge_items"]
+            if item["private"]
+        }
+        assert private_ids
+        _call(core, "retrieval.rebuild", {"project_id": project_id})
 
         teach_session = str(
             _call(core, "session.start", {"project_id": project_id, "mode": "teach"})["session"][
@@ -429,6 +460,15 @@ def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(tmp_pat
         }
         assert {item["task_type"] for item in provider.observations} == expected_task_types
         assert len(provider.requests) == len(provider.request_objects) == len(expected_task_types)
+        serialized_requests = json.dumps(provider.requests)
+        assert "blue lantern" not in serialized_requests
+        assert all(private_id not in serialized_requests for private_id in private_ids)
+        assert any(packet["untrusted_retrieved_evidence"] for packet in provider.requests)
+        teach_packet = next(
+            packet for packet in provider.requests if packet["task_type"] == "teach_question"
+        )
+        assert public_text in json.dumps(teach_packet)
+        assert public_id in json.dumps(teach_packet)
         for request, payload in zip(provider.request_objects, provider.requests, strict=True):
             allowed_classes = _REMOTE_TASK_CONTEXT_ALLOWLIST[request.task_type]
             disclosed_classes = _payload_context_classes(request, payload)

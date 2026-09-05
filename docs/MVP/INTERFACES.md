@@ -527,6 +527,13 @@ preferring the user-scoped Windows Credential Manager entry
 development/bootstrap. `provider.configure` accepts safe metadata such as
 `enabled` and `model_id`; it rejects API keys, tokens, cookies, and other
 secret fields. The renderer never receives or submits a provider secret.
+E09 also accepts `provider_id: "local_openai"`, `model_id`, `enabled`, and
+`endpoint` (a validated non-secret base URL). Enabling a provider explicitly
+disables other configured adapters. `provider.list` returns the selected adapter
+first; `provider.status` without an ID reports it. The local adapter's safe config
+contains `endpoint` and `leaves_machine`. `provider.test` tests only the selected
+adapter using synthetic data. No new renderer IPC authority was
+added. [E09 details](../PROVIDERS.md).
 Provider health is process-local and uses only `ready`, `unconfigured`,
 `auth_failed`, `quota_exhausted`, `rate_limited`, and `unavailable` states.
 `privacy.list_context_manifests` accepts `project_id`, optional `session_id`,

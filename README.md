@@ -32,7 +32,7 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 - **Cloud optional.** Remote reasoning is an escalation path, not a requirement for every utterance.
 - **Minimal HUD.** Prefer memory cues and answer scaffolds over generated paragraphs.
 - **Preserve the presenter.** Improve clarity/preparation without replacing the user's voice.
-- **Provider-pluggable.** Support local models, user-supplied APIs, and officially supported agent backends where permitted.
+- **Provider-pluggable.** Use a configured local OpenAI-compatible model server or an OpenAI API key.
 - **Source-grounded.** Important facts remain traceable to slides, documents, user explanations, transcripts, or practiced answers.
 - **Audience evidence, not profiling.** Use observed questions/interaction patterns; do not infer hidden emotions, sensitive traits, or persistent biometric identity.
 - **Behavior before photorealism.** Immersive rehearsal should prove that simulated audience behavior improves preparation before investing in high-fidelity 3D or XR.
@@ -152,6 +152,15 @@ user-scoped Credential Manager entry `Presenter Copilot/OpenAI` is preferred;
 ask the core to save a detected environment credential or remove the stored
 credential, but it never submits or receives plaintext secrets. SQLite,
 ProviderRun manifests, logs, and diagnostics contain metadata only.
+
+Settings → Reasoning Providers now supports local OpenAI-compatible servers.
+Enter the API base URL (for example `http://127.0.0.1:11434/v1`) and model, then
+select it and run the synthetic connection test. If required, set
+`PRESENTER_LOCAL_API_KEY` in the Core environment; credentials never pass through
+the renderer. Local Only permits loopback inference; private-LAN endpoints need
+project permission to send selected context off the machine. Servers must support
+JSON-schema Chat Completions, and must be started separately. Failed reasoning
+does not automatically switch providers. See [local provider setup](docs/PROVIDERS.md).
 
 `local_only` is a hard no-content-network mode. `selected_context_cloud` may
 send only the bounded, core-built context manifest permitted by the existing

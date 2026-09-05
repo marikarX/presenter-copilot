@@ -80,7 +80,9 @@ conflicts with that dated baseline, the release baseline controls.
 
 ### P1
 
-- [ ] E09 Local OpenAI-compatible/local-model adapter.
+- [x] E09 Local OpenAI-compatible/local-model adapter. Implemented with bounded
+      HTTP transport, explicit selection, loopback/LAN privacy routing, health,
+      and deterministic transport/execution regressions; see [providers](../PROVIDERS.md).
 - [ ] E10 Investigate and implement ChatGPT-authenticated inference through an
       officially supported OpenAI/ChatGPT or Codex mechanism where available.
       This is inference entitlement, not identity-only sign-in; do not scrape or

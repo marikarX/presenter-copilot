@@ -1062,7 +1062,15 @@ class AssistService:
                 provider_health=health,
             )
             fast = self._retrieval_fast_path(
-                state.question, evidence, conflicts, decision.route, started, cue_id, state
+                state.question,
+                evidence,
+                conflicts,
+                provider is not None
+                and provider.leaves_machine
+                and decision.route != ReasoningRoute.RETRIEVAL_ONLY,
+                started,
+                cue_id,
+                state,
             )
             if fast is not None:
                 self._emit(
@@ -1098,7 +1106,7 @@ class AssistService:
                 current_slide=current_slide,
                 provider_id=provider.id,
                 allow_private=True,
-                include_private_in_provider=provider.locality == "local",
+                include_private_in_provider=not provider.leaves_machine,
                 retrieval_usage="live",
                 additional_grounding_evidence=safe_for_provider,
             )
@@ -1316,7 +1324,7 @@ class AssistService:
         question: str,
         evidence: list[dict[str, Any]],
         conflicts: list[dict[str, Any]],
-        route: ReasoningRoute,
+        leaves_machine: bool,
         started: float,
         cue_id: str,
         state: _AssistState,
@@ -1348,7 +1356,7 @@ class AssistService:
                 route="retrieval_only",
                 evidence=selected,
             )
-        preferred = self._preferred_live_evidence(question, evidence, route)
+        preferred = self._preferred_live_evidence(question, evidence, leaves_machine)
         if preferred is not None:
             wording = self._one_line(str(preferred.get("text") or ""), MAX_CUE_LINE_CHARS)
             if wording:
@@ -1388,9 +1396,9 @@ class AssistService:
     def _preferred_live_evidence(
         question: str,
         evidence: list[dict[str, Any]],
-        route: ReasoningRoute,
+        leaves_machine: bool,
     ) -> dict[str, Any] | None:
-        if route == ReasoningRoute.REMOTE_REASONING:
+        if leaves_machine:
             # A private item may be retrieved locally but must not bypass the
             # remote-context boundary merely because it is preferred.
             eligible = [
