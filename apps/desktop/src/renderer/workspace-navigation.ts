@@ -58,11 +58,13 @@ export function canNavigate(
   view: WorkspaceView,
   runActive: boolean,
   liveActive: boolean,
+  teachVoiceActive = false,
 ): boolean {
   return (
-    (!runActive && !liveActive) ||
+    (!runActive && !liveActive && !teachVoiceActive) ||
     (runActive && view === "run") ||
-    (liveActive && view === "live")
+    (liveActive && view === "live") ||
+    (teachVoiceActive && view === "teach")
   );
 }
 

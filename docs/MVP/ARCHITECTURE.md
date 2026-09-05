@@ -69,6 +69,37 @@ optional partial, and final audio is never dropped to preserve a partial
 update. Input overflow or another status indicating dropped microphone data
 stops acceptance and reports `ASR_BACKPRESSURE`.
 
+### G09 Teach voice pipeline
+
+Teach voice answers reuse this same `ASRService`, `AudioInputAdapter`,
+`ASRAdapter`, VAD, partial/final segmentation, configured device, and explicit
+local model lifecycle. `ASRService` has one Core-owned capture slot shared by
+Run, Live Assist, and Teach; a mode-aware session validator accepts a Teach
+capture only for the matching active Teach session. The renderer never opens a
+microphone or creates a second ASR instance.
+
+```text
+Teach awaiting_user
+       |
+       +--> teach.voice_start -> shared ASR capture (transient Core ownership)
+                                  |
+                                  +--> bounded ephemeral asr.partial -> UI only
+                                  |
+                                  +--> teach.voice_stop -> final transcript
+                                                        |
+                                                        +--> TeachService.submit_text
+                                                             -> normal candidate/direct-save flow
+```
+
+Teach final text is held in Core memory until the explicit stop boundary. It is
+then validated and submitted through the ordinary typed Teach path, which owns
+the user utterance, provenance, privacy routing, provider manifest, candidate,
+and confirmation flow. Teach partials never create rows or provider calls, and
+Teach voice does not emit the Run/Live durable `asr.final` event. Cancellation
+clears the transient text and releases audio/model resources without changing
+Teach state. A Core-side capture identity and serialized stop path make repeated
+stop/final callbacks at-most-once.
+
 ## 2. Technology baseline
 
 ### Desktop
@@ -198,14 +229,16 @@ Owns:
 - model loading/status;
 - adapter abstraction.
 
-M6 uses `Systran/faster-whisper-base.en` through a local-files-only runtime.
-The approved model is prepared explicitly into the app-level `models/asr`
-cache; `asr.start` never downloads. The service owns one bounded frame queue,
-one fast ingestion/VAD worker, one serialized decode worker, one active
-microphone capture, and deterministic stop/shutdown cleanup. Optional partial
-recognition is coalesced to one pending snapshot; final requests have a
-bounded lossless queue and priority over partials. Teach and Challenge do not
-consume this microphone path in M6.
+M6 and G09 use `Systran/faster-whisper-base.en` through a local-files-only
+runtime. The approved model is prepared explicitly into the app-level
+`models/asr` cache; capture start never downloads. The service owns one bounded
+frame queue, one fast ingestion/VAD worker, one serialized decode worker, one
+active microphone capture, and deterministic stop/shutdown cleanup. Optional
+partial recognition is coalesced to one pending snapshot; final requests have
+a bounded lossless queue and priority over partials. Run and Live Assist keep
+their existing durable final-utterance behavior; Teach uses the same decode
+workers but defers final durability to `TeachService.submit_text`. Challenge
+remains typed-first.
 
 Run shutdown is fail-closed. It stops accepting frames and physical capture,
 drains/finalizes the active segment, persists the final `Utterance`, emits
@@ -507,6 +540,9 @@ Under Selected Context Cloud, only this bounded project-derived packet may be se
 ## 10. Failure/degradation behavior
 
 - ASR unavailable -> typed input remains usable; live voice assist disabled with clear status.
+- Teach ASR unavailable, empty, or failed -> Teach remains `awaiting_user`; typed
+  fallback remains available and no user utterance, candidate, or provider run
+  is created by the failed voice attempt.
 - ASR input loss, backpressure, blocked final decode, or failed worker join ->
   retain the Run owner in retryable stopping state; do not close a live model,
   mark the session terminal, or delete its project/session rows.

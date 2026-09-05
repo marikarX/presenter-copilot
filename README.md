@@ -20,7 +20,10 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 
 ## Core modes
 
-- **Teach** — enrich the project through typed conversation in the user's own words. Voice-first Teach is deferred to backlog item G09.
+- **Teach** — enrich the project through voice or typed conversation in the
+  user's own words. Teach voice uses the configured local ASR stack and routes
+  only the finalized transcript through the existing answer and confirmation
+  flow.
 - **Challenge** — rehearse against grounded audience questions and follow-ups.
 - **Run** — uninterrupted presentation rehearsal with post-run debrief.
 - **Live Assist** — private webcam-adjacent source-grounded cues with an explicit push-to-assist fallback.
@@ -97,16 +100,17 @@ The installed Windows application does not require Python, Node.js, pnpm, uv,
 Git, or this repository. Development uses the Python sidecar from `core/.venv`;
 release packaging freezes that sidecar under the Electron resources directory.
 
-Milestones 1–8 add the local project vault flow: create/open a project, import
+Milestones 1–8 plus G09 add the local project vault flow: create/open a project, import
 PPTX/PDF/TXT/Markdown and explicitly authorized VTT/SRT/named-TXT/structured
 JSON transcript sources through the native file picker, inspect bounded
 slide/page/section/transcript previews with provenance, re-index from the
 stored snapshot, delete sources or whole projects, inspect local hybrid
-semantic retrieval, use typed Teach/Speaker Profile, review a project-local
+semantic retrieval, use voice-capable or typed Teach/Speaker Profile, review a project-local
 Audience Model, rehearse with Challenge and Run, and use the isolated Live
 Assist HUD. M3 supports project-local sessions, confirmed user knowledge,
 explicit style-evidence promotion, and an optional bounded OpenAI Responses
-call. M4 audience extraction is deterministic and local; it never sends
+call. G09 reuses local ASR for Teach and sends only finalized speech text into
+the existing typed answer pipeline. M4 audience extraction is deterministic and local; it never sends
 transcript content to a provider. M8 adds bounded Selected Context Cloud
 routing, provider health, cancellation, and retrieval-only fallback. The
 normal data root is
@@ -185,10 +189,10 @@ developer machine; use [`docs/MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](docs/MVP/M9_CL
 for that manual gate.
 
 Known limitations: Windows 11 is the reference platform; local models require
-explicit bootstrap; voice-first Teach, automatic question segmentation,
-Teams/Webex connectors, biometric speaker/face recognition, and mobile/cloud
-accounts are not part of this MVP. Microphone capture protection is best
-effort. Real CPU/RTX model benchmarks, physical microphone recognition quality,
+explicit bootstrap; automatic question segmentation, Teams/Webex connectors,
+biometric speaker/face recognition, and mobile/cloud accounts are not part of
+this MVP. Microphone capture protection is best effort. Real CPU/RTX model
+benchmarks, physical microphone recognition quality,
 clean-machine install/uninstall, external capture behavior, and the
 five-presenter qualitative study require separate evidence and are not implied
 by deterministic tests or a successful package build.

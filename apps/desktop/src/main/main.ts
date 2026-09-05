@@ -908,6 +908,8 @@ function registerIpc(
       const request = validateRendererRequest(value);
       const runCleanupMethods = new Set([
         "asr.stop",
+        "teach.voice_stop",
+        "teach.voice_cancel",
         "session.stop",
         "session.delete",
         "project.delete",
@@ -920,6 +922,7 @@ function registerIpc(
             : request.method === "asr.prepare_model"
               ? 15 * 60_000
               : request.method === "asr.start" ||
+                  request.method === "teach.voice_start" ||
                   request.method === "run.generate_debrief"
                 ? 60_000
                 : runCleanupMethods.has(request.method)

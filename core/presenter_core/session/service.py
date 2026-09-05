@@ -172,9 +172,26 @@ class SessionService:
             )
         return session
 
-    def validate_active_asr_session(self, project_id: str, session_id: str) -> dict[str, Any]:
-        """Return the safe session projection accepted by the shared ASR service."""
-        return self._validate_active_session(project_id, session_id, expected_mode=None)
+    def validate_active_asr_session(
+        self,
+        project_id: str,
+        session_id: str,
+        expected_mode: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the safe session projection accepted by the shared ASR service.
+
+        The unqualified path intentionally preserves the original Run/Live
+        boundary. Teach must opt into its own Core-owned lifecycle explicitly.
+        """
+        if expected_mode is not None and expected_mode not in {"teach", "run", "live_assist"}:
+            raise CoreDomainError(
+                "SESSION_MODE_INVALID", "The requested ASR owner mode is invalid."
+            )
+        return self._validate_active_session(
+            project_id,
+            session_id,
+            expected_mode=expected_mode,
+        )
 
     def validate_active_live_assist(self, project_id: str, session_id: str) -> dict[str, Any]:
         """Return the safe projection required by Live Assist-owned services."""
@@ -201,10 +218,15 @@ class SessionService:
             raise CoreDomainError("SESSION_NOT_FOUND", "The session was not found.") from error
         with self._storage.project_database(normalized_project_id) as connection:
             row = self._session_row(connection, normalized_project_id, normalized_session_id)
-            if row["mode"] not in {"run", "live_assist"}:
+            allowed_modes = {"run", "live_assist"} if expected_mode is None else {expected_mode}
+            if row["mode"] not in allowed_modes:
                 raise CoreDomainError(
                     "SESSION_MODE_INVALID",
-                    "The selected session does not own presentation state.",
+                    (
+                        "The selected session does not own presentation state."
+                        if expected_mode is None
+                        else "The selected session does not own this ASR lifecycle."
+                    ),
                 )
             if expected_mode is not None and row["mode"] != expected_mode:
                 raise CoreDomainError(

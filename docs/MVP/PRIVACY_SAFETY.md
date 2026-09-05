@@ -114,6 +114,14 @@ microphone data, and the deterministic post-run debrief does not call a
 provider. The explicit `asr.prepare_model` operation is separate setup and is
 the only M6 operation permitted to download approved model assets.
 
+G09 Teach voice uses the same Python-owned local ASR capture and explicit model
+preparation. Raw microphone audio and partial transcripts remain transient in
+Core. Only the finalized transcript may enter the existing Teach submission
+path, where the current project privacy mode, `local_only` choice, Selected
+Context manifest, private-item exclusion, and provider execution guard apply
+exactly as they do for typed text. A cancelled or failed capture creates no
+utterance, candidate, ProviderRun, or provider payload.
+
 Run debrief is rehearsal retrieval: the core sends `usage=rehearsal` and may
 set `allow_private=true`, while retrieval still enforces each KnowledgeItem's
 independent `use_rehearsal` flag. Raw PCM and partial text remain transient;
@@ -287,12 +295,12 @@ profile notes as user-supplied content and includes only active profiles and
 active, evidence-valid observations; pending, rejected, stale, unresolved, and
 evidence-less source-derived rows are excluded.
 
-M6 ASR/Run logs and events contain only safe device/model metadata, bounded
-transcript text where the Run event contract requires it, timestamps, IDs,
-statuses, and error codes. Raw PCM, PortAudio objects, model objects, COM
+M6 ASR/Run and G09 Teach logs/events contain only safe device/model metadata,
+bounded transcript text where the Run event contract requires it, timestamps,
+IDs, statuses, and error codes. Raw PCM, PortAudio objects, model objects, COM
 objects, complete prompts, and filesystem paths are excluded. Partial text is
-ephemeral; only final utterances, slide state, markers, and the bounded local
-debrief are stored.
+ephemeral; only final Run utterances and the ordinary finalized Teach user
+utterance are durable. G09 adds no audio table or voice identity/profile data.
 
 The ASR capture callback never blocks on transcription. A dropped-input status
 or full bounded frame queue is surfaced as `ASR_BACKPRESSURE`; the Run does not

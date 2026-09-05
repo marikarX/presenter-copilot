@@ -757,6 +757,29 @@ h1 {
 .audience-panel {
   min-width: 0;
 }
+.teach-voice-controls {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe4ed;
+  border-radius: 10px;
+  background: #f7f8fc;
+}
+.teach-voice-status {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.teach-voice-status strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.teach-voice-status span {
+  min-height: 18px;
+  overflow-wrap: anywhere;
+}
 .workspace-notice,
 .active-session-banner {
   display: flex;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import uuid
 from collections.abc import Callable
 from typing import Any, cast
@@ -27,8 +28,14 @@ from presenter_core.storage.service import StorageManager
 
 MAX_TEACH_TEXT_CHARS = 4_000
 MAX_KNOWLEDGE_TEXT_CHARS = 1_500
+_VOICE_IN_PROGRESS = object()
+_VOICE_FAILED = object()
+_VOICE_MISSING = object()
 
 EventSink = Callable[[str, dict[str, Any]], None]
+VoiceCaptureActive = Callable[[str, str, str | None], bool]
+VoiceCaptureStart = Callable[[dict[str, Any], bool], dict[str, Any]]
+VoiceCaptureStop = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class TeachService:
@@ -44,6 +51,7 @@ class TeachService:
         event_sink: EventSink | None = None,
         *,
         provider_execution: ProviderExecutionService | None = None,
+        voice_capture_active: VoiceCaptureActive | None = None,
     ) -> None:
         self._storage = storage
         self._sessions = sessions
@@ -57,6 +65,13 @@ class TeachService:
             providers,
             event_sink=event_sink,
         )
+        self._voice_capture_active = voice_capture_active or (
+            lambda _project_id, _session_id, _capture_id: False
+        )
+        self._voice_guard = threading.RLock()
+        self._voice_submission_guard = threading.RLock()
+        self._voice_submissions: dict[str, object] = {}
+        self._last_voice_submission: dict[tuple[str, str], dict[str, Any]] = {}
 
     def next_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "session_id"})
@@ -84,6 +99,7 @@ class TeachService:
                     "Teach cannot ask a question from the current session state.",
                     details={"state": session["teach_state"]},
                 )
+            self._clear_last_voice_submission(project_id, session_id)
 
         project = self._project_row(project_id)
         effective_privacy_mode = str(project["privacy_mode"])
@@ -176,7 +192,261 @@ class TeachService:
             result["context_manifest"] = manifest
         return result
 
-    def submit_text(self, params: dict[str, Any]) -> dict[str, Any]:
+    def voice_start(
+        self, params: dict[str, Any], start_capture: VoiceCaptureStart
+    ) -> dict[str, Any]:
+        """Start one transient Teach-owned capture without changing Teach state."""
+        reject_unknown_fields(
+            params,
+            {"project_id", "session_id", "local_only", "keep_local"},
+        )
+        project_id = self._project_id(params)
+        session_id = self._uuid_param(params, "session_id")
+        local_only = params.get("local_only", params.get("keep_local", False))
+        if not isinstance(local_only, bool):
+            raise invalid_request("local_only must be a boolean.", field="local_only")
+        with self._voice_guard:
+            session = self._active_teach_session(project_id, session_id)
+            self._require_state(session, "awaiting_user")
+            if self._voice_capture_active(project_id, session_id, None):
+                raise CoreDomainError(
+                    "TEACH_VOICE_CAPTURE_ACTIVE",
+                    "A Teach microphone capture is already active for this session.",
+                    retryable=True,
+                )
+            capture = start_capture(
+                {"project_id": project_id, "session_id": session_id},
+                local_only,
+            )
+        return {
+            "project_id": project_id,
+            "session_id": session_id,
+            "state": str(session["teach_state"]),
+            "capture_state": "running",
+            "asr_status": capture,
+        }
+
+    def voice_stop(
+        self,
+        params: dict[str, Any],
+        stop_capture: VoiceCaptureStop,
+        cancel_capture: VoiceCaptureStop | None = None,
+    ) -> dict[str, Any]:
+        """Stop one capture; ASR supplies the normal Teach submission result."""
+        reject_unknown_fields(params, {"project_id", "session_id"})
+        project_id = self._project_id(params)
+        session_id = self._uuid_param(params, "session_id")
+        release_after_state_change = cancel_capture or stop_capture
+        with self._voice_guard:
+            try:
+                session = self._active_teach_session(project_id, session_id)
+            except CoreDomainError as error:
+                if self._voice_capture_active(project_id, session_id, None):
+                    release_after_state_change({"project_id": project_id, "session_id": session_id})
+                    raise CoreDomainError(
+                        "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                        "The Teach session changed before voice finalization completed.",
+                    ) from error
+                raise
+            cached = self._cached_last_voice_submission(project_id, session_id)
+            capture_active = self._voice_capture_active(project_id, session_id, None)
+            if cached is not None:
+                if capture_active:
+                    capture = stop_capture({"project_id": project_id, "session_id": session_id})
+                    submission = capture.get("submission")
+                    if isinstance(submission, dict):
+                        return self._voice_stop_result(project_id, session_id, submission)
+                return self._voice_stop_result(
+                    project_id,
+                    session_id,
+                    cached,
+                    idempotent=True,
+                )
+            if not capture_active:
+                if session["teach_state"] != "awaiting_user":
+                    raise CoreDomainError(
+                        "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                        "The Teach session changed before voice finalization completed.",
+                    )
+                raise CoreDomainError(
+                    "TEACH_VOICE_NOT_ACTIVE",
+                    "No Teach microphone capture is active for this session.",
+                    retryable=True,
+                )
+            if session["teach_state"] != "awaiting_user":
+                release_after_state_change({"project_id": project_id, "session_id": session_id})
+                raise CoreDomainError(
+                    "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                    "The Teach session changed before voice finalization completed.",
+                )
+            capture = stop_capture({"project_id": project_id, "session_id": session_id})
+            submission = capture.get("submission")
+            if isinstance(submission, dict):
+                return self._voice_stop_result(project_id, session_id, submission)
+            cached = self._cached_last_voice_submission(project_id, session_id)
+            if cached is not None:
+                return self._voice_stop_result(
+                    project_id,
+                    session_id,
+                    cached,
+                    idempotent=True,
+                )
+            return {
+                "project_id": project_id,
+                "session_id": session_id,
+                "state": str(session["teach_state"]),
+                "capture_state": "stopped",
+                "submission": None,
+            }
+
+    def voice_cancel(
+        self, params: dict[str, Any], cancel_capture: VoiceCaptureStop
+    ) -> dict[str, Any]:
+        """Discard transient speech and leave an unanswered Teach prompt intact."""
+        reject_unknown_fields(params, {"project_id", "session_id"})
+        project_id = self._project_id(params)
+        session_id = self._uuid_param(params, "session_id")
+        with self._voice_guard:
+            try:
+                session = self._active_teach_session(project_id, session_id)
+            except CoreDomainError as error:
+                if self._voice_capture_active(project_id, session_id, None):
+                    cancel_capture({"project_id": project_id, "session_id": session_id})
+                    raise CoreDomainError(
+                        "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                        "The Teach session changed before voice cancellation completed.",
+                    ) from error
+                raise
+            cached = self._has_last_voice_submission(project_id, session_id)
+            capture_active = self._voice_capture_active(project_id, session_id, None)
+            if cached:
+                if capture_active:
+                    cancel_capture({"project_id": project_id, "session_id": session_id})
+                raise CoreDomainError(
+                    "TEACH_VOICE_SUBMISSION_ALREADY_FINALIZED",
+                    "The Teach voice answer has already been finalized.",
+                )
+            if not capture_active:
+                if session["teach_state"] != "awaiting_user":
+                    raise CoreDomainError(
+                        "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                        "The Teach session changed before voice cancellation completed.",
+                    )
+                raise CoreDomainError(
+                    "TEACH_VOICE_NOT_ACTIVE",
+                    "No Teach microphone capture is active for this session.",
+                    retryable=True,
+                )
+            if session["teach_state"] != "awaiting_user":
+                cancel_capture({"project_id": project_id, "session_id": session_id})
+                raise CoreDomainError(
+                    "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                    "The Teach session changed before voice cancellation completed.",
+                )
+            cancel_capture({"project_id": project_id, "session_id": session_id})
+            return {
+                "project_id": project_id,
+                "session_id": session_id,
+                "state": "awaiting_user",
+                "capture_state": "stopped",
+                "cancelled": True,
+            }
+
+    def submit_voice_transcript(
+        self,
+        project_id: str,
+        session_id: str,
+        capture_id: str,
+        text: str,
+        *,
+        local_only: bool,
+    ) -> dict[str, Any]:
+        """Submit exactly one final transcript through the typed Teach path."""
+        if not isinstance(capture_id, str) or not capture_id:
+            raise CoreDomainError(
+                "TEACH_VOICE_SUBMISSION_FAILED", "The voice capture identity is invalid."
+            )
+        if not isinstance(local_only, bool):
+            raise CoreDomainError(
+                "TEACH_VOICE_SUBMISSION_FAILED", "The voice privacy flag is invalid."
+            )
+        with self._voice_submission_guard:
+            existing = self._voice_submissions.get(capture_id, _VOICE_MISSING)
+            if existing is not _VOICE_MISSING:
+                raise CoreDomainError(
+                    "TEACH_VOICE_SUBMISSION_ALREADY_FINALIZED",
+                    "This Teach voice capture has already been finalized.",
+                )
+            self._voice_submissions[capture_id] = _VOICE_IN_PROGRESS
+        try:
+            if not isinstance(text, str) or not text.strip():
+                raise CoreDomainError(
+                    "TEACH_VOICE_EMPTY_TRANSCRIPT",
+                    "The local ASR final did not contain an answer.",
+                    retryable=True,
+                )
+            result = self.submit_text(
+                {
+                    "project_id": project_id,
+                    "session_id": session_id,
+                    "text": text,
+                    "local_only": local_only,
+                },
+                voice_capture_id=capture_id,
+            )
+        except CoreDomainError as error:
+            if error.code in {
+                "TEACH_STATE_INVALID",
+                "TEACH_ANSWER_PENDING",
+                "SESSION_NOT_ACTIVE",
+                "SESSION_NOT_FOUND",
+            }:
+                error = CoreDomainError(
+                    "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                    "The Teach session changed before voice finalization completed.",
+                )
+            with self._voice_submission_guard:
+                self._voice_submissions[capture_id] = _VOICE_FAILED
+                self._trim_voice_submissions()
+            raise error
+        except Exception as error:
+            with self._voice_submission_guard:
+                self._voice_submissions[capture_id] = _VOICE_FAILED
+                self._trim_voice_submissions()
+            raise CoreDomainError(
+                "TEACH_VOICE_SUBMISSION_FAILED",
+                "The finalized Teach answer could not be submitted.",
+                retryable=False,
+            ) from error
+
+        with self._voice_submission_guard:
+            self._voice_submissions[capture_id] = dict(result)
+            self._trim_voice_submissions()
+            self._last_voice_submission[(project_id, session_id)] = dict(result)
+        try:
+            self._emit(
+                "teach.voice_finalized",
+                {
+                    "project_id": project_id,
+                    "session_id": session_id,
+                    "state": result.get("state", "candidate_ready"),
+                    "source_utterance_id": result.get("source_utterance_id"),
+                    "candidate_id": (
+                        result["candidate"].get("id")
+                        if isinstance(result.get("candidate"), dict)
+                        else None
+                    ),
+                },
+            )
+        except Exception:
+            # A UI event sink failure must not make a committed answer
+            # retryable or permit a second user utterance.
+            pass
+        return dict(result)
+
+    def submit_text(
+        self, params: dict[str, Any], *, voice_capture_id: str | None = None
+    ) -> dict[str, Any]:
         reject_unknown_fields(
             params,
             {"project_id", "session_id", "text", "local_only", "keep_local"},
@@ -187,48 +457,19 @@ class TeachService:
         local_only = params.get("local_only", params.get("keep_local", False))
         if not isinstance(local_only, bool):
             raise invalid_request("local_only must be a boolean.", field="local_only")
-        session = self._active_teach_session(project_id, session_id)
-        self._require_state(session, "awaiting_user")
-        project = self._project_row(project_id)
-        effective_privacy_mode = str(project["privacy_mode"])
-        source_utterance_id = str(uuid.uuid4())
-        created_at = utc_now()
-        with self._storage.project_database(project_id) as connection:
-            current_prompt = connection.execute(
-                """
-                SELECT id, text FROM utterances
-                WHERE session_id = ? AND actor = 'ai_coach'
-                ORDER BY created_at DESC, id DESC LIMIT 1
-                """,
-                (session_id,),
-            ).fetchone()
-            if current_prompt is None:
-                raise CoreDomainError(
-                    "TEACH_STATE_INVALID",
-                    "The current Teach answer has no active prompt.",
-                )
-            connection.execute(
-                """
-                INSERT INTO utterances (id, session_id, actor, text, created_at, is_final)
-                VALUES (?, ?, 'user', ?, ?, 1)
-                """,
-                (source_utterance_id, session_id, text, created_at),
-            )
-            transitioned = connection.execute(
-                """
-                UPDATE sessions
-                SET teach_state = 'candidate_ready'
-                WHERE id = ? AND project_id = ? AND teach_state = 'awaiting_user'
-                """,
-                (session_id, project_id),
-            )
-            if transitioned.rowcount != 1:
-                connection.rollback()
-                raise CoreDomainError(
-                    "TEACH_STATE_INVALID",
-                    "The Teach answer arrived after the session state changed.",
-                )
-            connection.commit()
+        (
+            session,
+            project,
+            effective_privacy_mode,
+            source_utterance_id,
+            created_at,
+            current_prompt,
+        ) = self._prepare_text_submission(
+            project_id,
+            session_id,
+            text,
+            voice_capture_id,
+        )
 
         provider, health = self._provider_and_health()
         route = self._router.decide(
@@ -390,6 +631,7 @@ class TeachService:
                     "The Teach answer arrived after the session state changed.",
                 )
             connection.commit()
+        self._clear_last_voice_submission(project_id, session_id)
         return {
             "project_id": project_id,
             "session_id": session_id,
@@ -639,6 +881,7 @@ class TeachService:
             ).fetchone()
             assert statement is not None
             statement_dict = self._statement_dict(statement)
+        self._clear_last_voice_submission(project_id, session_id)
 
         semantic_sync = self._synchronize_semantic_index(project_id)
         self._emit(
@@ -686,6 +929,7 @@ class TeachService:
                 (session_id,),
             )
             connection.commit()
+        self._clear_last_voice_submission(project_id, session_id)
         return {
             "project_id": project_id,
             "session_id": session_id,
@@ -739,6 +983,125 @@ class TeachService:
             # local model/index failure must not turn confirmation into a
             # failed save; the next explicit rebuild can repair the index.
             return {"status": "partial", "error_code": "INDEX_SYNC_FAILED"}
+
+    def _prepare_text_submission(
+        self,
+        project_id: str,
+        session_id: str,
+        text: str,
+        voice_capture_id: str | None,
+    ) -> tuple[sqlite3.Row, sqlite3.Row, str, str, str, sqlite3.Row]:
+        """Atomically authorize and persist the single normal Teach answer."""
+        with self._voice_guard:
+            capture_active = self._voice_capture_active(project_id, session_id, None)
+            if voice_capture_id is None and capture_active:
+                raise CoreDomainError(
+                    "TEACH_VOICE_CAPTURE_ACTIVE",
+                    "Stop or cancel the active Teach microphone capture before typing an answer.",
+                    retryable=True,
+                )
+            if voice_capture_id is not None and not self._voice_capture_active(
+                project_id, session_id, voice_capture_id
+            ):
+                raise CoreDomainError(
+                    "TEACH_STATE_CHANGED_DURING_CAPTURE",
+                    "The Teach voice capture is no longer active.",
+                )
+            session = self._active_teach_session(project_id, session_id)
+            self._require_state(session, "awaiting_user")
+            project = self._project_row(project_id)
+            source_utterance_id = str(uuid.uuid4())
+            created_at = utc_now()
+            with self._storage.project_database(project_id) as connection:
+                current_prompt = connection.execute(
+                    """
+                    SELECT id, text FROM utterances
+                    WHERE session_id = ? AND actor = 'ai_coach'
+                    ORDER BY created_at DESC, id DESC LIMIT 1
+                    """,
+                    (session_id,),
+                ).fetchone()
+                if current_prompt is None:
+                    raise CoreDomainError(
+                        "TEACH_STATE_INVALID",
+                        "The current Teach answer has no active prompt.",
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO utterances (id, session_id, actor, text, created_at, is_final)
+                    VALUES (?, ?, 'user', ?, ?, 1)
+                    """,
+                    (source_utterance_id, session_id, text, created_at),
+                )
+                transitioned = connection.execute(
+                    """
+                    UPDATE sessions
+                    SET teach_state = 'candidate_ready'
+                    WHERE id = ? AND project_id = ? AND teach_state = 'awaiting_user'
+                    """,
+                    (session_id, project_id),
+                )
+                if transitioned.rowcount != 1:
+                    connection.rollback()
+                    raise CoreDomainError(
+                        "TEACH_STATE_INVALID",
+                        "The Teach answer arrived after the session state changed.",
+                    )
+                connection.commit()
+            return (
+                session,
+                project,
+                str(project["privacy_mode"]),
+                source_utterance_id,
+                created_at,
+                cast(sqlite3.Row, current_prompt),
+            )
+
+    def _voice_stop_result(
+        self,
+        project_id: str,
+        session_id: str,
+        submission: dict[str, Any],
+        *,
+        idempotent: bool = False,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "project_id": project_id,
+            "session_id": session_id,
+            "state": str(submission.get("state", "candidate_ready")),
+            "capture_state": "stopped",
+            "submission": dict(submission),
+        }
+        try:
+            state = self.get_state({"project_id": project_id, "session_id": session_id})
+            pending = state.get("pending_answer")
+            if isinstance(pending, dict) and isinstance(pending.get("text"), str):
+                result["answer_text"] = pending["text"]
+        except CoreDomainError:
+            pass
+        if idempotent:
+            result["idempotent"] = True
+        return result
+
+    def _trim_voice_submissions(self) -> None:
+        while len(self._voice_submissions) > 64:
+            oldest = next(iter(self._voice_submissions))
+            del self._voice_submissions[oldest]
+
+    def _cached_last_voice_submission(
+        self, project_id: str, session_id: str
+    ) -> dict[str, Any] | None:
+        with self._voice_submission_guard:
+            cached = self._last_voice_submission.get((project_id, session_id))
+            return dict(cached) if cached is not None else None
+
+    def _has_last_voice_submission(self, project_id: str, session_id: str) -> bool:
+        with self._voice_submission_guard:
+            return (project_id, session_id) in self._last_voice_submission
+
+    def _clear_last_voice_submission(self, project_id: str, session_id: str) -> None:
+        with self._voice_submission_guard:
+            self._last_voice_submission.pop((project_id, session_id), None)
 
     def _active_teach_session(self, project_id: str, session_id: str) -> sqlite3.Row:
         with self._storage.project_database(project_id) as connection:

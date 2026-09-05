@@ -263,23 +263,59 @@ presentation.status
 teach.next_prompt
 teach.get_state
 teach.submit_text
+teach.voice_start
+teach.voice_stop
+teach.voice_cancel
 teach.discard_answer
 teach.confirm_knowledge_item
 teach.reject_knowledge_item
 ```
 
-M6 voice input arrives through Run ASR utterances rather than a separate audio
-upload method. Teach and Challenge remain typed-first in this milestone.
+Typed Teach remains available as a fallback. G09 adds a transient voice
+lifecycle that reuses the shared local ASR capture; it is not a separate audio
+upload or voice-knowledge workflow.
 
 Core owns the Teach state machine:
 
 ```text
 ready_for_prompt -> next_prompt -> awaiting_user
 awaiting_user -> submit_text -> candidate_ready
+awaiting_user -> voice_start -> (transient ASR capture)
+transient ASR capture -> voice_stop -> submit_text -> candidate_ready
+transient ASR capture -> voice_cancel -> awaiting_user
 awaiting_user -> stop -> completed
 candidate_ready -> confirm/reject/discard -> ready_for_prompt
 candidate_ready -> stop (blocked)
 ```
+
+`teach.voice_start` accepts `{project_id, session_id}` and the existing
+`local_only`/`keep_local` boolean. It succeeds only for the matching active
+Teach session in `awaiting_user`; starting capture does not change Teach state.
+The response contains the current state, `capture_state`, and the safe shared
+`asr_status` projection. The Core session validator and the single ASR capture
+slot reject arbitrary project/session pairs or a competing Run/Live capture.
+
+`teach.voice_stop` stops the matching capture, waits for the existing VAD and
+decode workers, bounds the final transcript using the typed Teach limit, and
+passes it to the same `TeachService.submit_text` path. Its response contains
+the ordinary `submission` result plus a bounded `answer_text` for the existing
+candidate/direct-save UI. A repeated stop is idempotent for the same capture;
+Core capture identity and serialized finalization prevent a second utterance or
+candidate.
+
+`teach.voice_cancel` stops and releases the matching capture, discards all
+partial/final-unsent text, and leaves `awaiting_user` unchanged. It creates no
+utterance, candidate, ProviderRun, or provider request. Stop/cancel failures
+use typed errors such as `ASR_ALREADY_RUNNING`, `ASR_MODEL_UNAVAILABLE`,
+`ASR_DEVICE_UNAVAILABLE`, `ASR_CAPTURE_FAILED`, `ASR_TRANSCRIBE_FAILED`,
+`TEACH_STATE_CHANGED_DURING_CAPTURE`, `TEACH_VOICE_EMPTY_TRANSCRIPT`, and
+`TEACH_VOICE_SUBMISSION_ALREADY_FINALIZED`.
+
+The final voice transcript is the normal user-authored Teach utterance
+(`is_final=1`) and retains all existing candidate, confirmation, preferred,
+private, `use_live`, `use_rehearsal`, Speaker Profile, Selected Context, and
+provider-manifest behavior. Raw audio and partial text remain Core-local; no
+voice-specific durable table or provider payload is introduced.
 
 `teach.get_state` returns only bounded active-session recovery data: the current
 prompt, pending user answer, and pending provisional candidate when present.
@@ -417,11 +453,12 @@ backend index immediately before opening capture. `asr.configure` accepts the
 core-approved `adapter_id`, `model_id`, English `language`, and selected
 `device_id`; it rejects changes while capture/model preparation is active.
 `asr.prepare_model` is an explicit setup operation for the approved local
-model. `asr.start` requires an active Run or Live Assist session and never
-downloads. A second
-capture returns `ASR_ALREADY_RUNNING`; a missing model returns
-`ASR_MODEL_UNAVAILABLE`. `asr.stop` is idempotent only for the matching active
-matching active Run or Live Assist session and performs bounded cleanup. It reports success only after the
+model. Direct `asr.start` requires an active Run or Live Assist session and
+never downloads; Teach uses the `teach.voice_*` lifecycle so its owner mode is
+validated explicitly. A second capture returns `ASR_ALREADY_RUNNING`; a
+missing model returns `ASR_MODEL_UNAVAILABLE`. `asr.stop` is idempotent only
+for the matching active Run or Live Assist session and performs bounded
+cleanup. It reports success only after the
 ingestion and serialized decoder workers have terminated, any active final has
 been persisted or deterministically found empty, and audio/model resources
 have been released. A failed join or final remains in retryable `stopping`
@@ -435,9 +472,10 @@ final requests have priority over partial work. Raw PCM remains internal to
 the core.
 
 `asr.status` returns `adapter_id`, `model_id`, `model_status`, safe device
-metadata, `capture_state`, nullable `session_id`, `language`, configuration,
-`input_signal_state`, bounded `input_frames_received`, capabilities, and a
-nullable safe error code. `input_signal_state` is only `unknown`, `silent`, or
+metadata, `capture_state`, nullable `session_id` and `session_mode`,
+`language`, configuration, `input_signal_state`, bounded
+`input_frames_received`, capabilities, and a nullable safe error code.
+`input_signal_state` is only `unknown`, `silent`, or
 `detected`; it is a coarse capture diagnostic, not a speech/transcript result.
 It never returns raw PCM, model paths, COM objects, stack traces, or secrets.
 
@@ -591,6 +629,7 @@ session.started
 session.stopped
 teach.prompt
 teach.knowledge_candidate
+teach.voice_finalized
 challenge.question
 challenge.evaluation
 run.debrief_progress
@@ -646,6 +685,29 @@ position. The read-only PowerPoint facade obtains it from
 `SlideShowWindow.View.Slide.SlideIndex` and uses `SlideShowWindow.Presentation`
 for basename and slide-count matching; unavailable or mismatched COM state
 falls back to manual tracking.
+
+For a Teach capture, `asr.partial` keeps the same bounded replacement-style
+payload but is UI-only. Teach final text is held transiently by Core until
+`teach.voice_stop`; it is submitted through `teach.submit_text` and therefore
+does not emit `asr.final` or create an intermediate ASR row. After the normal
+submission commits, Core may emit:
+
+```json
+{
+  "event": "teach.voice_finalized",
+  "payload": {
+    "project_id": "uuid",
+    "session_id": "uuid",
+    "source_utterance_id": "uuid",
+    "candidate_id": "uuid-or-null",
+    "state": "candidate_ready"
+  }
+}
+```
+
+This event contains identifiers and state only; it contains no transcript,
+partial text, PCM, model details, or provider payload. Cancellation and failed
+finalization emit no Teach answer event.
 
 ## 6. Evidence contract
 

@@ -62,7 +62,13 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "audience.delete_observation",
         "audience.build_context",
     }.issubset(result["capabilities"]["methods"])
+    assert {
+        "teach.voice_start",
+        "teach.voice_stop",
+        "teach.voice_cancel",
+    }.issubset(result["capabilities"]["methods"])
     assert "source.import_progress" in result["capabilities"]["events"]
+    assert "teach.voice_finalized" in result["capabilities"]["events"]
     assert result["adapters"] == [
         "pdf.pypdf",
         "pptx.python-pptx",

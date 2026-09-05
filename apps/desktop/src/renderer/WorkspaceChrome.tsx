@@ -16,6 +16,7 @@ interface Props {
   busy: boolean;
   runActive: boolean;
   liveActive: boolean;
+  teachVoiceActive: boolean;
   onCreate: () => void;
   onOpen: (project: ProjectSummary) => void;
   onTour: () => void;
@@ -31,6 +32,7 @@ export function WorkspaceChrome({
   busy,
   runActive,
   liveActive,
+  teachVoiceActive,
   onCreate,
   onOpen,
   onTour,
@@ -39,7 +41,7 @@ export function WorkspaceChrome({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [search, setSearch] = useState("");
   const content = useRef<HTMLDivElement>(null);
-  const recording = runActive || liveActive;
+  const recording = runActive || liveActive || teachVoiceActive;
   const matches = projects.filter((item) =>
     item.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -143,7 +145,14 @@ export function WorkspaceChrome({
                       key={entry.id}
                       className={`nav-item ${view === entry.id ? "active" : ""}`}
                       aria-current={view === entry.id ? "page" : undefined}
-                      disabled={!canNavigate(entry.id, runActive, liveActive)}
+                      disabled={
+                        !canNavigate(
+                          entry.id,
+                          runActive,
+                          liveActive,
+                          teachVoiceActive,
+                        )
+                      }
                       onClick={() => onNavigate(entry.id)}
                     >
                       <Icon name={entry.icon} size={16} />
@@ -227,12 +236,20 @@ export function WorkspaceChrome({
           <div className="active-session-banner" role="status">
             <Icon name="wave" size={18} />
             <span>
-              {runActive ? "Rehearsal" : "Live Assist"} is active. Finish the
-              session before switching workspaces.
+              {teachVoiceActive
+                ? "Teach microphone capture"
+                : runActive
+                  ? "Rehearsal"
+                  : "Live Assist"}{" "}
+              is active. Finish the session before switching workspaces.
             </span>
             <button
               className="text-button"
-              onClick={() => onNavigate(runActive ? "run" : "live")}
+              onClick={() =>
+                onNavigate(
+                  teachVoiceActive ? "teach" : runActive ? "run" : "live",
+                )
+              }
             >
               Return to session
             </button>

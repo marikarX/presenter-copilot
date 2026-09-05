@@ -150,10 +150,13 @@ export function App() {
     useState<RetrievalQueryResult | null>(null);
   const [runPanelActive, setRunPanelActive] = useState(false);
   const [livePanelActive, setLivePanelActive] = useState(false);
+  const [teachVoiceActive, setTeachVoiceActive] = useState(false);
   const runActive = runPanelActive || livePanelActive;
+  const workspaceCaptureActive = runActive || teachVoiceActive;
 
   const navigate = (next: WorkspaceView) => {
-    if (canNavigate(next, runPanelActive, livePanelActive)) setView(next);
+    if (canNavigate(next, runPanelActive, livePanelActive, teachVoiceActive))
+      setView(next);
   };
   const closeTour = () => {
     try {
@@ -296,7 +299,7 @@ export function App() {
 
   const selectProject = useCallback(
     async (project: ProjectSummary) => {
-      if (runActive) return;
+      if (workspaceCaptureActive) return;
       if (selectedProject?.id === project.id) {
         setView("overview");
         return;
@@ -325,11 +328,11 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources, runActive, selectedProject],
+    [loadRetrievalHealth, loadSources, selectedProject, workspaceCaptureActive],
   );
 
   const createProject = useCallback(async () => {
-    if (runActive || !newProjectName.trim()) return;
+    if (workspaceCaptureActive || !newProjectName.trim()) return;
     setBusy("create-project");
     setNotice(null);
     try {
@@ -358,10 +361,16 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  }, [loadProjects, loadRetrievalHealth, newProjectName, runActive]);
+  }, [
+    loadProjects,
+    loadRetrievalHealth,
+    newProjectName,
+    workspaceCaptureActive,
+  ]);
 
   const saveSettings = useCallback(async () => {
-    if (runActive || !selectedProject || !projectName.trim()) return;
+    if (workspaceCaptureActive || !selectedProject || !projectName.trim())
+      return;
     setBusy("save-settings");
     setNotice(null);
     try {
@@ -393,12 +402,12 @@ export function App() {
     selectedProject,
     stylePolicy,
     styleOverrideEnabled,
-    runActive,
+    workspaceCaptureActive,
   ]);
 
   const importSource = useCallback(
     async (transcriptAuthorized = false) => {
-      if (runActive || !selectedProject) return;
+      if (workspaceCaptureActive || !selectedProject) return;
       if (requiresTranscriptDisclosure(importKind, transcriptAuthorized)) {
         setTranscriptDisclosureOpen(true);
         return;
@@ -436,7 +445,7 @@ export function App() {
       loadProjects,
       loadRetrievalHealth,
       loadSources,
-      runActive,
+      workspaceCaptureActive,
       selectedProject,
     ],
   );
@@ -448,7 +457,7 @@ export function App() {
 
   const inspectSource = useCallback(
     async (source: SourceSummary) => {
-      if (runActive || !selectedProject) return;
+      if (workspaceCaptureActive || !selectedProject) return;
       setSelectedSourceId(source.id);
       setBusy(`preview-${source.id}`);
       setNotice(null);
@@ -469,12 +478,12 @@ export function App() {
         setBusy(null);
       }
     },
-    [runActive, selectedProject],
+    [selectedProject, workspaceCaptureActive],
   );
 
   const reindexSource = useCallback(
     async (source: SourceSummary) => {
-      if (runActive || !selectedProject) return;
+      if (workspaceCaptureActive || !selectedProject) return;
       setBusy(`reindex-${source.id}`);
       setNotice(null);
       try {
@@ -494,13 +503,13 @@ export function App() {
         setBusy(null);
       }
     },
-    [loadRetrievalHealth, loadSources, runActive, selectedProject],
+    [loadRetrievalHealth, loadSources, selectedProject, workspaceCaptureActive],
   );
 
   const deleteSource = useCallback(
     async (source: SourceSummary) => {
       if (
-        runActive ||
+        workspaceCaptureActive ||
         !selectedProject ||
         !window.confirm(`Delete ${source.original_name} from this project?`)
       )
@@ -532,7 +541,7 @@ export function App() {
     [
       loadProjects,
       loadRetrievalHealth,
-      runActive,
+      workspaceCaptureActive,
       selectedProject,
       selectedSourceId,
     ],
@@ -540,7 +549,7 @@ export function App() {
 
   const deleteProject = useCallback(async () => {
     if (
-      runActive ||
+      workspaceCaptureActive ||
       !selectedProject ||
       !window.confirm(
         `Delete project “${selectedProject.name}” and all vault data?`,
@@ -566,7 +575,7 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  }, [loadProjects, runActive, selectedProject]);
+  }, [loadProjects, selectedProject, workspaceCaptureActive]);
 
   const rebuildRetrieval = useCallback(async () => {
     if (!selectedProject) return;
@@ -668,6 +677,7 @@ export function App() {
       busy={busy !== null}
       runActive={runPanelActive}
       liveActive={livePanelActive}
+      teachVoiceActive={teachVoiceActive}
       onCreate={() => {
         setNotice(null);
         setCreateOpen(true);
@@ -702,7 +712,7 @@ export function App() {
         <ReleaseControls
           visible={view === "setup"}
           coreReady={status.state === "ready"}
-          runActive={runActive}
+          runActive={workspaceCaptureActive}
           onResetComplete={handleResetComplete}
         />
         <details className="core-details">
@@ -802,7 +812,7 @@ export function App() {
                   type="button"
                   className="danger-button"
                   onClick={() => void deleteProject()}
-                  disabled={busy !== null || runActive}
+                  disabled={busy !== null || workspaceCaptureActive}
                 >
                   Delete project
                 </button>
@@ -869,7 +879,7 @@ export function App() {
                 type="button"
                 className="secondary-button"
                 onClick={() => void saveSettings()}
-                disabled={busy !== null || runActive}
+                disabled={busy !== null || workspaceCaptureActive}
               >
                 Save settings
               </button>
@@ -879,7 +889,7 @@ export function App() {
                 <RunPanel
                   visible={view === "run"}
                   project={selectedProject}
-                  blocked={livePanelActive}
+                  blocked={livePanelActive || teachVoiceActive}
                   onActiveChange={setRunPanelActive}
                 />
               ) : null}
@@ -889,7 +899,7 @@ export function App() {
                 <LiveAssistPanel
                   visible={view === "live"}
                   project={selectedProject}
-                  blocked={runPanelActive}
+                  blocked={runPanelActive || teachVoiceActive}
                   onActiveChange={setLivePanelActive}
                 />
               ) : null}
@@ -899,6 +909,7 @@ export function App() {
                 <TeachPanel
                   project={selectedProject}
                   captureActive={runActive}
+                  onVoiceActiveChange={setTeachVoiceActive}
                 />
               ) : null}
             </div>
@@ -907,7 +918,7 @@ export function App() {
                 <ChallengePanel
                   project={selectedProject}
                   refreshToken={audienceRefreshToken}
-                  captureActive={runActive}
+                  captureActive={workspaceCaptureActive}
                 />
               ) : null}
             </div>
@@ -927,7 +938,7 @@ export function App() {
                           "presentation" | "supporting" | "transcript",
                       )
                     }
-                    disabled={busy !== null || runActive}
+                    disabled={busy !== null || workspaceCaptureActive}
                   >
                     <option value="presentation">Presentation</option>
                     <option value="supporting">Supporting document</option>
@@ -937,7 +948,7 @@ export function App() {
                     type="button"
                     className="primary-button"
                     onClick={() => void importSource()}
-                    disabled={busy !== null || runActive}
+                    disabled={busy !== null || workspaceCaptureActive}
                   >
                     Import source…
                   </button>
@@ -968,7 +979,7 @@ export function App() {
                       type="button"
                       className="source-main"
                       onClick={() => void inspectSource(source)}
-                      disabled={busy !== null || runActive}
+                      disabled={busy !== null || workspaceCaptureActive}
                     >
                       <span className="source-name">
                         {source.original_name}
@@ -991,7 +1002,7 @@ export function App() {
                         type="button"
                         className="text-button"
                         onClick={() => void reindexSource(source)}
-                        disabled={busy !== null || runActive}
+                        disabled={busy !== null || workspaceCaptureActive}
                       >
                         Re-index
                       </button>
@@ -999,7 +1010,7 @@ export function App() {
                         type="button"
                         className="text-button danger-text"
                         onClick={() => void deleteSource(source)}
-                        disabled={busy !== null || runActive}
+                        disabled={busy !== null || workspaceCaptureActive}
                       >
                         Delete
                       </button>
@@ -1152,7 +1163,7 @@ export function App() {
                     type="button"
                     className="secondary-button"
                     onClick={() => void loadRetrievalHealth(selectedProject.id)}
-                    disabled={busy !== null || runActive}
+                    disabled={busy !== null || workspaceCaptureActive}
                   >
                     Refresh health
                   </button>
@@ -1160,7 +1171,7 @@ export function App() {
                     type="button"
                     className="primary-button"
                     onClick={() => void rebuildRetrieval()}
-                    disabled={busy !== null || runActive}
+                    disabled={busy !== null || workspaceCaptureActive}
                   >
                     {busy === "retrieval-rebuild"
                       ? "Building index…"
@@ -1225,7 +1236,7 @@ export function App() {
                     type="button"
                     className="secondary-button retrieval-query-button"
                     onClick={() => void runRetrievalQuery()}
-                    disabled={busy !== null || runActive}
+                    disabled={busy !== null || workspaceCaptureActive}
                   >
                     {busy === "retrieval-query" ? "Querying…" : "Run query"}
                   </button>
@@ -1355,7 +1366,7 @@ export function App() {
                 className="primary-button"
                 disabled={
                   busy !== null ||
-                  runActive ||
+                  workspaceCaptureActive ||
                   status.state !== "ready" ||
                   !newProjectName.trim()
                 }

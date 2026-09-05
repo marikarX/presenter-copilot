@@ -240,6 +240,17 @@ answer and confirm it, set `use_live=false`, query `usage=live`, and verify the
 item is excluded. Promote only the confirmed item to Speaker Profile through
 the separate explicit approval action.
 
+### E2E-03a G09 Teach voice
+
+Create a disposable project, start Teach, obtain a prompt, start the injected
+fake local microphone, feed synthetic speech frames, observe a bounded partial,
+stop, and verify that the finalized transcript enters the ordinary Teach
+candidate/provenance flow. Confirm the candidate, verify the knowledge item is
+immediately retrievable, and request the next Teach prompt. Also run
+record -> cancel -> type answer and verify the same state machine, with no
+utterance, candidate, ProviderRun, provider payload, or durable audio created by
+the cancelled capture.
+
 ### E2E-04 Challenge
 
 Use the canonical synthetic project, deck, supporting documents, and
@@ -341,6 +352,22 @@ The deterministic suite covers:
   complete line;
 - renderer/main/preload allowlists, typed Run projections, and global shortcut
   routing through presentation IPC.
+
+### G09 Teach voice regression matrix
+
+The deterministic suite uses injected `AudioInputAdapter` and `ASRAdapter`
+fixtures only. It covers active Teach ownership and wrong-state rejection,
+single-capture conflicts with Run/Live, explicit model/device failures,
+bounded replacement partials, final decode failure, empty finals, cancellation,
+typed-submit exclusion while recording, state-change fail-closed cleanup,
+Core shutdown release, duplicate stop/final at-most-once submission, ordinary
+user-authored provenance/candidate confirmation, local-only routing, immediate
+retrieval, and preservation of the existing Run/Live ASR matrix. Renderer/IPC
+coverage checks the three typed `teach.voice_*` controls, safe status/error
+projections, partial display without persistence/provider calls, final handoff
+to the existing candidate UI, typed fallback, and absence of raw audio,
+filesystem paths, or model internals. Privacy assertions prove only the final
+transcript can enter the existing Teach Selected Context/provider boundary.
 
 Real local ASR is separate from normal CI and uses only the checked-in
 synthetic fixture after explicit `pnpm model:prepare:asr`:

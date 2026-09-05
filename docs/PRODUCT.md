@@ -67,7 +67,11 @@ The product models observable interaction behavior, not hidden emotions, psychol
 
 ### Teach
 
-User talks or types with the AI so the app learns missing context and the user's own explanations.
+User talks or types with the AI so the app learns missing context and the user's
+own explanations. Teach voice uses the existing local ASR stack; only the
+finalized transcript enters the same candidate, confirmation, provenance, and
+privacy path as typed input. Typed answers remain the fallback when a model or
+microphone is unavailable.
 
 ### Challenge
 
