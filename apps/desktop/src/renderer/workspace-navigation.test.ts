@@ -17,6 +17,7 @@ describe("workspace navigation during microphone ownership", () => {
       expect(canNavigate(view, false, false)).toBe(true);
       expect(canNavigate(view, true, false)).toBe(view === "run");
       expect(canNavigate(view, false, true)).toBe(view === "live");
+      expect(canNavigate(view, false, false, true)).toBe(view === "teach");
     }
   });
 });

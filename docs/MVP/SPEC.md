@@ -91,6 +91,9 @@ Purpose: enrich the Project Brain using the user's own speech/thought process.
 Required behavior:
 
 - voice or text conversation;
+- Teach microphone capture reuses the Core-owned local ASR stack; partials stay
+  ephemeral and only the finalized transcript enters the existing typed answer
+  pipeline;
 - AI asks clarifying questions about claims, decisions, weak assumptions, likely objections, and evidence gaps;
 - user explanations are stored with `source_type=user` and session provenance;
 - user may mark an explanation as `keep`, `preferred answer`, `private note`, or `do not use live`;

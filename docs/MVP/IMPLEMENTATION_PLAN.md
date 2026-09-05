@@ -142,7 +142,8 @@ M5 implementation status for this branch: typed Challenge setup, bounded
 project-local AudienceProfile selection, canonical Project Brain grounding,
 advisory evaluation, retry/follow-up history, explicit preferred-answer
 promotion, recovery, and the E2E-04 synthetic acceptance gate. Challenge
-remains typed-first; M6 does not wire ASR into Teach or Challenge.
+remains typed-first; M6 intentionally kept ASR out of Teach and Challenge,
+with the later G09 slice adding local voice only to Teach.
 
 ## Milestone 6 — Local ASR and Run mode
 
@@ -230,6 +231,33 @@ health with stable actionable states; bounded timeout and logical
 supersession/cancellation finalize runs exactly once and discard ineligible
 results. `privacy.list_context_manifests` exposes only bounded run metadata
 and sanitized manifests. Optional local/Codex adapters remain deferred.
+
+## G09 — Voice-first Teach using the existing local ASR stack
+
+### Build
+
+- mode-aware ownership for the shared Core ASR capture;
+- transient `teach.voice_start`, `teach.voice_stop`, and `teach.voice_cancel`
+  lifecycle;
+- bounded ephemeral partials and final-only voice answer submission through
+  `TeachService.submit_text`;
+- existing candidate, provenance, confirmation, privacy, and typed fallback
+  behavior in the Teach panel;
+- deterministic injected audio/ASR, IPC, renderer-boundary, privacy, and
+  restart/shutdown coverage.
+
+### Exit
+
+Voice and typed Teach answers share one state machine and one submission path;
+only finalized voice text can create the ordinary user utterance/candidate;
+cancelled or failed captures create no Teach answer; and confirmed voice
+knowledge is immediately retrievable. The local ASR model remains explicit and
+never downloads because Teach microphone capture was requested.
+
+G09 implementation status for this branch: complete. The shared ASR service
+supports Run, Live Assist, and Teach with one capture slot; Core-side capture
+identity and serialized stop/finalization prevent duplicate Teach submissions;
+and renderer voice controls expose only bounded text/status projections.
 
 ## Milestone 9 — Deletion, security, packaging, performance
 

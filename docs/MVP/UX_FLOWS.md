@@ -166,6 +166,16 @@ Layout:
 Behavior:
 
 - user answers naturally by voice or typing;
+- when Teach is `awaiting_user`, the panel exposes `[ microphone ] Start
+  speaking` while keeping the typed textarea available;
+- while listening, Core-owned local ASR shows one bounded replacement-style
+  partial transcript and offers `[ Stop & use answer ]` or `[ Cancel ]`;
+- Stop submits only the finalized local transcript through the existing typed
+  Teach answer path. Partials and raw audio are ephemeral and never become
+  evidence or provider input;
+- voice capture uses the configured ASR device and prepared local model. A
+  missing model or unavailable device keeps the prompt unanswered and points
+  the user to setup/retry;
 - AI may ask one focused follow-up at a time;
 - after a useful user explanation, app offers a compact extracted knowledge item for confirmation;
 - app never silently promotes model-generated wording to `user-authored` knowledge;

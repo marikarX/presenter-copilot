@@ -117,7 +117,7 @@ conflicts with that dated baseline, the release baseline controls.
 
 ### P1
 
-- [ ] G09 Voice-first Teach using ASR.
+- [x] G09 Voice-first Teach using the existing local ASR stack.
 
 ## Epic H — Transcript import and Audience Model
 

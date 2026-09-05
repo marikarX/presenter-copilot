@@ -69,6 +69,9 @@ export const CORE_METHODS = [
   "teach.next_prompt",
   "teach.get_state",
   "teach.submit_text",
+  "teach.voice_start",
+  "teach.voice_stop",
+  "teach.voice_cancel",
   "teach.discard_answer",
   "teach.confirm_knowledge_item",
   "teach.reject_knowledge_item",
@@ -115,6 +118,7 @@ export const CORE_EVENTS = [
   "project.index_ready",
   "teach.prompt",
   "teach.knowledge_candidate",
+  "teach.voice_finalized",
   "challenge.question",
   "challenge.evaluation",
   "session.started",
@@ -205,6 +209,9 @@ export const RENDERER_CORE_METHODS = [
   "teach.next_prompt",
   "teach.get_state",
   "teach.submit_text",
+  "teach.voice_start",
+  "teach.voice_stop",
+  "teach.voice_cancel",
   "teach.discard_answer",
   "teach.confirm_knowledge_item",
   "teach.reject_knowledge_item",
@@ -899,6 +906,7 @@ export interface ASRStatus {
   device: AudioDevice | null;
   capture_state: "stopped" | "running" | "stopping";
   session_id: string | null;
+  session_mode: "teach" | "run" | "live_assist" | null;
   language: string;
   input_signal_state: "unknown" | "silent" | "detected";
   input_frames_received: number;

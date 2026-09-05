@@ -779,6 +779,12 @@ slide_ordinal = slide snapshot from utterance start, or latest valid slide
 Partial ASR text is ephemeral and creates no row. No audio table exists and
 raw PCM is never persisted.
 
+G09 Teach voice follows the same rule without adding a voice-specific table:
+the finalized transcript creates the ordinary `actor=user`, `is_final=1`
+Teach `Utterance`, and the existing `UserStatement`/KnowledgeItem provenance
+path is used after candidate confirmation. Partial text, unsent final text,
+and microphone PCM create no durable row.
+
 The v5 -> v6 migration adds:
 
 ```text

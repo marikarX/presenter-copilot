@@ -182,6 +182,12 @@ try {
   await navigate("Teach");
   await page.getByRole("button", { name: "Start Teach", exact: true }).click();
   await page
+    .getByRole("button", { name: "Ask focused question", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Start speaking", exact: true })
+    .waitFor();
+  await page
     .getByLabel("Your explanation", { exact: true })
     .fill("Keep this draft while I review my audience.");
   await navigate("Audience");
@@ -191,7 +197,7 @@ try {
     "Keep this draft while I review my audience.",
   );
   checks.push(
-    "A real Teach session and its unsaved answer survive mode navigation",
+    "A real Teach session exposes voice-first controls and its typed fallback survives mode navigation",
   );
   await navigate("Audience");
   await page.getByLabel("Display name", { exact: true }).fill("Test audience");

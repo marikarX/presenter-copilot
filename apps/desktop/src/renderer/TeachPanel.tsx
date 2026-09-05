@@ -9,16 +9,23 @@ import {
   type ReadyProjectSummary,
   type RendererCoreMethod,
   type Session,
+  type ASRStatus,
   type SpeakerEvidence,
   type SpeakerProfile,
   type TeachCandidate,
   isJsonObject,
   unwrapInvokeResult,
 } from "../shared/protocol";
+import {
+  boundedPartialText,
+  teachVoiceActive,
+  type TeachVoiceCaptureState,
+} from "./teach-voice";
 
 type TeachPanelProps = {
   project: ReadyProjectSummary;
   captureActive?: boolean;
+  onVoiceActiveChange?: (active: boolean) => void;
 };
 
 type SessionListResult = { sessions: Session[] };
@@ -83,6 +90,24 @@ type TeachStateResult = {
   candidate: TeachCandidate | null;
 };
 
+type TeachVoiceStartResult = {
+  project_id: string;
+  session_id: string;
+  state: string;
+  capture_state: "running";
+  asr_status: ASRStatus;
+};
+
+type TeachVoiceStopResult = {
+  project_id: string;
+  session_id: string;
+  state: string;
+  capture_state: "stopped";
+  submission: TeachSubmitResult | null;
+  answer_text?: string;
+  idempotent?: boolean;
+};
+
 const EVIDENCE_TYPES = [
   "preferred_phrase",
   "explanation_pattern",
@@ -121,6 +146,40 @@ function errorMessage(error: unknown): string {
     if (typeof value.message === "string") return value.message;
   }
   return "The Teach request could not be completed.";
+}
+
+function voiceErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
+  const safeMessages: Record<string, string> = {
+    ASR_ALREADY_RUNNING: "Another microphone capture is already active.",
+    ASR_BUSY: "ASR setup is busy. Wait for the current operation, then retry.",
+    ASR_SESSION_INVALID: "This Teach session cannot own microphone capture.",
+    ASR_MODEL_UNAVAILABLE:
+      "The local speech model is unavailable. Prepare it in Setup, then try again.",
+    ASR_DEVICE_UNAVAILABLE:
+      "The selected microphone is unavailable. Check the ASR device in Setup.",
+    ASR_CAPTURE_FAILED:
+      "Microphone capture could not be completed. You can retry.",
+    ASR_TRANSCRIBE_FAILED:
+      "Local transcription could not be completed. You can retry.",
+    TEACH_STATE_CHANGED_DURING_CAPTURE:
+      "Teach changed before the voice answer could be used. No answer was added.",
+    TEACH_VOICE_CAPTURE_ACTIVE:
+      "A Teach microphone capture is already active. Finish or cancel it first.",
+    TEACH_VOICE_EMPTY_TRANSCRIPT:
+      "No spoken answer was detected. You can try again or type an answer.",
+    TEACH_VOICE_SUBMISSION_ALREADY_FINALIZED:
+      "This voice answer was already finalized.",
+    TEACH_VOICE_NOT_ACTIVE: "No Teach microphone capture is active.",
+    TEACH_VOICE_SUBMISSION_FAILED:
+      "The finalized voice answer could not be submitted. No duplicate answer was created.",
+  };
+  return code && safeMessages[code]
+    ? `${code}: ${safeMessages[code]}`
+    : "VOICE_CAPTURE_FAILED: Voice capture could not be completed. You can retry.";
 }
 
 function providerLabel(provider: ProviderStatus | null): string {
@@ -163,6 +222,7 @@ function providerGuidance(provider: ProviderStatus | null): string {
 export function TeachPanel({
   project,
   captureActive = false,
+  onVoiceActiveChange,
 }: TeachPanelProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [question, setQuestion] = useState<TeachPromptResult | null>(null);
@@ -194,6 +254,17 @@ export function TeachPanel({
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [voiceCaptureState, setVoiceCaptureState] =
+    useState<TeachVoiceCaptureState>("idle");
+  const [voicePartial, setVoicePartial] = useState<string | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [asrStatus, setAsrStatus] = useState<ASRStatus | null>(null);
+  const voiceActive = teachVoiceActive(voiceCaptureState);
+  const controlsBlocked = captureActive || voiceActive;
+
+  useEffect(() => {
+    onVoiceActiveChange?.(voiceActive);
+  }, [onVoiceActiveChange, voiceActive]);
 
   useEffect(() => {
     setSession(null);
@@ -212,6 +283,10 @@ export function TeachPanel({
     setPromotionId(null);
     setPromotionText("");
     setAcknowledgedRemote(project.remote_reasoning_acknowledged);
+    setVoiceCaptureState("idle");
+    setVoicePartial(null);
+    setVoiceStatus(null);
+    setAsrStatus(null);
   }, [project.id]);
 
   const loadData = useCallback(async () => {
@@ -294,6 +369,18 @@ export function TeachPanel({
   }, [loadData]);
 
   useEffect(() => {
+    let mounted = true;
+    void requestCore<ASRStatus>("asr.status")
+      .then((status) => {
+        if (mounted) setAsrStatus(status);
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [project.id]);
+
+  useEffect(() => {
     const removeListener = window.presenterCopilot.core.onEvent((event) => {
       if (event.event !== "provider.status_changed") return;
       const nextProvider = event.payload.provider;
@@ -303,6 +390,83 @@ export function TeachPanel({
     });
     return removeListener;
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const removeListener = window.presenterCopilot.core.onEvent((event) => {
+      const eventSessionId =
+        typeof event.payload.session_id === "string"
+          ? event.payload.session_id
+          : null;
+      if (event.event === "asr.partial" && eventSessionId === session?.id) {
+        const partial = boundedPartialText(event.payload.text);
+        if (voiceActive && voiceCaptureState === "listening") {
+          setVoicePartial(partial);
+        }
+        return;
+      }
+      if (
+        event.event === "asr.model_loading" &&
+        voiceCaptureState === "starting"
+      ) {
+        setVoiceStatus("Preparing local speech model…");
+        return;
+      }
+      if (event.event === "asr.ready" && eventSessionId === session?.id) {
+        setVoiceStatus("Listening for your answer…");
+        const refresh = requestCore<ASRStatus>("asr.status");
+        void refresh
+          .then((status) => mounted && setAsrStatus(status))
+          .catch(() => undefined);
+        return;
+      }
+      if (
+        event.event === "asr.device_error" &&
+        eventSessionId === session?.id
+      ) {
+        const errorCode =
+          typeof event.payload.error_code === "string"
+            ? event.payload.error_code
+            : "ASR_CAPTURE_FAILED";
+        if (voiceActive) {
+          setVoiceCaptureState("error");
+          setVoiceStatus(voiceErrorMessage({ code: errorCode }));
+        }
+        return;
+      }
+      if (
+        event.event === "teach.voice_finalized" &&
+        eventSessionId === session?.id
+      ) {
+        void requestCore<TeachStateResult>("teach.get_state", {
+          project_id: project.id,
+          session_id: session.id,
+        })
+          .then((recovered) => {
+            if (!mounted) return;
+            setSession((current) =>
+              current ? { ...current, teach_state: recovered.state } : current,
+            );
+            setCandidate(recovered.candidate);
+            setCandidateText(
+              recovered.candidate?.proposed_text ??
+                recovered.pending_answer?.text ??
+                "",
+            );
+            setCandidateKind(recovered.candidate?.proposed_kind ?? "rationale");
+            setLastSubmittedText(recovered.pending_answer?.text ?? "");
+            setLastSourceUtteranceId(
+              recovered.pending_answer?.source_utterance_id ?? "",
+            );
+          })
+          .catch(() => undefined);
+      }
+    });
+    return () => {
+      mounted = false;
+      removeListener();
+    };
+  }, [project.id, session?.id, voiceActive, voiceCaptureState]);
 
   const loadContextHistory = useCallback(async () => {
     try {
@@ -322,7 +486,7 @@ export function TeachPanel({
   }, [loadContextHistory]);
 
   const acknowledgeRemote = useCallback(async () => {
-    if (captureActive) return;
+    if (controlsBlocked) return;
     setBusy("acknowledge-remote");
     try {
       const result = await requestCore<{ project: ReadyProjectSummary }>(
@@ -338,10 +502,10 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, project.id]);
+  }, [controlsBlocked, project.id]);
 
   const startTeach = useCallback(async () => {
-    if (captureActive) return;
+    if (controlsBlocked) return;
     setBusy("start-teach");
     setMessage(null);
     try {
@@ -361,10 +525,10 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, project.id]);
+  }, [controlsBlocked, project.id]);
 
   const nextPrompt = useCallback(async () => {
-    if (captureActive || !session) return;
+    if (controlsBlocked || !session) return;
     setBusy("next-prompt");
     setMessage(null);
     try {
@@ -382,10 +546,10 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, loadContextHistory, project.id, session]);
+  }, [controlsBlocked, loadContextHistory, project.id, session]);
 
   const stopTeach = useCallback(async () => {
-    if (captureActive || !session) return;
+    if (controlsBlocked || !session) return;
     setBusy("stop-teach");
     try {
       await requestCore<SessionResult>("session.stop", {
@@ -406,20 +570,10 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, project.id, session]);
+  }, [controlsBlocked, project.id, session]);
 
-  const submitAnswer = useCallback(async () => {
-    if (captureActive || !session || !answer.trim()) return;
-    setBusy("submit-answer");
-    setMessage(null);
-    const submitted = answer.trim();
-    try {
-      const result = await requestCore<TeachSubmitResult>("teach.submit_text", {
-        project_id: project.id,
-        session_id: session.id,
-        text: submitted,
-        local_only: keepLocal,
-      });
+  const applyTeachSubmission = useCallback(
+    (result: TeachSubmitResult, submitted: string) => {
       setLastSubmittedText(submitted);
       setLastSourceUtteranceId(result.source_utterance_id);
       setAnswer("");
@@ -441,6 +595,133 @@ export function TeachPanel({
           : "No provider candidate was used. Your original answer is ready to save directly.",
       );
       void loadContextHistory();
+    },
+    [loadContextHistory],
+  );
+
+  const presentVoiceError = useCallback(
+    async (error: unknown, sessionId: string) => {
+      const safeMessage = voiceErrorMessage(error);
+      setVoicePartial(null);
+      setVoiceStatus(safeMessage);
+      setMessage(safeMessage);
+      try {
+        const status = await requestCore<ASRStatus>("asr.status");
+        const captureStillOwned =
+          status.session_mode === "teach" &&
+          status.session_id === sessionId &&
+          status.capture_state !== "stopped";
+        setVoiceCaptureState(captureStillOwned ? "error" : "idle");
+      } catch {
+        setVoiceCaptureState("idle");
+      }
+    },
+    [],
+  );
+
+  const startVoice = useCallback(async () => {
+    if (controlsBlocked || !session || session.teach_state !== "awaiting_user")
+      return;
+    setVoiceCaptureState("starting");
+    setVoicePartial(null);
+    setVoiceStatus("Preparing local speech model…");
+    setMessage(null);
+    setBusy("voice-start");
+    try {
+      const result = await requestCore<TeachVoiceStartResult>(
+        "teach.voice_start",
+        {
+          project_id: project.id,
+          session_id: session.id,
+          local_only: keepLocal,
+        },
+      );
+      setAsrStatus(result.asr_status);
+      setVoiceCaptureState("listening");
+      setVoiceStatus("Listening for your answer…");
+    } catch (error) {
+      await presentVoiceError(error, session.id);
+    } finally {
+      setBusy(null);
+    }
+  }, [controlsBlocked, keepLocal, presentVoiceError, project.id, session]);
+
+  const stopVoice = useCallback(async () => {
+    if (!voiceActive || !session) return;
+    setVoiceCaptureState("transcribing");
+    setVoiceStatus("Transcribing locally…");
+    setMessage(null);
+    setBusy("voice-stop");
+    try {
+      const result = await requestCore<TeachVoiceStopResult>(
+        "teach.voice_stop",
+        {
+          project_id: project.id,
+          session_id: session.id,
+        },
+      );
+      setVoicePartial(null);
+      if (result.submission) {
+        applyTeachSubmission(
+          result.submission,
+          result.answer_text?.trim() ?? "",
+        );
+      }
+      setVoiceCaptureState("idle");
+      setVoiceStatus("Stopped");
+      if (!result.submission) {
+        setMessage(
+          "No finalized voice answer was available. You can type an answer instead.",
+        );
+      }
+    } catch (error) {
+      await presentVoiceError(error, session.id);
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    applyTeachSubmission,
+    presentVoiceError,
+    project.id,
+    session,
+    voiceActive,
+  ]);
+
+  const cancelVoice = useCallback(async () => {
+    if (!voiceActive || !session) return;
+    setBusy("voice-cancel");
+    setMessage(null);
+    try {
+      await requestCore("teach.voice_cancel", {
+        project_id: project.id,
+        session_id: session.id,
+      });
+      setVoiceCaptureState("idle");
+      setVoicePartial(null);
+      setVoiceStatus("Cancelled — no answer was saved.");
+      setMessage(
+        "Voice capture cancelled. You can type an answer or start speaking again.",
+      );
+    } catch (error) {
+      await presentVoiceError(error, session.id);
+    } finally {
+      setBusy(null);
+    }
+  }, [presentVoiceError, project.id, session, voiceActive]);
+
+  const submitAnswer = useCallback(async () => {
+    if (controlsBlocked || !session || !answer.trim()) return;
+    setBusy("submit-answer");
+    setMessage(null);
+    const submitted = answer.trim();
+    try {
+      const result = await requestCore<TeachSubmitResult>("teach.submit_text", {
+        project_id: project.id,
+        session_id: session.id,
+        text: submitted,
+        local_only: keepLocal,
+      });
+      applyTeachSubmission(result, submitted);
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -448,15 +729,15 @@ export function TeachPanel({
     }
   }, [
     answer,
-    captureActive,
+    applyTeachSubmission,
+    controlsBlocked,
     keepLocal,
-    loadContextHistory,
     project.id,
     session,
   ]);
 
   const discardAnswer = useCallback(async () => {
-    if (captureActive || !session || !lastSourceUtteranceId || candidate)
+    if (controlsBlocked || !session || !lastSourceUtteranceId || candidate)
       return;
     setBusy("discard-answer");
     setMessage(null);
@@ -484,11 +765,11 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [candidate, captureActive, lastSourceUtteranceId, project.id, session]);
+  }, [candidate, controlsBlocked, lastSourceUtteranceId, project.id, session]);
 
   const confirmKnowledge = useCallback(
     async (sourceUtteranceId: string, candidateId?: string) => {
-      if (captureActive || !session || !candidateText.trim()) return;
+      if (controlsBlocked || !session || !candidateText.trim()) return;
       setBusy(candidateId ? "confirm-candidate" : "save-answer");
       setMessage(null);
       try {
@@ -523,7 +804,7 @@ export function TeachPanel({
     [
       candidateKind,
       candidateText,
-      captureActive,
+      controlsBlocked,
       loadData,
       preferred,
       privateItem,
@@ -535,7 +816,7 @@ export function TeachPanel({
   );
 
   const rejectCandidate = useCallback(async () => {
-    if (captureActive || !session || !candidate) return;
+    if (controlsBlocked || !session || !candidate) return;
     setBusy("reject-candidate");
     setMessage(null);
     try {
@@ -558,14 +839,14 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [candidate, captureActive, project.id, session]);
+  }, [candidate, controlsBlocked, project.id, session]);
 
   const updateKnowledge = useCallback(
     async (
       item: KnowledgeItem,
       field: "use_live" | "use_rehearsal" | "preferred" | "private",
     ) => {
-      if (captureActive) return;
+      if (controlsBlocked) return;
       setBusy(`knowledge-${item.id}`);
       try {
         await requestCore("knowledge.update_flags", {
@@ -580,12 +861,12 @@ export function TeachPanel({
         setBusy(null);
       }
     },
-    [captureActive, loadData, project.id],
+    [controlsBlocked, loadData, project.id],
   );
 
   const deleteKnowledge = useCallback(
     async (item: KnowledgeItem) => {
-      if (captureActive) return;
+      if (controlsBlocked) return;
       if (!window.confirm("Delete this confirmed project knowledge item?"))
         return;
       setBusy(`delete-knowledge-${item.id}`);
@@ -602,11 +883,11 @@ export function TeachPanel({
         setBusy(null);
       }
     },
-    [captureActive, loadData, project.id],
+    [controlsBlocked, loadData, project.id],
   );
 
   const promoteKnowledge = useCallback(async () => {
-    if (captureActive || !promotionId || !promotionText.trim()) return;
+    if (controlsBlocked || !promotionId || !promotionText.trim()) return;
     setBusy("promote-profile");
     try {
       await requestCore("speaker_profile.approve_evidence", {
@@ -627,7 +908,7 @@ export function TeachPanel({
       setBusy(null);
     }
   }, [
-    captureActive,
+    controlsBlocked,
     loadData,
     project.id,
     promotionId,
@@ -636,7 +917,7 @@ export function TeachPanel({
   ]);
 
   const saveProfile = useCallback(async () => {
-    if (captureActive) return;
+    if (controlsBlocked) return;
     const secondsText = preferredSeconds.trim();
     const seconds = secondsText ? Number(secondsText) : null;
     if (
@@ -664,10 +945,10 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, preferredSeconds, profileGuidance, profilePolicy]);
+  }, [controlsBlocked, preferredSeconds, profileGuidance, profilePolicy]);
 
   const configureProvider = useCallback(async () => {
-    if (captureActive || !providerModel.trim()) return;
+    if (controlsBlocked || !providerModel.trim()) return;
     setBusy("configure-provider");
     try {
       const result = await requestCore<{ provider: ProviderStatus }>(
@@ -693,11 +974,11 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, providerModel, provider]);
+  }, [controlsBlocked, providerModel, provider]);
 
   const removeEvidence = useCallback(
     async (item: SpeakerEvidence) => {
-      if (captureActive) return;
+      if (controlsBlocked) return;
       if (!window.confirm("Remove this approved Speaker Profile evidence?"))
         return;
       setBusy(`remove-evidence-${item.id}`);
@@ -713,11 +994,11 @@ export function TeachPanel({
         setBusy(null);
       }
     },
-    [captureActive, loadData],
+    [controlsBlocked, loadData],
   );
 
   const resetProfile = useCallback(async () => {
-    if (captureActive) return;
+    if (controlsBlocked) return;
     if (!window.confirm("Reset all learned Speaker Profile evidence?")) return;
     setBusy("reset-profile");
     try {
@@ -729,7 +1010,7 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, loadData]);
+  }, [controlsBlocked, loadData]);
 
   const remoteNeedsAcknowledgement =
     project.privacy_mode !== "local_only" && !acknowledgedRemote;
@@ -740,12 +1021,24 @@ export function TeachPanel({
       : question?.route === "retrieval_only"
         ? "Local retrieval-only"
         : "Not used";
+  const deviceLabel =
+    asrStatus?.device?.display_name ??
+    asrStatus?.config.device_id ??
+    "System default microphone";
+  const modelLabel =
+    asrStatus?.model_status === "ready"
+      ? "local model ready"
+      : asrStatus?.model_status === "installed"
+        ? "local model prepared"
+        : asrStatus?.model_status === "not_installed"
+          ? "local model not prepared"
+          : "local model status unavailable";
 
   return (
     <section
       className="m3-grid"
       aria-label="Teach and Speaker Profile"
-      aria-disabled={captureActive || undefined}
+      aria-disabled={controlsBlocked || undefined}
       inert={captureActive}
     >
       <section className="teach-panel" aria-labelledby="teach-title">
@@ -774,7 +1067,7 @@ export function TeachPanel({
               type="button"
               className="secondary-button"
               onClick={() => void acknowledgeRemote()}
-              disabled={busy !== null}
+              disabled={busy !== null || controlsBlocked}
             >
               Acknowledge for this project
             </button>
@@ -786,7 +1079,7 @@ export function TeachPanel({
               type="button"
               className="primary-button"
               onClick={() => void startTeach()}
-              disabled={busy !== null}
+              disabled={busy !== null || controlsBlocked}
             >
               Start Teach
             </button>
@@ -798,6 +1091,7 @@ export function TeachPanel({
                 onClick={() => void nextPrompt()}
                 disabled={
                   busy !== null ||
+                  controlsBlocked ||
                   candidate !== null ||
                   lastSourceUtteranceId !== "" ||
                   session.teach_state !== "ready_for_prompt"
@@ -811,6 +1105,7 @@ export function TeachPanel({
                 onClick={() => void stopTeach()}
                 disabled={
                   busy !== null ||
+                  controlsBlocked ||
                   candidate !== null ||
                   lastSourceUtteranceId !== "" ||
                   !["ready_for_prompt", "awaiting_user"].includes(
@@ -848,6 +1143,68 @@ export function TeachPanel({
         )}
         {session ? (
           <div className="teach-answer-form">
+            {session.teach_state === "awaiting_user" ? (
+              <div className="teach-voice-controls" aria-live="polite">
+                <div className="teach-voice-status">
+                  <strong>
+                    {voiceCaptureState === "starting"
+                      ? "Preparing…"
+                      : voiceCaptureState === "transcribing"
+                        ? "Transcribing locally…"
+                        : voiceCaptureState === "error"
+                          ? "Voice capture needs attention"
+                          : voiceActive
+                            ? "Listening…"
+                            : "Voice answer"}
+                  </strong>
+                  <span>
+                    {voiceActive && voicePartial
+                      ? voicePartial
+                      : (voiceStatus ??
+                        `${deviceLabel} · ${modelLabel}. Speech stays on this device.`)}
+                  </span>
+                </div>
+                {voiceActive ? (
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void stopVoice()}
+                      disabled={
+                        busy !== null ||
+                        voiceCaptureState === "starting" ||
+                        voiceCaptureState === "transcribing"
+                      }
+                    >
+                      Stop &amp; use answer
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void cancelVoice()}
+                      disabled={
+                        busy !== null || voiceCaptureState === "transcribing"
+                      }
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void startVoice()}
+                    disabled={
+                      busy !== null ||
+                      captureActive ||
+                      session.teach_state !== "awaiting_user"
+                    }
+                  >
+                    <span aria-hidden="true">🎙</span> Start speaking
+                  </button>
+                )}
+              </div>
+            ) : null}
             <label>
               Your explanation
               <textarea
@@ -857,6 +1214,7 @@ export function TeachPanel({
                 maxLength={4000}
                 rows={5}
                 placeholder="Explain the decision, rationale, tradeoff, or preferred wording…"
+                disabled={controlsBlocked}
               />
             </label>
             <label className="checkbox-row">
@@ -864,6 +1222,7 @@ export function TeachPanel({
                 type="checkbox"
                 checked={keepLocal}
                 onChange={(event) => setKeepLocal(event.target.checked)}
+                disabled={controlsBlocked}
               />
               Keep this answer local
             </label>
@@ -873,6 +1232,7 @@ export function TeachPanel({
               onClick={() => void submitAnswer()}
               disabled={
                 busy !== null ||
+                controlsBlocked ||
                 !answer.trim() ||
                 session.teach_state !== "awaiting_user"
               }

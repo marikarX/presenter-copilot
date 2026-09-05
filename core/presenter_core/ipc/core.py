@@ -145,6 +145,7 @@ class CoreService:
             persist_final=self._run.persist_final_utterance,
             slide_snapshot=self._presentation.current_slide,
             event_sink=self._emit_service_event,
+            teach_finalizer=self._finalize_teach_voice,
             vad_config=vad_config,
             **(
                 {"worker_join_timeout_seconds": asr_worker_join_timeout_seconds}
@@ -182,6 +183,7 @@ class CoreService:
             self._context_builder,
             self._emit_service_event,
             provider_execution=self._provider_execution,
+            voice_capture_active=self._teach_capture_active,
         )
         self._challenge = ChallengeService(
             self._storage,
@@ -302,6 +304,8 @@ class CoreService:
         try:
             self._run.stop_active_runs(status="aborted")
             self._assist.stop_active_sessions(status="aborted")
+            self._cancel_active_teach_capture()
+            self._teach.purge_all()
         except CoreDomainError as error:
             # Leave every service and database open.  The sidecar may exit
             # after the bounded request, but recoverable active-session state
@@ -468,7 +472,9 @@ class CoreService:
                 result=self._projects.acknowledge_remote_reasoning(params),
             )
         if method == "project.delete":
-            return make_response(request_id, result=self._projects.delete(params))
+            result = self._projects.delete(params)
+            self._teach.purge_project(str(result["project_id"]))
+            return make_response(request_id, result=result)
         if method == "source.import":
             result = self._ingestion.import_source(params)
             self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
@@ -573,6 +579,10 @@ class CoreService:
                     status=params.get("status", "completed"),
                 )
             else:
+                project_id = str(session["project_id"])
+                session_id = str(session["id"])
+                self._cancel_active_teach_capture(project_id, session_id)
+                self._teach.purge_session(project_id, session_id)
                 result = self._sessions.stop(params)
             self._emit_event("session.stopped", result["session"])
             return make_response(request_id, result=result)
@@ -581,7 +591,12 @@ class CoreService:
         if method == "session.list":
             return make_response(request_id, result=self._sessions.list(params))
         if method == "session.delete":
+            project_id = str(params.get("project_id"))
+            session_id = str(params.get("session_id"))
+            self._cancel_active_teach_capture(project_id, session_id)
+            self._teach.purge_session(project_id, session_id)
             result = self._sessions.delete(params)
+            self._teach.purge_session(str(result["project_id"]), str(result["session_id"]))
             self._assist.purge_session(str(result["project_id"]), str(result["session_id"]))
             self._presentation.purge_session(str(result["project_id"]), str(result["session_id"]))
             return make_response(request_id, result=result)
@@ -645,6 +660,25 @@ class CoreService:
             return make_response(request_id, result=self._teach.get_state(params))
         if method == "teach.submit_text":
             return make_response(request_id, result=self._teach.submit_text(params))
+        if method == "teach.voice_start":
+            return make_response(
+                request_id,
+                result=self._teach.voice_start(params, self._start_teach_capture),
+            )
+        if method == "teach.voice_stop":
+            return make_response(
+                request_id,
+                result=self._teach.voice_stop(
+                    params,
+                    self._stop_teach_capture,
+                    self._cancel_teach_capture,
+                ),
+            )
+        if method == "teach.voice_cancel":
+            return make_response(
+                request_id,
+                result=self._teach.voice_cancel(params, self._cancel_teach_capture),
+            )
         if method == "teach.discard_answer":
             return make_response(request_id, result=self._teach.discard_answer(params))
         if method == "teach.confirm_knowledge_item":
@@ -749,6 +783,57 @@ class CoreService:
     def _stop_asr(self, params: dict[str, Any]) -> dict[str, Any]:
         return self._asr.stop(params)
 
+    def _teach_capture_active(
+        self, project_id: str, session_id: str, capture_id: str | None = None
+    ) -> bool:
+        return self._asr.owns_capture(
+            project_id,
+            session_id,
+            mode="teach",
+            capture_id=capture_id,
+        )
+
+    def _start_teach_capture(self, params: dict[str, Any], local_only: bool) -> dict[str, Any]:
+        return self._asr.start(
+            params,
+            owner_mode="teach",
+            voice_local_only=local_only,
+        )
+
+    def _stop_teach_capture(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._asr.stop(params, expected_mode="teach")
+
+    def _cancel_teach_capture(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._asr.cancel(params, expected_mode="teach")
+
+    def _cancel_active_teach_capture(
+        self, project_id: str | None = None, session_id: str | None = None
+    ) -> None:
+        owner = self._asr.active_owner_details()
+        if owner is None or owner[2] != "teach":
+            return
+        if project_id is not None and owner[0] != project_id:
+            return
+        if session_id is not None and owner[1] != session_id:
+            return
+        self._cancel_teach_capture({"project_id": owner[0], "session_id": owner[1]})
+
+    def _finalize_teach_voice(
+        self,
+        project_id: str,
+        session_id: str,
+        capture_id: str,
+        text: str,
+        local_only: bool,
+    ) -> dict[str, Any]:
+        return self._teach.submit_voice_transcript(
+            project_id,
+            session_id,
+            capture_id,
+            text,
+            local_only=local_only,
+        )
+
     def _active_asr_owner(self) -> tuple[str, str] | None:
         # Session/Run services are constructed before ASR, but invoke this
         # callback only after composition is complete.
@@ -762,14 +847,17 @@ class CoreService:
             ).fetchone()
         if row is None:
             return
-        result = (
-            self._run.stop(
+        if row["mode"] == "run":
+            result = self._run.stop(
                 {"project_id": project_id, "session_id": session_id, "status": "aborted"}
             )
-            if row["mode"] == "run"
-            else self._assist.stop_session(project_id, session_id, status="aborted")
-        )
-        cleanup_code = result.get("cleanup_error_code")
+        elif row["mode"] == "teach":
+            self._cancel_active_teach_capture(project_id, session_id)
+            self._teach.purge_session(project_id, session_id)
+            result = None
+        else:
+            result = self._assist.stop_session(project_id, session_id, status="aborted")
+        cleanup_code = result.get("cleanup_error_code") if isinstance(result, dict) else None
         if isinstance(cleanup_code, str):
             raise CoreDomainError(
                 "SESSION_DELETE_RUN_CLEANUP_FAILED",
@@ -784,6 +872,8 @@ class CoreService:
         """Cross-service deletion barrier executed before vault removal."""
         self._run.stop_project_runs({"project_id": project_id})
         self._assist.stop_project_sessions({"project_id": project_id})
+        self._cancel_active_teach_capture(project_id)
+        self._teach.purge_project(project_id)
         self._assist.purge_project(project_id)
         self._presentation.purge_project(project_id)
         self._hybrid_retrieval.evict_project(project_id)
@@ -792,6 +882,8 @@ class CoreService:
         """Model cache deletion never occurs underneath a process owner."""
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
+        self._cancel_active_teach_capture()
+        self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
         self._hybrid_retrieval.release_model()
@@ -816,6 +908,8 @@ class CoreService:
         credential_plan = self._providers.prepare_reset_credential_cleanup()
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
+        self._cancel_active_teach_capture()
+        self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
         # Reset always releases process-memory retrieval state.  This does not
