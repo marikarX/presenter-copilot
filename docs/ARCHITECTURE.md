@@ -14,7 +14,8 @@ The architecture should optimize for:
 - preservation of the presenter's own communication style;
 - audience-specific rehearsal grounded in authorized evidence;
 - a lightweight desktop experience rather than a cloud-first meeting bot;
-- future renderer-independent audience simulation without coupling core reasoning to a 3D/XR stack.
+- future renderer-independent audience simulation without coupling core reasoning to a 3D/XR stack;
+- post-MVP presentation editing that preserves PPTX interoperability without making a general-purpose Office clone the core architecture.
 
 ## Context model
 
@@ -86,6 +87,8 @@ Presentation state / current slide ---------+    |
                                       Webcam-adjacent HUD
 ```
 
+Post-MVP Presentation Workspace adds an editable document subsystem alongside this knowledge/rehearsal pipeline. It does not replace the Project Brain with a slide editor; it links a fidelity-oriented presentation model to the semantic knowledge system. See [`docs/PRESENTATION_WORKSPACE/ARCHITECTURE.md`](PRESENTATION_WORKSPACE/ARCHITECTURE.md).
+
 ## MVP runtime choice
 
 For MVP implementation, the chosen split is:
@@ -113,7 +116,8 @@ The following should run locally by default where hardware permits:
 - simple classification/routing;
 - HUD rendering;
 - session history;
-- basic answer/cue compression.
+- basic answer/cue compression;
+- post-MVP presentation document state, direct editing, revision history, slide rendering, asset storage, and PPTX export.
 
 This keeps continuous processing inexpensive and reduces round-trip latency.
 
@@ -155,6 +159,8 @@ P0 file classes:
 Each source retains provenance to document/page/slide/section/timestamp/speaker where available.
 
 Do not flatten source material into an untraceable text blob.
+
+The current MVP PPTX path remains source-oriented. A post-MVP editable PPTX path must be introduced as a separate fidelity document subsystem and linked back to the same source/provenance model rather than retrofitting arbitrary edit state into ingestion chunks.
 
 ## Meeting transcript attribution
 
@@ -215,6 +221,8 @@ The system must distinguish:
 - source fact;
 - practiced answer;
 - AI inference/suggestion.
+
+Post-MVP AI slide rewriting follows the same distinction: generated slide wording does not become user-authored evidence, and source-backed claims require canonical evidence bindings.
 
 ## HUD
 
@@ -283,6 +291,27 @@ Uninterrupted rehearsal with transcript/slide timeline and post-run debrief.
 
 Private source-grounded cueing during mock/real presentation.
 
+### Presentation Workspace — post-MVP
+
+Presentation Workspace introduces a dual representation:
+
+```text
+Fidelity Document Model <---- typed edit transactions ----> Direct editor / AI planner
+          |
+          +---- stable mappings ----> Semantic Presentation Model
+                                         |
+                                         v
+                         Project Brain + Speaker Profile + Audience Model
+```
+
+The fidelity model is authoritative for physical slide state, rendering, direct editing, unsupported-content preservation, and PPTX export. The semantic model carries narrative purpose, claims, evidence, audience relevance, speaker intent, and rehearsal-derived knowledge.
+
+Direct edits, AI text edits, voice edits, and rehearsal-derived proposals converge on one versioned edit-transaction layer. AI never mutates raw OOXML directly. Imported originals remain immutable, revisions are recoverable, and active Run/Live sessions bind to a concrete revision so later drafts do not rewrite session history.
+
+Unsupported PPTX features should be preserved opaquely whenever possible instead of silently flattened. Broad AI editing is gated behind a trustworthy fidelity/direct-editing foundation.
+
+See [`docs/PRESENTATION_WORKSPACE/`](PRESENTATION_WORKSPACE/README.md).
+
 ### Immersive Rehearsal — post-MVP
 
 Immersive Rehearsal adds an Audience Simulation Engine around Run/Challenge semantics. The simulation engine owns canonical participant state and emits typed reaction/question events; desktop, 3D, and XR renderers visualize those events but do not own project evidence, audience reasoning, provider access, or privacy policy.
@@ -309,6 +338,8 @@ Logical stores include:
 
 Project-local separation is preferred because deletion/export and privacy boundaries become simpler.
 
+Post-MVP Presentation Workspace adds project-local presentation originals, fidelity-model state, revisions/transactions, semantic mappings, assets, compatibility metadata, and export artifacts. Historical rehearsal/session rows bind to revision IDs rather than implicitly following the latest draft.
+
 Future immersive runs may additionally persist versioned scenario definitions, seeds, semantic simulation events, question provenance, and debrief markers. They should not persist animation frames, raw camera frames, or high-frequency XR telemetry by default.
 
 ## Privacy modes
@@ -318,6 +349,8 @@ Future immersive runs may additionally persist versioned scenario definitions, s
 - **Full Context Cloud** — explicit opt-in.
 
 Every remote provider call should have a context manifest recording what source classes/IDs were sent without logging the full confidential prompt by default.
+
+Presentation editing does not weaken this boundary. Original PPTX packages, binary assets, full slide renders, and the complete deck are not uploaded merely because AI editing is enabled. The planner receives only the bounded presentation/semantic context allowed for that task.
 
 Immersive rendering does not weaken these boundaries. A renderer should receive only the bounded scene/reaction/question data required for display and should not receive provider credentials or unrestricted Project Brain content.
 
@@ -331,7 +364,7 @@ Mobile is initially a companion, not an MVP dependency:
 - optional rehearsal capture;
 - secure local-network pairing.
 
-Standalone mobile rehearsal comes only after desktop value is validated.
+Standalone mobile rehearsal comes only after desktop value is validated. Full presentation editing on mobile is not assumed by the Presentation Workspace roadmap; companion/limited review may precede any editor parity.
 
 ## Open technical questions after MVP freeze
 
@@ -345,3 +378,7 @@ Standalone mobile rehearsal comes only after desktop value is validated.
 8. Which desktop rendering stack provides the best behavioral-simulation prototype without competing with ASR/reasoning latency.
 9. Which semantic simulation event contract remains stable across desktop, high-fidelity 3D, and XR renderers.
 10. Whether local presenter gaze-region estimation produces enough rehearsal value to justify its privacy and hardware complexity.
+11. Best OOXML/library strategy for a preserve-first editable PPTX fidelity model.
+12. Best canvas/text-layout stack for sufficiently accurate PowerPoint rendering and editing.
+13. How to preserve unknown OOXML/extensions when an ancestor object is edited.
+14. Revision snapshot/delta thresholds and compatibility-corpus infrastructure for Presentation Workspace.

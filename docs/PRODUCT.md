@@ -26,6 +26,8 @@ The product should know:
 - which answers the presenter has already practiced;
 - where the presenter historically struggles.
 
+Post-MVP, Presenter Copilot may also become the primary preparation workspace for the presentation itself: view/edit imported PPTX files, make direct or AI/voice-driven changes, convert rehearsal findings into reviewable edits, and export back to PPTX/PDF without requiring PowerPoint for routine preparation work. This is a constrained presentation-preparation editor, not a goal of general-purpose PowerPoint feature parity. See [`docs/PRESENTATION_WORKSPACE/`](PRESENTATION_WORKSPACE/README.md).
+
 ## Core context model
 
 ### Speaker Profile
@@ -81,6 +83,16 @@ Uninterrupted presentation rehearsal with slide/transcript tracking and a post-r
 
 Private webcam-adjacent HUD surfaces short source-grounded facts, answer structures, and reminders during a mock or real presentation.
 
+### Presentation Workspace — post-MVP
+
+A focused editing/preparation surface around the current presentation revision. Direct editing, AI side chat, voice editing, and rehearsal-derived proposals all modify the same typed presentation model and remain versioned/reversible.
+
+Imported PPTX files use a dual representation: a fidelity-oriented document model for render/edit/export and a semantic presentation model connected to Project Brain claims, sources, audience context, and speaker intent.
+
+PowerPoint remains an interoperability/export target rather than a required editing step for routine preparation.
+
+See [`docs/PRESENTATION_WORKSPACE/`](PRESENTATION_WORKSPACE/README.md).
+
 ### Immersive Rehearsal — post-MVP
 
 A renderer-independent audience simulation layer surrounds a Run/Challenge-style session with visible audience behavior, interruptions, questions, spatial pressure, and scenario-specific debriefing.
@@ -121,6 +133,7 @@ Initial focus should be people for whom a presentation has material economic or 
 - Build realistic audience models from roles, user notes, and authorized attributed transcripts.
 - Predict likely questions by actual audience context.
 - Prepare concise answer structures with sources while preserving presenter voice.
+- Post-MVP, edit the current presentation directly and apply reviewable AI/voice/rehearsal-derived improvements without leaving the preparation workspace.
 
 ### During rehearsal
 
@@ -130,6 +143,7 @@ Initial focus should be people for whom a presentation has material economic or 
 - Ask realistic audience questions.
 - Challenge vague, incomplete, overlong, or evasive answers.
 - Repeat weak questions until the response improves.
+- Convert useful rehearsal findings into explicit presentation-edit proposals rather than static advice.
 - In later immersive scenarios, expose the presenter to visible attention shifts, interruptions, time pressure, and spatial audience dynamics without presenting simulated behavior as a prediction of real people's internal states.
 
 ### During the real presentation
@@ -146,6 +160,7 @@ Initial focus should be people for whom a presentation has material economic or 
 - Compare rehearsed vs. real objections.
 - Identify answer failures and strong responses.
 - Feed resulting knowledge into the Project Brain and future rehearsal.
+- Post-MVP, allow those learnings to become reviewable edits to the next presentation revision.
 
 ## MVP
 
@@ -165,8 +180,9 @@ Key P0 capabilities:
 
 ## Explicit non-goals for MVP
 
-- full presentation-authoring suite;
-- AI-generated decks as a primary feature;
+- presentation editing/authoring as an MVP dependency;
+- general-purpose presentation-editor feature parity;
+- AI-generated decks as a primary MVP feature;
 - avatar presenters;
 - immersive/photorealistic audience rendering;
 - XR rehearsal;
@@ -178,6 +194,8 @@ Key P0 capabilities:
 - workplace emotion recognition or hidden personality inference;
 - full meeting audio/video diarization pipeline;
 - enterprise analytics before the individual workflow is compelling.
+
+These are MVP boundaries, not a permanent prohibition on a focused post-MVP presentation workspace. The post-MVP editing roadmap explicitly avoids general-purpose PowerPoint parity while supporting enough direct/AI editing to keep users inside Presenter Copilot during preparation.
 
 ## Differentiation hypothesis
 
@@ -192,6 +210,7 @@ Potential differentiation comes from accumulated context and workflow:
 - source-grounded preferred-answer memory;
 - local-first privacy and latency;
 - longitudinal learning from actual questions and prior responses;
+- post-MVP, a closed loop where the actual editable presentation improves from user explanations, evidence, audience context, and rehearsal outcomes;
 - eventually, renderer-independent audience simulation driven by that accumulated context rather than generic animated avatars.
 
 ## Success criteria for prototype
