@@ -355,7 +355,8 @@ def test_m8_remote_tasks_capture_exact_metadata_manifest_before_generate(
         with core._storage.project_database(project_id) as connection:
             public_id = connection.execute("SELECT id FROM knowledge_items").fetchone()[0]
             connection.execute(
-                "UPDATE knowledge_items SET private = 0, use_live = 0, kind = 'rationale', text = ?",
+                "UPDATE knowledge_items SET private = 0, use_live = 0, "
+                "kind = 'rationale', text = ?",
                 (public_text,),
             )
             connection.execute("UPDATE user_statements SET text = ?", (public_text,))
