@@ -10,12 +10,29 @@ $TargetDirectory = Join-Path $RepositoryRoot "artifacts\codex"
 $TargetPath = Join-Path $TargetDirectory "codex.exe"
 $TemporaryPath = Join-Path $TargetDirectory "codex.download.exe"
 
+function Get-Sha256([string] $Path) {
+    $Stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $Hasher = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $HashBytes = $Hasher.ComputeHash($Stream)
+            return ([System.BitConverter]::ToString($HashBytes)).Replace("-", "").ToLowerInvariant()
+        }
+        finally {
+            $Hasher.Dispose()
+        }
+    }
+    finally {
+        $Stream.Dispose()
+    }
+}
+
 function Test-CodexRuntime([string] $Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return $false
     }
 
-    $ActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    $ActualSha256 = Get-Sha256 $Path
     if ($ActualSha256 -ne $ExpectedSha256) {
         return $false
     }
@@ -43,7 +60,7 @@ try {
     Write-Host "Fetching official Codex $Version Windows x64 runtime."
     Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $TemporaryPath
 
-    $DownloadedSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $TemporaryPath).Hash.ToLowerInvariant()
+    $DownloadedSha256 = Get-Sha256 $TemporaryPath
     if ($DownloadedSha256 -ne $ExpectedSha256) {
         throw "Codex runtime SHA-256 mismatch."
     }
