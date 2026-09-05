@@ -673,7 +673,13 @@ export function TeachPanel({
       const result = await requestCore<{ provider: ProviderStatus }>(
         "provider.configure",
         {
-          provider_id: "openai",
+          provider_id:
+            provider?.provider_id === "local_openai"
+              ? "local_openai"
+              : "openai",
+          ...(provider?.provider_id === "local_openai"
+            ? { endpoint: provider.safe_config.endpoint }
+            : {}),
           model_id: providerModel.trim(),
           enabled: true,
         },
@@ -687,7 +693,7 @@ export function TeachPanel({
     } finally {
       setBusy(null);
     }
-  }, [captureActive, providerModel]);
+  }, [captureActive, providerModel, provider]);
 
   const removeEvidence = useCallback(
     async (item: SpeakerEvidence) => {
@@ -1264,7 +1270,9 @@ export function TeachPanel({
             onClick={() => void configureProvider()}
             disabled={busy !== null || !providerModel.trim()}
           >
-            Save model configuration
+            {provider?.provider_id === "local_openai"
+              ? "Save local model configuration"
+              : "Save OpenAI API model configuration"}
           </button>
           <p className="muted provider-note">
             The API key is never entered, returned, or stored by the renderer.

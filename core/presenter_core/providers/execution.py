@@ -250,7 +250,7 @@ class ProviderExecutionService:
             raise
 
         try:
-            if provider.locality == "remote":
+            if provider.leaves_machine:
                 self._emit(
                     "privacy.remote_context_manifest",
                     {
@@ -545,13 +545,13 @@ class ProviderExecutionService:
                 "The selected provider has an unsupported locality.",
                 retryable=True,
             )
-        if provider.locality == "remote" and privacy_mode == "local_only":
+        if provider.leaves_machine and privacy_mode == "local_only":
             raise ProviderExecutionError(
                 "PRIVACY_LOCAL_ONLY_REMOTE_BLOCKED",
                 "Local Only blocks remote reasoning for this project.",
                 details={"privacy_mode": privacy_mode, "provider_id": provider.id},
             )
-        if provider.locality == "remote" and not remote_acknowledged:
+        if provider.leaves_machine and not remote_acknowledged:
             raise ProviderExecutionError(
                 "PRIVACY_REMOTE_ACK_REQUIRED",
                 "Explicit project acknowledgement is required before remote reasoning.",
@@ -678,9 +678,7 @@ class ProviderExecutionService:
                     "The current Challenge answer exceeded the bounded input contract.",
                 )
         private_items = [item for item in [*evidence, *knowledge] if item.get("private")]
-        if provider.locality == "remote" and (
-            private_items or self._contains_private_marker(payload)
-        ):
+        if provider.leaves_machine and (private_items or self._contains_private_marker(payload)):
             raise ProviderExecutionError(
                 "PRIVACY_PRIVATE_CONTEXT_BLOCKED",
                 "Private KnowledgeItems are never eligible for remote reasoning.",

@@ -80,13 +80,19 @@ conflicts with that dated baseline, the release baseline controls.
 
 ### P1
 
-- [ ] E09 Local OpenAI-compatible/local-model adapter.
+- [x] E09 Local OpenAI-compatible/local-model adapter. Implemented with bounded
+      HTTP transport, explicit selection, loopback/LAN privacy routing, health,
+      and deterministic transport/execution regressions; see [providers](../PROVIDERS.md).
 - [ ] E10 Investigate and implement ChatGPT-authenticated inference through an
       officially supported OpenAI/ChatGPT or Codex mechanism where available.
       This is inference entitlement, not identity-only sign-in; do not scrape or
       reuse undocumented ChatGPT/Codex tokens. Preserve the existing provider
       privacy boundary and keep API-key fallback until an official path is
       validated.
+      Spike verified managed App Server authentication, but did not establish
+      exhaustive Selected Context isolation from harness context/tools. An inert
+      adapter boundary is present; no entitlement inference is integrated.
+      Exact blocker and official sources: [provider investigation](../PROVIDERS.md#e10-investigation-supported-auth-execution-suitability-unresolved).
 
 ## Epic F — Speaker Profile and style preservation
 

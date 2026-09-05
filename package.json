@@ -28,6 +28,7 @@
     "test:provider-real": "uv run --directory core --project . --locked python -m presenter_core.tools.provider_acceptance",
     "test:m9": "uv run --directory core --project . --locked python -m pytest tests/test_m9_release.py -q",
     "test:privacy-network": "uv run --directory core --project . --locked python -m pytest tests/test_m8_privacy.py -q",
+    "test:providers-ui": "pnpm build && node apps/desktop/scripts/test-providers.mjs",
     "benchmark:retrieval": "uv run --directory core --project . --locked python -m presenter_core.tools.retrieval_benchmark",
     "benchmark:cue": "uv run --directory core --project . --locked python -m presenter_core.tools.cue_benchmark",
     "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark",

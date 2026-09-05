@@ -10,6 +10,7 @@ import type {
   RendererCoreMethod,
 } from "../shared/protocol";
 import { DIAGNOSTIC_SECTIONS, unwrapInvokeResult } from "../shared/protocol";
+import { ReasoningProviders } from "./ReasoningProviders";
 
 interface ReleaseControlsProps {
   coreReady: boolean;
@@ -314,6 +315,10 @@ export function ReleaseControls({
         Optional cloud reasoning follows your project privacy settings; stored
         credentials are protected by Windows.
       </p>
+
+      {coreReady && visible ? (
+        <ReasoningProviders disabled={runActive} />
+      ) : null}
 
       <div className="model-list">
         {(models?.models ?? []).map((model) => (

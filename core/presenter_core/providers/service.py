@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +18,8 @@ from presenter_core.errors import invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.storage.service import StorageManager
 
+from .codex import CodexReasoningProvider
+from .local import LocalReasoningProvider, validate_endpoint
 from .models import (
     ProviderError,
     ProviderHealth,
@@ -44,6 +47,7 @@ class ProviderService:
         self._injected_provider = provider
         self._credential_store = credential_store or WindowsCredentialStore()
         self._openai_instance: OpenAIReasoningProvider | None = None
+        self._local_instance: LocalReasoningProvider | None = None
         self._runtime_health: dict[str, ProviderHealth] = {}
         self._event_sink = event_sink
 
@@ -57,19 +61,27 @@ class ProviderService:
         enabled = (
             bool(row["enabled"]) if row is not None else bool(self.health(provider).configured)
         )
-        return {"providers": [self._provider_dict(provider, enabled=enabled)]}
+        local = self._local_provider()
+        local_row = self._config_row(local.id)
+        providers = [
+            self._provider_dict(provider, enabled=enabled),
+            self._provider_dict(local, enabled=bool(local_row and local_row["enabled"])),
+            self._provider_dict(CodexReasoningProvider(), enabled=False),
+        ]
+        providers.sort(key=lambda item: not item["enabled"])
+        return {"providers": providers}
 
     def configure(self, params: dict[str, Any]) -> dict[str, Any]:
-        reject_unknown_fields(params, {"provider_id", "enabled", "model_id"})
+        reject_unknown_fields(params, {"provider_id", "enabled", "model_id", "endpoint"})
         provider_id = params.get("provider_id", "openai")
-        if provider_id != "openai":
+        if provider_id not in {"openai", "local_openai"}:
             raise invalid_request(
-                "Only the OpenAI reference provider is configurable in M8.", field="provider_id"
+                "The requested provider is not configurable.", field="provider_id"
             )
         enabled = params.get("enabled", True)
         if not isinstance(enabled, bool):
             raise invalid_request("enabled must be a boolean.", field="enabled")
-        model_id = params.get("model_id", DEFAULT_OPENAI_MODEL)
+        model_id = params.get("model_id", DEFAULT_OPENAI_MODEL if provider_id == "openai" else "")
         if not isinstance(model_id, str) or not model_id.strip() or len(model_id.strip()) > 120:
             raise invalid_request("model_id must be a non-empty bounded string.", field="model_id")
         if any(ord(character) < 32 for character in model_id):
@@ -78,8 +90,25 @@ class ProviderService:
             )
         model_id = model_id.strip()
         now = utc_now()
-        safe_credential_source = self._credential_source()
+        safe_config = {}
+        if provider_id == "local_openai":
+            endpoint, _ = validate_endpoint(params.get("endpoint"))
+            safe_config["endpoint"] = endpoint
+        elif "endpoint" in params:
+            raise invalid_request("OpenAI uses its official endpoint.", field="endpoint")
+        safe_credential_source = (
+            self._credential_source() if provider_id == "openai" else "environment"
+        )
         with self._storage.app_database() as connection:
+            if enabled:
+                connection.execute("UPDATE provider_configurations SET enabled = 0")
+                # Persist the old implicit API default as disabled when selecting another adapter.
+                if provider_id != "openai":
+                    connection.execute(
+                        "INSERT OR IGNORE INTO provider_configurations VALUES "
+                        "('openai', 0, ?, 'environment', '{}', ?, ?)",
+                        (DEFAULT_OPENAI_MODEL, now, now),
+                    )
             connection.execute(
                 """
                 INSERT INTO provider_configurations
@@ -87,19 +116,30 @@ class ProviderService:
                         provider_id, enabled, model_id, credential_source,
                         safe_config_json, created_at, updated_at
                     )
-                VALUES ('openai', ?, ?, ?, '{}', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(provider_id) DO UPDATE SET
                     enabled = excluded.enabled,
                     model_id = excluded.model_id,
                     credential_source = excluded.credential_source,
-                    safe_config_json = '{}',
+                    safe_config_json = excluded.safe_config_json,
                     updated_at = excluded.updated_at
                 """,
-                (int(enabled), model_id, safe_credential_source, now, now),
+                (
+                    provider_id,
+                    int(enabled),
+                    model_id,
+                    safe_credential_source,
+                    json.dumps(safe_config),
+                    now,
+                    now,
+                ),
             )
             connection.commit()
-        self._runtime_health.pop("openai", None)
-        result = {"provider": self._provider_dict(self._openai_provider(), enabled=enabled)}
+        self._runtime_health.pop(provider_id, None)
+        provider = (
+            self._local_provider() if provider_id == "local_openai" else self._openai_provider()
+        )
+        result = {"provider": self._provider_dict(provider, enabled=enabled)}
         self._emit("provider.status_changed", result)
         return result
 
@@ -259,12 +299,19 @@ class ProviderService:
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})
-        provider_id = params.get("provider_id", "openai")
-        if provider_id != "openai" and self._injected_provider is None:
+        provider_id = params.get("provider_id")
+        if (
+            provider_id not in {None, "openai", "local_openai", "codex"}
+            and self._injected_provider is None
+        ):
             raise invalid_request("The requested provider is not supported.", field="provider_id")
+        if provider_id == "codex":
+            return {"provider": self._provider_dict(CodexReasoningProvider(), enabled=False)}
         provider = (
             self.current_provider()
-            if self._injected_provider is not None
+            if self._injected_provider is not None or provider_id is None
+            else self._local_provider()
+            if provider_id == "local_openai"
             else self._openai_provider()
         )
         row = self._config_row(provider.id)
@@ -288,7 +335,7 @@ class ProviderService:
             style_context={"policy": "preserve_voice", "examples": []},
             conflict_metadata=(),
             style_policy="preserve_voice",
-            privacy_mode="local_only",
+            privacy_mode="selected_context_cloud" if provider.leaves_machine else "local_only",
             output_schema=question_output_schema(),
             latency_budget_ms=5_000,
             application_policy="Synthetic provider contract test only.",
@@ -323,6 +370,9 @@ class ProviderService:
     def current_provider(self) -> ReasoningProvider:
         if self._injected_provider is not None:
             return self._injected_provider
+        row = self._config_row("local_openai")
+        if row is not None and row["enabled"]:
+            return self._local_provider()
         return self._openai_provider()
 
     def current_provider_and_health(self) -> tuple[ReasoningProvider | None, ProviderHealth | None]:
@@ -349,6 +399,9 @@ class ProviderService:
         return runtime
 
     def record_success(self, provider: ReasoningProvider) -> None:
+        if isinstance(provider, LocalReasoningProvider) and provider is not self._local_instance:
+            if provider is not self._injected_provider:
+                return
         health = ProviderHealth(
             provider_id=provider.id,
             locality=provider.locality,
@@ -360,6 +413,9 @@ class ProviderService:
         self._emit_status(provider)
 
     def record_failure(self, provider: ReasoningProvider, error: ProviderError) -> None:
+        if isinstance(provider, LocalReasoningProvider) and provider is not self._local_instance:
+            if provider is not self._injected_provider:
+                return
         if error.code == "PROVIDER_CANCELLED":
             return
         status, retryable, configured = {
@@ -394,15 +450,33 @@ class ProviderService:
         if self._openai_instance is not None:
             self._openai_instance.close()
             self._openai_instance = None
+        if self._local_instance is not None:
+            self._local_instance.close()
+            self._local_instance = None
         self._runtime_health.clear()
 
     def is_enabled(self) -> bool:
         if self._injected_provider is not None:
             return True
-        row = self._config_row("openai")
+        row = self._config_row(self.current_provider().id)
         if row is not None:
             return bool(row["enabled"])
         return self._openai_provider().health().configured
+
+    def _local_provider(self) -> LocalReasoningProvider:
+        row = self._config_row("local_openai")
+        config = json.loads(row["safe_config_json"]) if row is not None else {}
+        endpoint = config.get("endpoint", "")
+        model = row["model_id"] if row is not None else ""
+        if (
+            self._local_instance is None
+            or self._local_instance.endpoint != endpoint
+            or self._local_instance.model_id != model
+        ):
+            if self._local_instance is not None:
+                self._local_instance.close()
+            self._local_instance = LocalReasoningProvider(endpoint=endpoint, model_id=model)
+        return self._local_instance
 
     def _openai_provider(self) -> OpenAIReasoningProvider:
         row = self._config_row("openai")
@@ -431,8 +505,19 @@ class ProviderService:
             "provider_id": provider.id,
             "enabled": enabled,
             "model_id": provider.model_id,
-            "credential_source": self._credential_source() if provider.id == "openai" else "test",
-            "safe_config": {},
+            "credential_source": self._credential_source()
+            if provider.id == "openai"
+            else "environment"
+            if provider.id == "local_openai"
+            else "none"
+            if provider.id == "codex"
+            else "test",
+            "safe_config": {
+                "endpoint": provider.endpoint,
+                "leaves_machine": provider.leaves_machine,
+            }
+            if isinstance(provider, LocalReasoningProvider)
+            else {},
             "health": health.to_dict(),
             "capabilities": provider.capabilities().to_dict(),
         }
@@ -440,7 +525,11 @@ class ProviderService:
     def _emit_status(self, provider: ReasoningProvider) -> None:
         self._emit(
             "provider.status_changed",
-            {"provider": self._provider_dict(provider, enabled=self.is_enabled())},
+            {
+                "provider": self._provider_dict(
+                    provider, enabled=self.is_enabled() and self.current_provider() is provider
+                )
+            },
         )
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:

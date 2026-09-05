@@ -882,3 +882,31 @@ Task budgets differ by operation, especially for Live Assist. Making that
 budget part of client identity churns connection pools and can discard clients
 without closing them. Request-scoped timeout preserves the latency contract
 without coupling transport lifecycle to task policy.
+
+## D-057 — Local inference identity and off-machine transport are separate
+
+**Status:** Accepted for E09
+
+Keep `local_openai` a local provider, with a Core-owned `leaves_machine`
+transport property. Loopback is eligible for Local Only; private LAN requires
+the same project acknowledgement, minimum-context manifests, and private-item
+exclusion as cloud transport. Use literal IPs, no redirects/proxies, bounded
+standard-library HTTP, existing output validators, and explicit single-provider
+selection. Configuration reuses the existing safe JSON column. Local credentials
+are optional Core environment inputs; no new durable authentication state exists.
+
+This prevents a local-network label from bypassing Local Only and keeps backend
+compatibility in one adapter rather than adding renderer authority or new privacy modes.
+
+## D-058 — Defer Codex inference until Selected Context isolation is verified
+
+**Status:** Investigation recorded; E10 remains incomplete
+
+Official App Server supports third-party integration and managed ChatGPT OAuth.
+That verifies an authentication candidate, not this application's complete
+content boundary. The spike has not established an exhaustive public contract
+for excluding harness-added input and built-in/hosted tools. Keep the Codex
+adapter inert and unselectable; preserve the API-key option. Do not extract tokens,
+launch another official client, or rely on prompt instructions as access control.
+The exact evidence, scope of uncertainty, and implementation prerequisites are
+recorded in [the provider investigation](PROVIDERS.md#e10-investigation-supported-auth-execution-suitability-unresolved).

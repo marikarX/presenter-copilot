@@ -453,6 +453,11 @@ class ReasoningProvider(ABC):
     locality: str
     model_id: str
 
+    @property
+    def leaves_machine(self) -> bool:
+        """Network privacy is distinct from the provider's inference locality."""
+        return self.locality != "local"
+
     @abstractmethod
     def capabilities(self) -> ProviderCapabilities:
         raise NotImplementedError

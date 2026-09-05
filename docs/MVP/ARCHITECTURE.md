@@ -329,6 +329,15 @@ One interface; adapters may include:
 
 The product UI must not contain provider-specific orchestration logic.
 
+E09 implements `local_openai` with Core-owned Chat Completions HTTP transport.
+`ReasoningProvider.leaves_machine` distinguishes loopback from private-LAN
+transport without changing the local provider identity or privacy-mode enum.
+The router and execution boundary enforce off-machine permission and manifests
+using that property. Provider selection reuses `provider_configurations` and
+its safe JSON column; no migration is needed. E10 exposes only an inert Codex
+boundary while its Selected Context isolation contract remains unverified.
+See [provider architecture and official-source investigation](../PROVIDERS.md).
+
 ## 5. Live Assist pipeline
 
 ```text

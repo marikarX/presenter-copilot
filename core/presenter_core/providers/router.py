@@ -65,16 +65,16 @@ class ReasoningRouter:
             retry_reason = provider_health.error_code or "provider_retryable"
         else:
             retry_reason = ""
-        if provider.locality == "local":
-            return RouteDecision(ReasoningRoute.LOCAL_REASONING, "local_provider", provider.id)
-        if privacy_mode == "local_only":
+        if provider.leaves_machine and privacy_mode == "local_only":
             return RouteDecision(ReasoningRoute.RETRIEVAL_ONLY, "local_only", None)
-        if not remote_acknowledged:
+        if provider.leaves_machine and not remote_acknowledged:
             return RouteDecision(
                 ReasoningRoute.RETRIEVAL_ONLY,
                 "remote_reasoning_acknowledgement_required",
                 None,
             )
+        if provider.locality == "local":
+            return RouteDecision(ReasoningRoute.LOCAL_REASONING, "local_provider", provider.id)
         return RouteDecision(
             ReasoningRoute.REMOTE_REASONING,
             retry_reason or "acknowledged_remote",
