@@ -141,6 +141,14 @@ accepted active AudienceContext, approved style evidence, and bounded prior
 preferred wording needed for the operation. Pending, rejected, stale, or
 unresolved audience material is excluded.
 
+For E10, `remote payload` means the project-derived content supplied by Presenter
+Copilot. The supported Codex App Server interface may also expose fixed
+Presenter-owned policy/protocol metadata and bounded built-in harness
+capabilities. Those capabilities are acceptable only while they cannot access
+user files, project files, credentials, inherited instructions, environment
+data, or other non-approved state. See the E10 containment boundary below and
+[provider evidence](../PROVIDERS.md#e10-chatgpt-managed-codex).
+
 ### Full Context Cloud
 
 Explicit opt-in only. M8 deliberately uses the same conservative selected
@@ -158,7 +166,7 @@ full-corpus upload. UI must not switch to it automatically on provider error.
 - never expose secrets to renderer context;
 - never accept plaintext provider secrets through renderer IPC;
 - official provider auth only;
-- Codex integration, if added, must use documented app-server/SDK authentication surfaces;
+- E10 Codex uses documented App Server ChatGPT-managed authentication; Presenter never reads, copies, logs, or returns Codex/ChatGPT auth files, tokens, OAuth state, or account identifiers to the renderer;
 - never scrape ChatGPT cookies or call undocumented backend endpoints.
 
 ## 7. Local IPC
@@ -205,8 +213,12 @@ instruction are placed in trusted system/application content by the OpenAI
 adapter; retrieved evidence, audience notes, transcript excerpts, prior
 answers, and other project text remain in a separate untrusted data payload.
 The task instruction is included in the bounded request-size calculation but
-its body is not stored in ProviderRun manifests. No tools or chain-of-thought
-requests are permitted.
+its body is not stored in ProviderRun manifests. Presenter Copilot never asks a
+provider to reveal chain-of-thought and does not request provider tools. If an
+official provider harness exposes unavoidable built-in capabilities, they must
+satisfy the same containment boundary as E10: no capability may reach user,
+project, credential, environment, or filesystem state outside the approved
+packet and Presenter-owned runtime state.
 
 ## 10. Provenance and hallucination controls
 
@@ -354,6 +366,7 @@ filesystem authority.
 - malicious PPTX filename attempts path traversal;
 - prompt injection inside a source says to exfiltrate the corpus;
 - provider adapter attempts network call in Local Only;
+- Codex residual harness capability attempts to read user/project/credential state outside Selected Context;
 - deleted project remains in embedding cache;
 - transcript maps one native speaker to wrong profile and user remaps it;
 - remote provider response includes unsupported exact number;
@@ -435,3 +448,30 @@ warm retrieval mapping or cache, while another project's data and shared model
 cache remain intact. Archive validation rejects traversal, absolute/drive
 paths, control characters, duplicate normalized names, external links, and
 overlong member names before extraction.
+
+## 18. E10 Codex containment boundary
+
+E10 uses a Presenter-owned official Codex App Server as an optional remote
+reasoning provider. The security invariant is containment, not zero
+model-visible tools. A built-in harness capability is permitted only when the
+supported pinned runtime/model combination has evidence that the capability
+cannot reach user files, project files, credentials, inherited instructions,
+environment data, or any other non-approved state.
+
+Core launches Codex with a fresh disposable `CODEX_HOME`, empty cwd, minimal
+environment, no Presenter project path, disabled project-doc/instruction/tool/
+web/network/MCP/app/plugin discovery surfaces, fresh ephemeral threads and a
+fixed Presenter policy. The actual project-derived input still enters through
+`ProviderExecutionService`, so Local Only, remote acknowledgement, Selected
+Context manifests, private-item exclusion, task-class allowlists, validation,
+timeouts and cancellation remain authoritative.
+
+The tested Codex runtimes expose residual internal `skills.list` /
+`skills.read`. E10 does not claim exhaustive pre-send enumeration of every
+internal authenticated-thread tool. Instead, support is version/model-scoped;
+forced adversarial containment tests exercise the residual surface against
+planted user-home, project, credential and inherited-instruction canaries.
+Unexpected material config/instruction drift, server-initiated authority or
+observable sensitive capabilities fail closed. Any newly discovered ability to
+reach outside Presenter-owned state is a containment failure and disables the
+provider until revalidated. See [PROVIDERS.md](../PROVIDERS.md#e10-chatgpt-managed-codex) for the exact tested versions, evidence and known opaque-harness limitation.
