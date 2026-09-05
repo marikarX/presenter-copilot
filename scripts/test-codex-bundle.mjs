@@ -22,7 +22,13 @@ function isFile(filePath) {
 
 function packagedResources() {
   const candidates = [
-    path.join(repositoryRoot, "artifacts", "installer", "win-unpacked", "resources"),
+    path.join(
+      repositoryRoot,
+      "artifacts",
+      "installer",
+      "win-unpacked",
+      "resources",
+    ),
     path.join(repositoryRoot, "artifacts", "win-unpacked", "resources"),
   ];
   return candidates.find((candidate) =>
@@ -42,14 +48,30 @@ function sha256(filePath) {
 
 if (process.platform !== "win32") {
   process.stdout.write(
-    `${JSON.stringify({ status: "unavailable", code: "WINDOWS_REQUIRED", operation: "codex_bundle" }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        status: "unavailable",
+        code: "WINDOWS_REQUIRED",
+        operation: "codex_bundle",
+      },
+      null,
+      2,
+    )}\n`,
   );
   process.exitCode = 1;
 } else {
   const resources = packagedResources();
   if (!resources) {
     process.stdout.write(
-      `${JSON.stringify({ status: "failed", code: "CODEX_BUNDLE_MISSING", operation: "codex_bundle" }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          status: "failed",
+          code: "CODEX_BUNDLE_MISSING",
+          operation: "codex_bundle",
+        },
+        null,
+        2,
+      )}\n`,
     );
     process.exitCode = 1;
   } else {
