@@ -103,8 +103,19 @@ builds cannot assume Python is preinstalled. The Windows release uses a
 reproducible PyInstaller one-folder sidecar under Electron resources and an
 unsigned per-user NSIS installer. Electron launches the bundled executable
 with hidden-window, `shell=false` stdio; packaged resolution never falls back
-to `python.exe`. Model artifacts remain in the per-user app-data cache and are
-prepared only through an explicit user action.
+to `python.exe`.
+
+E10 is also self-contained in the Windows release. The build fetches the exact
+validated official Codex CLI 0.153.4 Windows x64 binary, verifies its pinned
+SHA-256 and reported version, and places it under Electron resources with the
+upstream Apache-2.0 license and NOTICE. Packaged Electron supplies that absolute
+resource path to Core and does not resolve a system Codex from `PATH`; users do
+not install Node, npm, or Codex separately and no Codex runtime is downloaded on
+first run. Development/acceptance may still use an explicitly configured tested
+Codex runtime.
+
+Model artifacts remain in the per-user app-data cache and are prepared only
+through an explicit user action.
 
 ## 3. Repository layout target
 
