@@ -47,6 +47,7 @@ The workspace therefore adds **editing** to the same Project Brain, Speaker Prof
 - [`ASSETS.md`](ASSETS.md) — images, diagrams, generated media, provenance, rights metadata, variants, and project-local storage.
 - [`ROADMAP.md`](ROADMAP.md) — staged implementation sequence, dependency gates, exit criteria, and deferrals.
 - [`VALIDATION.md`](VALIDATION.md) — product/fidelity metrics, corpus design, test matrix, and go/no-go criteria.
+- [`DECISIONS.md`](DECISIONS.md) — durable product/architecture decisions specific to the Presentation Workspace roadmap.
 
 ## Relationship to the frozen MVP
 
