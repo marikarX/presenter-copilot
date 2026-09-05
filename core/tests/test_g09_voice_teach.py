@@ -103,6 +103,40 @@ def feed_answer(audio: DeterministicFakeAudioInput) -> None:
     audio.feed_frames([loud] * 12 + [quiet] * 35)
 
 
+def finalize_voice_answer(
+    core: CoreService,
+    audio: DeterministicFakeAudioInput,
+    project_name: str,
+) -> tuple[str, str]:
+    project_id = str(call(core, "project.create", {"name": project_name})["project"]["id"])
+    session_id = start_prompt(core, project_id)
+    call(core, "teach.voice_start", {"project_id": project_id, "session_id": session_id})
+    feed_answer(audio)
+    stopped = call(
+        core,
+        "teach.voice_stop",
+        {"project_id": project_id, "session_id": session_id},
+    )
+    assert isinstance(stopped.get("submission"), dict)
+    return project_id, session_id
+
+
+def assert_compact_voice_submission_cache(core: CoreService) -> None:
+    teach = core._teach  # type: ignore[attr-defined]
+    with teach._voice_submission_guard:
+        assert teach._voice_submissions
+        assert all(not isinstance(value, dict) for value in teach._voice_submissions.values())
+        assert teach._last_voice_submission
+        assert all(not isinstance(value, dict) for value in teach._last_voice_submission.values())
+
+
+def assert_voice_submission_cache_empty(core: CoreService) -> None:
+    teach = core._teach  # type: ignore[attr-defined]
+    with teach._voice_submission_guard:
+        assert teach._voice_submissions == {}
+        assert teach._last_voice_submission == {}
+
+
 def user_utterances(core: CoreService, project_id: str, session_id: str) -> list[sqlite3.Row]:
     with core._storage.project_database(project_id) as connection:  # type: ignore[attr-defined]
         return connection.execute(
@@ -492,6 +526,58 @@ def test_g09_local_only_voice_never_calls_provider_and_model_is_explicit(tmp_pat
         assert all("audio" not in str(item) for item in provider.requests)
         assert all("partial" not in str(item) for item in provider.requests)
         assert any(item.get("event") == "teach.voice_finalized" for item in events)
+    finally:
+        core.close()
+
+
+def test_g09_session_delete_purges_successful_voice_submission_state(tmp_path: Path) -> None:
+    audio = DeterministicFakeAudioInput()
+    adapter = DeterministicFakeASRAdapter(final_text="session deletion answer")
+    provider = DeterministicFakeReasoningProvider(locality="local")
+    core = make_core(tmp_path / "data", audio=audio, adapter=adapter, provider=provider)
+    try:
+        project_id, session_id = finalize_voice_answer(core, audio, "G09 session purge")
+        assert_compact_voice_submission_cache(core)
+
+        deleted = call(
+            core,
+            "session.delete",
+            {"project_id": project_id, "session_id": session_id},
+        )
+        assert deleted["deleted"] is True
+        assert_voice_submission_cache_empty(core)
+    finally:
+        core.close()
+
+
+def test_g09_project_delete_purges_successful_voice_submission_state(tmp_path: Path) -> None:
+    audio = DeterministicFakeAudioInput()
+    adapter = DeterministicFakeASRAdapter(final_text="project deletion answer")
+    provider = DeterministicFakeReasoningProvider(locality="local")
+    core = make_core(tmp_path / "data", audio=audio, adapter=adapter, provider=provider)
+    try:
+        project_id, _session_id = finalize_voice_answer(core, audio, "G09 project purge")
+        assert_compact_voice_submission_cache(core)
+
+        deleted = call(core, "project.delete", {"project_id": project_id})
+        assert deleted["deleted"] is True
+        assert_voice_submission_cache_empty(core)
+    finally:
+        core.close()
+
+
+def test_g09_reset_local_data_purges_successful_voice_submission_state(tmp_path: Path) -> None:
+    audio = DeterministicFakeAudioInput()
+    adapter = DeterministicFakeASRAdapter(final_text="reset deletion answer")
+    provider = DeterministicFakeReasoningProvider(locality="local")
+    core = make_core(tmp_path / "data", audio=audio, adapter=adapter, provider=provider)
+    try:
+        finalize_voice_answer(core, audio, "G09 reset purge")
+        assert_compact_voice_submission_cache(core)
+
+        reset = call(core, "app.reset_local_data", {"confirm": True})
+        assert reset["reset"] is True
+        assert_voice_submission_cache_empty(core)
     finally:
         core.close()
 

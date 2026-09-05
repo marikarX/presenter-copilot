@@ -301,7 +301,9 @@ passes it to the same `TeachService.submit_text` path. Its response contains
 the ordinary `submission` result plus a bounded `answer_text` for the existing
 candidate/direct-save UI. A repeated stop is idempotent for the same capture;
 Core capture identity and serialized finalization prevent a second utterance or
-candidate.
+candidate. Core retains only non-content owner/status metadata for that retry
+boundary and purges it on session termination/deletion, project deletion, local
+data reset, and shutdown.
 
 `teach.voice_cancel` stops and releases the matching capture, discards all
 partial/final-unsent text, and leaves `awaiting_user` unchanged. It creates no
@@ -314,8 +316,10 @@ use typed errors such as `ASR_ALREADY_RUNNING`, `ASR_MODEL_UNAVAILABLE`,
 The final voice transcript is the normal user-authored Teach utterance
 (`is_final=1`) and retains all existing candidate, confirmation, preferred,
 private, `use_live`, `use_rehearsal`, Speaker Profile, Selected Context, and
-provider-manifest behavior. Raw audio and partial text remain Core-local; no
-voice-specific durable table or provider payload is introduced.
+provider-manifest behavior. Raw audio remains Core-only. Partial text may be
+emitted to the main renderer as bounded ephemeral UI state, but is neither
+persisted nor included in provider payloads; no voice-specific durable table or
+provider payload is introduced.
 
 `teach.get_state` returns only bounded active-session recovery data: the current
 prompt, pending user answer, and pending provisional candidate when present.

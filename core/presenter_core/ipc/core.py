@@ -305,6 +305,7 @@ class CoreService:
             self._run.stop_active_runs(status="aborted")
             self._assist.stop_active_sessions(status="aborted")
             self._cancel_active_teach_capture()
+            self._teach.purge_all()
         except CoreDomainError as error:
             # Leave every service and database open.  The sidecar may exit
             # after the bounded request, but recoverable active-session state
@@ -471,7 +472,9 @@ class CoreService:
                 result=self._projects.acknowledge_remote_reasoning(params),
             )
         if method == "project.delete":
-            return make_response(request_id, result=self._projects.delete(params))
+            result = self._projects.delete(params)
+            self._teach.purge_project(str(result["project_id"]))
+            return make_response(request_id, result=result)
         if method == "source.import":
             result = self._ingestion.import_source(params)
             self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
@@ -576,7 +579,10 @@ class CoreService:
                     status=params.get("status", "completed"),
                 )
             else:
-                self._cancel_active_teach_capture(str(session["project_id"]), str(session["id"]))
+                project_id = str(session["project_id"])
+                session_id = str(session["id"])
+                self._cancel_active_teach_capture(project_id, session_id)
+                self._teach.purge_session(project_id, session_id)
                 result = self._sessions.stop(params)
             self._emit_event("session.stopped", result["session"])
             return make_response(request_id, result=result)
@@ -585,10 +591,12 @@ class CoreService:
         if method == "session.list":
             return make_response(request_id, result=self._sessions.list(params))
         if method == "session.delete":
-            self._cancel_active_teach_capture(
-                str(params.get("project_id")), str(params.get("session_id"))
-            )
+            project_id = str(params.get("project_id"))
+            session_id = str(params.get("session_id"))
+            self._cancel_active_teach_capture(project_id, session_id)
+            self._teach.purge_session(project_id, session_id)
             result = self._sessions.delete(params)
+            self._teach.purge_session(str(result["project_id"]), str(result["session_id"]))
             self._assist.purge_session(str(result["project_id"]), str(result["session_id"]))
             self._presentation.purge_session(str(result["project_id"]), str(result["session_id"]))
             return make_response(request_id, result=result)
@@ -845,6 +853,7 @@ class CoreService:
             )
         elif row["mode"] == "teach":
             self._cancel_active_teach_capture(project_id, session_id)
+            self._teach.purge_session(project_id, session_id)
             result = None
         else:
             result = self._assist.stop_session(project_id, session_id, status="aborted")
@@ -864,6 +873,7 @@ class CoreService:
         self._run.stop_project_runs({"project_id": project_id})
         self._assist.stop_project_sessions({"project_id": project_id})
         self._cancel_active_teach_capture(project_id)
+        self._teach.purge_project(project_id)
         self._assist.purge_project(project_id)
         self._presentation.purge_project(project_id)
         self._hybrid_retrieval.evict_project(project_id)
@@ -873,6 +883,7 @@ class CoreService:
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
         self._cancel_active_teach_capture()
+        self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
         self._hybrid_retrieval.release_model()
@@ -898,6 +909,7 @@ class CoreService:
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
         self._cancel_active_teach_capture()
+        self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
         # Reset always releases process-memory retrieval state.  This does not

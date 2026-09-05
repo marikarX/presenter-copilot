@@ -98,7 +98,10 @@ and confirmation flow. Teach partials never create rows or provider calls, and
 Teach voice does not emit the Run/Live durable `asr.final` event. Cancellation
 clears the transient text and releases audio/model resources without changing
 Teach state. A Core-side capture identity and serialized stop path make repeated
-stop/final callbacks at-most-once.
+stop/final callbacks at-most-once. The Teach service retains only owner,
+status, and retry metadata after finalization; Core purges that transient state
+on session termination/deletion, project deletion, local-data reset, and
+shutdown.
 
 ## 2. Technology baseline
 

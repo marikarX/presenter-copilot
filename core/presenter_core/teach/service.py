@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
@@ -28,14 +29,35 @@ from presenter_core.storage.service import StorageManager
 
 MAX_TEACH_TEXT_CHARS = 4_000
 MAX_KNOWLEDGE_TEXT_CHARS = 1_500
-_VOICE_IN_PROGRESS = object()
-_VOICE_FAILED = object()
 _VOICE_MISSING = object()
+_VOICE_IN_PROGRESS = "in_progress"
+_VOICE_FAILED = "failed"
+_VOICE_FINALIZED = "finalized"
 
 EventSink = Callable[[str, dict[str, Any]], None]
 VoiceCaptureActive = Callable[[str, str, str | None], bool]
 VoiceCaptureStart = Callable[[dict[str, Any], bool], dict[str, Any]]
 VoiceCaptureStop = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class _VoiceSubmissionMarker:
+    """Owner/status-only state retained for finalization idempotency."""
+
+    project_id: str
+    session_id: str
+    status: str
+
+
+@dataclass(frozen=True)
+class _LastVoiceSubmission:
+    """Non-content metadata needed to reconstruct a safe stop retry response."""
+
+    project_id: str
+    session_id: str
+    capture_id: str
+    route: str
+    local_only: bool
 
 
 class TeachService:
@@ -70,8 +92,27 @@ class TeachService:
         )
         self._voice_guard = threading.RLock()
         self._voice_submission_guard = threading.RLock()
-        self._voice_submissions: dict[str, object] = {}
-        self._last_voice_submission: dict[tuple[str, str], dict[str, Any]] = {}
+        self._voice_submissions: dict[str, _VoiceSubmissionMarker] = {}
+        self._last_voice_submission: dict[tuple[str, str], _LastVoiceSubmission] = {}
+
+    def purge_session(self, project_id: str, session_id: str) -> None:
+        """Drop all transient voice submission state owned by one session."""
+        with self._voice_guard:
+            with self._voice_submission_guard:
+                self._purge_voice_state_locked(project_id=project_id, session_id=session_id)
+
+    def purge_project(self, project_id: str) -> None:
+        """Drop all transient voice submission state owned by one project."""
+        with self._voice_guard:
+            with self._voice_submission_guard:
+                self._purge_voice_state_locked(project_id=project_id)
+
+    def purge_all(self) -> None:
+        """Drop every transient voice submission marker and retry record."""
+        with self._voice_guard:
+            with self._voice_submission_guard:
+                self._voice_submissions.clear()
+                self._last_voice_submission.clear()
 
     def next_prompt(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "session_id"})
@@ -377,7 +418,11 @@ class TeachService:
                     "TEACH_VOICE_SUBMISSION_ALREADY_FINALIZED",
                     "This Teach voice capture has already been finalized.",
                 )
-            self._voice_submissions[capture_id] = _VOICE_IN_PROGRESS
+            self._voice_submissions[capture_id] = _VoiceSubmissionMarker(
+                project_id=project_id,
+                session_id=session_id,
+                status=_VOICE_IN_PROGRESS,
+            )
         try:
             if not isinstance(text, str) or not text.strip():
                 raise CoreDomainError(
@@ -406,12 +451,20 @@ class TeachService:
                     "The Teach session changed before voice finalization completed.",
                 )
             with self._voice_submission_guard:
-                self._voice_submissions[capture_id] = _VOICE_FAILED
+                self._voice_submissions[capture_id] = _VoiceSubmissionMarker(
+                    project_id=project_id,
+                    session_id=session_id,
+                    status=_VOICE_FAILED,
+                )
                 self._trim_voice_submissions()
             raise error
         except Exception as error:
             with self._voice_submission_guard:
-                self._voice_submissions[capture_id] = _VOICE_FAILED
+                self._voice_submissions[capture_id] = _VoiceSubmissionMarker(
+                    project_id=project_id,
+                    session_id=session_id,
+                    status=_VOICE_FAILED,
+                )
                 self._trim_voice_submissions()
             raise CoreDomainError(
                 "TEACH_VOICE_SUBMISSION_FAILED",
@@ -419,10 +472,22 @@ class TeachService:
                 retryable=False,
             ) from error
 
+        route = result.get("route")
+        route_value = route if isinstance(route, str) else ReasoningRoute.RETRIEVAL_ONLY.value
         with self._voice_submission_guard:
-            self._voice_submissions[capture_id] = dict(result)
+            self._voice_submissions[capture_id] = _VoiceSubmissionMarker(
+                project_id=project_id,
+                session_id=session_id,
+                status=_VOICE_FINALIZED,
+            )
             self._trim_voice_submissions()
-            self._last_voice_submission[(project_id, session_id)] = dict(result)
+            self._last_voice_submission[(project_id, session_id)] = _LastVoiceSubmission(
+                project_id=project_id,
+                session_id=session_id,
+                capture_id=capture_id,
+                route=route_value,
+                local_only=local_only,
+            )
         try:
             self._emit(
                 "teach.voice_finalized",
@@ -1093,7 +1158,36 @@ class TeachService:
     ) -> dict[str, Any] | None:
         with self._voice_submission_guard:
             cached = self._last_voice_submission.get((project_id, session_id))
-            return dict(cached) if cached is not None else None
+        if cached is None:
+            return None
+        try:
+            state = self.get_state({"project_id": project_id, "session_id": session_id})
+        except CoreDomainError:
+            return None
+        if state.get("state") != "candidate_ready":
+            return None
+        pending_answer = state.get("pending_answer")
+        if not isinstance(pending_answer, dict):
+            return None
+        source_utterance_id = pending_answer.get("source_utterance_id")
+        if not isinstance(source_utterance_id, str) or not source_utterance_id:
+            return None
+        submission: dict[str, Any] = {
+            "project_id": cached.project_id,
+            "session_id": cached.session_id,
+            "source_utterance_id": source_utterance_id,
+            "state": "candidate_ready",
+            "candidate": (
+                state.get("candidate") if isinstance(state.get("candidate"), dict) else None
+            ),
+            "direct_save_available": True,
+            "route": cached.route,
+            "local_only": cached.local_only,
+        }
+        prompt = state.get("prompt")
+        if isinstance(prompt, dict) and isinstance(prompt.get("utterance_id"), str):
+            submission["prompt_utterance_id"] = prompt["utterance_id"]
+        return submission
 
     def _has_last_voice_submission(self, project_id: str, session_id: str) -> bool:
         with self._voice_submission_guard:
@@ -1101,7 +1195,34 @@ class TeachService:
 
     def _clear_last_voice_submission(self, project_id: str, session_id: str) -> None:
         with self._voice_submission_guard:
-            self._last_voice_submission.pop((project_id, session_id), None)
+            self._purge_voice_state_locked(project_id=project_id, session_id=session_id)
+
+    def _purge_voice_state_locked(
+        self,
+        *,
+        project_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Remove owner-matching state; callers hold _voice_submission_guard."""
+        if project_id is None and session_id is None:
+            self._voice_submissions.clear()
+            self._last_voice_submission.clear()
+            return
+
+        for owner in list(self._last_voice_submission):
+            owner_project_id, owner_session_id = owner
+            if project_id is not None and owner_project_id != project_id:
+                continue
+            if session_id is not None and owner_session_id != session_id:
+                continue
+            del self._last_voice_submission[owner]
+
+        for capture_id, marker in list(self._voice_submissions.items()):
+            if project_id is not None and marker.project_id != project_id:
+                continue
+            if session_id is not None and marker.session_id != session_id:
+                continue
+            del self._voice_submissions[capture_id]
 
     def _active_teach_session(self, project_id: str, session_id: str) -> sqlite3.Row:
         with self._storage.project_database(project_id) as connection:
