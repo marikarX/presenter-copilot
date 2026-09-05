@@ -104,6 +104,66 @@ Build:
 
 This phase is strategically more important than adding broad presentation-authoring features.
 
+## Phase 5.5 — Presentation Workspace
+
+Goal: keep users inside Presenter Copilot when preparation/rehearsal identifies changes that should be made to the actual presentation.
+
+Strategic boundary:
+
+- build a focused presentation-preparation editor;
+- do not pursue general-purpose PowerPoint feature parity;
+- treat PowerPoint as an interoperability/export target rather than the required editing environment;
+- preserve the frozen MVP's read-only PowerPoint integration until the workspace fidelity model is independently ready.
+
+Implement in gated stages:
+
+1. **PW0 — validate the editing wedge**
+   - high-fidelity viewer and AI side chat;
+   - observe real deck-preparation sessions;
+   - measure which edits cause users to leave Presenter Copilot;
+   - prototype rehearsal-to-edit proposals.
+2. **PW1 — fidelity foundation**
+   - immutable original PPTX snapshot;
+   - editable fidelity document model with stable slide/object IDs;
+   - opaque preservation for unsupported Office features;
+   - no-op PPTX round-trip corpus and export validation.
+3. **PW2 — core direct editing**
+   - text/notes editing;
+   - move/resize/delete/duplicate common objects;
+   - slide add/delete/duplicate/reorder;
+   - common formatting and image replace/crop;
+   - undo/redo, revision checkpoints, PPTX/PDF export.
+4. **PW3 — semantic presentation model**
+   - presentation narrative;
+   - slide purpose and claim/evidence bindings;
+   - current-revision awareness throughout Project Brain and rehearsal.
+5. **PW4 — AI side-chat editing**
+   - selection-aware commands;
+   - typed EditPlan operations;
+   - preview/review gates;
+   - stale-plan detection;
+   - Preserve-My-Voice and source-grounded rewriting.
+6. **PW5 — voice editing**
+   - reuse local ASR;
+   - visible transcription;
+   - voice commands route to the same typed edit-planning system.
+7. **PW6 — rehearsal-to-edit closed loop**
+   - convert strong explanations, unsupported claims, recurring objections, and slide-density findings into reviewable presentation changes;
+   - retain links from applied changes back to the originating rehearsal evidence.
+8. **PW7 — creation from conversation**
+   - voice/text conversation -> objective/audience/narrative -> editable slides;
+   - optimize for iterative grounded authoring, not generic one-shot deck generation.
+9. **PW8+ — richer native presentation objects/integrations**
+   - improve charts, tables, diagrams, themes, image workflows, and external presentation integrations only when usage justifies them.
+
+Critical architectural rule: imported decks use a dual representation — a fidelity document model for render/edit/PPTX export plus a semantic model connected to Project Brain, Speaker Profile, Audience Model, sources, and rehearsal history. Direct edits, AI edits, voice edits, and rehearsal-derived changes converge on one typed edit-transaction layer.
+
+Critical compatibility rule: unsupported imported PPTX content must be preserved whenever possible rather than silently flattened or discarded. Broad AI authoring does not ship before the PPTX fidelity and direct-editing foundations are trustworthy.
+
+Investment gate: proceed beyond viewer/prototype work only if observed preparation sessions show frequent edit-driven context switching and rehearsal regularly creates useful deck-change intent.
+
+See [`docs/PRESENTATION_WORKSPACE/`](PRESENTATION_WORKSPACE/README.md) for the product, UX, architecture, PPTX fidelity, AI-editing, asset, validation, and detailed staged roadmap specifications.
+
 ## Phase 6 — Immersive audience simulation
 
 Goal: extend rehearsal from question generation into a socially realistic presentation simulation without coupling the core product to one rendering stack.
@@ -145,6 +205,8 @@ Candidates:
 - Teams/Zoom/Webex meeting context where technically and contractually appropriate;
 - file/document sources used by enterprise teams.
 
+Presentation Workspace does not make these integrations the authoritative document state. Interoperability should follow validated demand and retain Presenter Copilot's local project/revision model.
+
 Integrations should follow validated user demand, not precede core product quality.
 
 ## Phase 8 — Team / enterprise layer
@@ -161,7 +223,8 @@ Possible commercial features:
 - audit/retention controls;
 - analytics on recurring objections and weak answers;
 - managed deployment;
-- curated immersive scenario libraries after individual simulation value is proven.
+- curated immersive scenario libraries after individual simulation value is proven;
+- enterprise presentation templates/review policies after the individual Presentation Workspace proves useful.
 
 ## Open-source strategy checkpoint
 
