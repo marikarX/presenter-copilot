@@ -18,7 +18,6 @@ from presenter_core.errors import invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.storage.service import StorageManager
 
-from .codex import CodexReasoningProvider
 from .local import LocalReasoningProvider, validate_endpoint
 from .models import (
     ProviderError,
@@ -66,7 +65,6 @@ class ProviderService:
         providers = [
             self._provider_dict(provider, enabled=enabled),
             self._provider_dict(local, enabled=bool(local_row and local_row["enabled"])),
-            self._provider_dict(CodexReasoningProvider(), enabled=False),
         ]
         providers.sort(key=lambda item: not item["enabled"])
         return {"providers": providers}
@@ -300,13 +298,8 @@ class ProviderService:
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})
         provider_id = params.get("provider_id")
-        if (
-            provider_id not in {None, "openai", "local_openai", "codex"}
-            and self._injected_provider is None
-        ):
+        if provider_id not in {None, "openai", "local_openai"} and self._injected_provider is None:
             raise invalid_request("The requested provider is not supported.", field="provider_id")
-        if provider_id == "codex":
-            return {"provider": self._provider_dict(CodexReasoningProvider(), enabled=False)}
         provider = (
             self.current_provider()
             if self._injected_provider is not None or provider_id is None
@@ -509,8 +502,6 @@ class ProviderService:
             if provider.id == "openai"
             else "environment"
             if provider.id == "local_openai"
-            else "none"
-            if provider.id == "codex"
             else "test",
             "safe_config": {
                 "endpoint": provider.endpoint,

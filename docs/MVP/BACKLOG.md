@@ -89,10 +89,6 @@ conflicts with that dated baseline, the release baseline controls.
       reuse undocumented ChatGPT/Codex tokens. Preserve the existing provider
       privacy boundary and keep API-key fallback until an official path is
       validated.
-      Spike verified managed App Server authentication, but did not establish
-      exhaustive Selected Context isolation from harness context/tools. An inert
-      adapter boundary is present; no entitlement inference is integrated.
-      Exact blocker and official sources: [provider investigation](../PROVIDERS.md#e10-investigation-supported-auth-execution-suitability-unresolved).
 
 ## Epic F — Speaker Profile and style preservation
 

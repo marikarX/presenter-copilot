@@ -113,7 +113,7 @@ class TeachService:
                     style_policy=str(session["style_policy"]),
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
-                    allow_private=provider.locality == "local",
+                    allow_private=not provider.leaves_machine,
                 )
                 execution = self._run_provider(
                     project_id=project_id,
@@ -271,7 +271,7 @@ class TeachService:
                     style_policy=str(session["style_policy"]),
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
-                    allow_private=provider.locality == "local",
+                    allow_private=not provider.leaves_machine,
                 )
                 execution = self._run_provider(
                     project_id=project_id,

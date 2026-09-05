@@ -39,6 +39,10 @@ off-machine transport, records the manifest before transmission, validates the
 result, and finalizes the run. Selection enables one provider at a time. Failure
 never selects another provider, including when an OpenAI API key is available.
 Existing task-specific retrieval/direct-save/unavailable behavior is retained.
+Teach, Challenge, and Live build packets using `leaves_machine`, not the local
+provider label. This removes private context before LAN execution rather than
+rejecting a mixed public/private packet at the final guard. Challenge provenance
+checks and Live preferred-evidence selection use the same transport authority.
 
 The adapter caps output at 2,048 requested tokens and 65,536 response bytes,
 then applies the existing task schemas and provenance checks. HTTP operations
@@ -49,50 +53,6 @@ configured/unavailable (`PROVIDER_NOT_TESTED`), and a successful request marks
 it reachable. Status is the last observed outcome, not a background probe.
 The explicit Test button sends only a synthetic packet and can restore readiness.
 
-## E10 investigation: supported auth, execution suitability unresolved
-
-Investigated 2026-09-04. **E10 remains unchecked.** This is not a finding that
-OpenAI prohibits third-party App Server clients or lacks ChatGPT authentication.
-
-The official [App Server documentation](https://learn.chatgpt.com/docs/app-server)
-explicitly describes integration into another product. It documents stdio
-JSON-RPC initialization, thread/turn operations, `outputSchema`, and managed
-ChatGPT authentication: `account/login/start`, account status, and logout. Codex
-owns OAuth persistence and refresh. That is the appropriate candidate, rather
-than extracting tokens or treating a ChatGPT login as an API key.
-
-The official [authentication guide](https://learn.chatgpt.com/docs/auth) documents
-OS credential storage with `cli_auth_credentials_store = "keyring"` and separate
-API-key authentication. A future adapter should use a dedicated app-owned Codex
-home and the official managed lifecycle, and never inspect credential files.
-
-**Exact current integration blocker:** no verified public contract was established
-in this spike that constrains *all* model-visible input and tool authority to
-Presenter Copilot's pre-approved Selected Context packet. The public
-[ThreadStartParams schema](https://github.com/openai/codex/blob/459a79eb85400af759e9220c7bafb4429ae07516/codex-rs/app-server-protocol/schema/json/v2/ThreadStartParams.json)
-has configuration and instruction overrides, but no explicit per-thread
-exhaustive empty tool allowlist. The
-[tool assembly source](https://github.com/openai/codex/blob/459a79eb85400af759e9220c7bafb4429ae07516/codex-rs/core/src/tools/spec_plan.rs)
-assembles core, extension, hosted, and dynamic tools; adding no dynamic tools
-does not remove the others. Built-in utility tools depend on the environment
-and model catalog, including an apply-patch tool. Merely declining approval
-requests is not a proof of zero additional reads or context.
-
-The [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-provides individual shell, web, app, and memory controls. Those are useful
-building blocks, but this spike has not validated their combination against
-all harness-added context and tools. This is an integration-suitability finding,
-not a claim that such isolation is impossible or that the official API itself
-is unsupported. A future implementation must pin a supported runtime, verify
-effective isolation (including instructions, environment context, tools, logs,
-and model-catalog changes), and fail closed when it cannot establish it.
-
-The `codex` adapter is deliberately inert: safe unavailable status, remote
-locality, no sign-in or process launch, no token discovery, no inference. It is
-not selectable. Settings names the isolation blocker. Existing API-key billing
-remains separately available. No real ChatGPT/Codex or OpenAI account acceptance
-was exercised; no entitlement-usage or billing claim is made.
-
 ## Validation
 
 `core/tests/test_local_provider.py` uses a disposable loopback HTTP server for
@@ -100,6 +60,10 @@ structured success, endpoint rejection, proxy/redirect denial, auth/error
 redaction, bounded output, timeout, logical cancellation, shutdown, health,
 selection, LAN privacy/manifests, and retrieval fallback. LAN transport in the
 manifest test is redirected to that fixture by the test only.
+The privacy-network suite also exercises all six reasoning tasks with mixed
+public document evidence and private preferred knowledge against a simulated
+LAN provider. It verifies successful invocation, pre-call manifests, and absence
+of private text and identifiers from provider payloads.
 
 Run `pnpm check`, `pnpm build`, `pnpm test:privacy-network`, and
 `uv run --directory core --project . --locked python -m pytest tests/test_local_provider.py -q`.

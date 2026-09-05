@@ -13,7 +13,6 @@ import pytest
 from test_m8_privacy import _call, _direct_question_request, _error, _project, _seed_source
 
 from presenter_core.ipc.core import CoreService
-from presenter_core.providers.codex import CodexReasoningProvider
 from presenter_core.providers.local import LocalReasoningProvider, validate_endpoint
 from presenter_core.providers.models import ProviderError, ProviderInvocation
 from presenter_core.providers.router import ReasoningRouter
@@ -295,20 +294,6 @@ def test_unavailable_retrieval_fallback_no_cloud_escalation(core, monkeypatch):
     assert prompt["reasoning"]["route"] == "retrieval_only"
     assert _call(core, "provider.status", {})["provider"]["provider_id"] == "local_openai"
     assert _call(core, "provider.status", {})["provider"]["health"]["status"] == "unavailable"
-
-
-def test_codex_boundary_is_inert(core, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "not-entitlement")
-    provider = CodexReasoningProvider()
-    assert not provider.health().configured
-    assert provider.leaves_machine
-    with pytest.raises(ProviderError) as error:
-        provider.generate(
-            ProviderInvocation(request=_direct_question_request(), serialized_input_text="{}")
-        )
-    assert error.value.code == "PROVIDER_UNSUPPORTED"
-    assert _error(core, "provider.configure", {"provider_id": "codex", "model_id": "fixture"})
-    assert _call(core, "provider.status", {"provider_id": "codex"})["provider"]["enabled"] is False
 
 
 def test_lan_manifest_precedes_transport_and_private_context_is_blocked(core, server, monkeypatch):

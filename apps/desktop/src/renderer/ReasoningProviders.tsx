@@ -84,20 +84,16 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
           <strong>
             {provider.provider_id === "local_openai"
               ? "Local model"
-              : provider.provider_id === "codex"
-                ? "ChatGPT/Codex"
-                : "OpenAI API"}
+              : "OpenAI API"}
           </strong>
           {": "}
-          {provider.provider_id === "codex"
-            ? "Unsupported in this app: Selected Context isolation not verified"
-            : provider.health.status === "ready"
-              ? provider.provider_id === "local_openai"
-                ? "reachable (last request)"
-                : "ready"
-              : provider.health.configured
-                ? `configured / ${provider.health.status}`
-                : "not configured"}
+          {provider.health.status === "ready"
+            ? provider.provider_id === "local_openai"
+              ? "reachable (last request)"
+              : "ready"
+            : provider.health.configured
+              ? `configured / ${provider.health.status}`
+              : "not configured"}
           {provider.enabled ? " · selected" : ""}
         </p>
       ))}
@@ -115,9 +111,6 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
         >
           <option value="local_openai">Local model — OpenAI-compatible</option>
           <option value="openai">OpenAI API — API-key billing</option>
-          <option value="codex" disabled>
-            ChatGPT/Codex — entitlement integration pending
-          </option>
         </select>
       </label>
       {selection === "local_openai" ? (

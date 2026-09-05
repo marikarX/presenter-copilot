@@ -897,16 +897,3 @@ are optional Core environment inputs; no new durable authentication state exists
 
 This prevents a local-network label from bypassing Local Only and keeps backend
 compatibility in one adapter rather than adding renderer authority or new privacy modes.
-
-## D-058 — Defer Codex inference until Selected Context isolation is verified
-
-**Status:** Investigation recorded; E10 remains incomplete
-
-Official App Server supports third-party integration and managed ChatGPT OAuth.
-That verifies an authentication candidate, not this application's complete
-content boundary. The spike has not established an exhaustive public contract
-for excluding harness-added input and built-in/hosted tools. Keep the Codex
-adapter inert and unselectable; preserve the API-key option. Do not extract tokens,
-launch another official client, or rely on prompt instructions as access control.
-The exact evidence, scope of uncertainty, and implementation prerequisites are
-recorded in [the provider investigation](PROVIDERS.md#e10-investigation-supported-auth-execution-suitability-unresolved).

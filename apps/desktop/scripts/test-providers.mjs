@@ -92,10 +92,6 @@ try {
     exact: true,
   });
   await panel.getByText("not configured", { exact: false }).first().waitFor();
-  assert.match(
-    await panel.innerText(),
-    /Selected Context isolation not verified/,
-  );
   await panel
     .getByRole("combobox", { name: "Provider", exact: true })
     .selectOption("local_openai");
