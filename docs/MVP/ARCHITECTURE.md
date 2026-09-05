@@ -2,7 +2,7 @@
 
 ## 1. Runtime shape
 
-The MVP is a Windows desktop application with two local processes:
+The MVP is a Windows desktop application with two always-on local processes. When the user selects the E10 Codex provider, Core also owns a third, short-lived official Codex App Server child process:
 
 ```text
 +----------------------------------------------------------+
@@ -26,6 +26,8 @@ The MVP is a Windows desktop application with two local processes:
 |                 SQLite + local files                    |
 +----------------------------------------------------------+
 ```
+
+The diagram shows the always-on baseline. E10 launches `codex app-server --stdio` only for the selected ChatGPT-managed Codex provider; the Python core owns its lifecycle and communicates with it over bounded stdio. The renderer never receives general App Server RPC, filesystem, environment, or credential authority.
 
 No localhost HTTP server is required for normal desktop operation. The Electron main process owns sidecar lifecycle and communicates through stdin/stdout. This reduces local attack surface and port conflicts.
 
@@ -325,7 +327,7 @@ One interface; adapters may include:
 - mock/deterministic provider for tests;
 - user-supplied cloud API provider;
 - local OpenAI-compatible endpoint / local model adapter;
-- optional officially supported Codex adapter later.
+- ChatGPT-managed Codex App Server provider (E10).
 
 The product UI must not contain provider-specific orchestration logic.
 
@@ -336,6 +338,19 @@ The router and execution boundary enforce off-machine permission and manifests
 using that property. Provider selection reuses `provider_configurations` and
 its safe JSON column; no migration is needed.
 See [local provider architecture](../PROVIDERS.md).
+
+E10 implements `codex_chatgpt` through a Presenter-owned official Codex App
+Server using documented ChatGPT-managed authentication. Core launches a pinned,
+version-scoped runtime with a dedicated disposable `CODEX_HOME`, empty cwd and
+minimal environment; it never exposes general App Server authority or auth
+material to the renderer. The E10 invariant is containment rather than a
+zero-tool claim: tested residual built-in `skills.list` / `skills.read`
+capabilities may remain only while they cannot access user, project, credential,
+environment or filesystem state outside the approved Selected Context packet
+and Presenter-owned runtime. Material config/instruction/capability drift fails
+closed. `ProviderExecutionService` remains the authority for privacy mode,
+acknowledgement, manifests, bounded serialization, validation and cancellation.
+See [Codex containment and validation](../PROVIDERS.md#e10-chatgpt-managed-codex).
 
 ## 5. Live Assist pipeline
 
@@ -476,7 +491,7 @@ Audience profile/observations required for this task
 Output schema + cue length constraint
 ```
 
-Under Selected Context Cloud, only this packet may be sent remotely.
+Under Selected Context Cloud, only this bounded project-derived packet may be sent remotely. A provider may additionally receive fixed Presenter-owned policy and protocol/harness metadata required by its supported interface. For E10, any residual built-in harness capability must remain contained to Presenter-owned runtime state and must not create access to user/project state outside the approved packet.
 
 ## 10. Failure/degradation behavior
 
@@ -516,5 +531,6 @@ No implementation PR should bypass these boundaries without recording a decision
 - provider code cannot live in HUD/UI components;
 - audience model cannot store biometric voiceprints;
 - remote provider cannot receive raw microphone audio in Local Only or Selected Context Cloud;
+- an agent/provider harness cannot access user, project, credential or environment state outside the approved remote context boundary; unavoidable residual capabilities must be bounded and regression-tested;
 - fact-bearing cue must retain provenance IDs;
 - project delete must have one authoritative cascade path.
