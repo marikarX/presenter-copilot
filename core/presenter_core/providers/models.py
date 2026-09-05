@@ -474,6 +474,10 @@ class ReasoningProvider(ABC):
         """Release optional SDK resources."""
         return None
 
+    def cancel(self, invocation: ProviderInvocation) -> None:
+        """Signal native cancellation when supported; execution still owns finalization."""
+        return None
+
 
 def question_output_schema() -> dict[str, Any]:
     return {

@@ -12,6 +12,14 @@ extraResources:
     to: sidecar/presenter-core
     filter:
       - '**/*'
+  - from: ../../artifacts/codex
+    to: codex
+    filter:
+      - '**/*'
+  - from: ../../third_party/codex
+    to: licenses/codex
+    filter:
+      - '**/*'
 win:
   target:
     - target: nsis

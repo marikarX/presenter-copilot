@@ -55,6 +55,7 @@ transcripts/
 # Generated Windows release outputs
 /artifacts/sidecar/
 /artifacts/sidecar-build/
+/artifacts/codex/
 /artifacts/installer/
 /artifacts/win-unpacked/
 /artifacts/m9-release-*.json

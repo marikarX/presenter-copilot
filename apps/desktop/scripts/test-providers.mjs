@@ -94,6 +94,43 @@ try {
   await panel.getByText("not configured", { exact: false }).first().waitFor();
   await panel
     .getByRole("combobox", { name: "Provider", exact: true })
+    .selectOption("codex_chatgpt");
+  assert.equal(
+    await panel
+      .getByRole("textbox", { name: "Model", exact: true })
+      .isDisabled(),
+    true,
+  );
+  assert.equal(
+    await panel
+      .getByRole("textbox", { name: "Model", exact: true })
+      .inputValue(),
+    "gpt-5.4-mini",
+  );
+  await panel
+    .getByRole("button", { name: "Refresh ChatGPT status", exact: true })
+    .click();
+  await panel.getByText("ChatGPT status updated.", { exact: true }).waitFor();
+  const authStatus = await page.evaluate(async () =>
+    window.presenterCopilot.core.request("provider.codex.status"),
+  );
+  assert.equal(authStatus.ok, true);
+  assert.deepEqual(Object.keys(authStatus.result).sort(), [
+    "error_code",
+    "runtime_version",
+    "state",
+  ]);
+  assert.equal(authStatus.result.state, "signed_out");
+  await panel
+    .getByRole("button", { name: "Sign out of ChatGPT", exact: true })
+    .click();
+  await panel.getByText("ChatGPT status updated.", { exact: true }).waitFor();
+  await panel
+    .getByRole("button", { name: "Save and select", exact: true })
+    .click();
+  await panel.getByText("Provider selected.", { exact: false }).waitFor();
+  await panel
+    .getByRole("combobox", { name: "Provider", exact: true })
     .selectOption("local_openai");
   await panel
     .getByRole("textbox", { name: "Base URL", exact: true })

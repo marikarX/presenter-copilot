@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { type ProviderStatus, unwrapInvokeResult } from "../shared/protocol";
+import {
+  type CodexAuthStatus,
+  type ProviderStatus,
+  unwrapInvokeResult,
+} from "../shared/protocol";
 
 export function ReasoningProviders({ disabled }: { disabled: boolean }) {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -8,6 +12,30 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
   const [endpoint, setEndpoint] = useState("http://127.0.0.1:11434/v1");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [auth, setAuth] = useState<CodexAuthStatus["state"]>("signed_out");
+  async function codexAuth(action: "sign_in" | "status" | "sign_out") {
+    setBusy(true);
+    try {
+      const result = unwrapInvokeResult(
+        await window.presenterCopilot.core.request<CodexAuthStatus>(
+          `provider.codex.${action}`,
+        ),
+      );
+      setAuth(result.state);
+      setNotice(
+        result.state === "signing_in"
+          ? "Complete ChatGPT sign-in in your browser, then refresh status."
+          : "ChatGPT status updated.",
+      );
+      await load();
+    } catch {
+      setNotice(
+        "Codex authentication is unavailable. Check the supported runtime and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
   const load = useCallback(async () => {
     const result = unwrapInvokeResult(
       await window.presenterCopilot.core.request<{
@@ -84,7 +112,9 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
           <strong>
             {provider.provider_id === "local_openai"
               ? "Local model"
-              : "OpenAI API"}
+              : provider.provider_id === "codex_chatgpt"
+                ? "Codex — ChatGPT"
+                : "OpenAI API"}
           </strong>
           {": "}
           {provider.health.status === "ready"
@@ -111,6 +141,7 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
         >
           <option value="local_openai">Local model — OpenAI-compatible</option>
           <option value="openai">OpenAI API — API-key billing</option>
+          <option value="codex_chatgpt">Codex — ChatGPT sign-in</option>
         </select>
       </label>
       {selection === "local_openai" ? (
@@ -124,19 +155,48 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
           />
         </label>
       ) : null}
+      {selection === "codex_chatgpt" ? (
+        <div>
+          <p>
+            ChatGPT: {auth.replaceAll("_", " ")}. Sign-in lasts for this app
+            session. Codex uses an isolated runtime and approved Selected
+            Context only.
+          </p>
+          <button
+            disabled={disabled || busy}
+            onClick={() => void codexAuth("sign_in")}
+          >
+            Sign in with ChatGPT
+          </button>
+          <button
+            disabled={disabled || busy}
+            onClick={() => void codexAuth("status")}
+          >
+            Refresh ChatGPT status
+          </button>
+          <button
+            disabled={disabled || busy}
+            onClick={() => void codexAuth("sign_out")}
+          >
+            Sign out of ChatGPT
+          </button>
+        </div>
+      ) : null}
       <label>
         Model
         <input
           value={model}
           maxLength={120}
           onChange={(event) => setModel(event.target.value)}
-          disabled={disabled || busy}
+          disabled={disabled || busy || selection === "codex_chatgpt"}
         />
       </label>
       <p>
         {selection === "local_openai"
           ? "Optional credential: PRESENTER_LOCAL_API_KEY in the Core environment. Start your model server separately; this app does not download or launch it."
-          : "Uses the existing OS-stored OpenAI API credential or OPENAI_API_KEY."}
+          : selection === "codex_chatgpt"
+            ? "Requires official Codex 0.153.1 or 0.153.4. Uses ChatGPT-managed authentication; independent of API-key billing."
+            : "Uses the existing OS-stored OpenAI API credential or OPENAI_API_KEY."}
       </p>
       <div className="retrieval-actions">
         <button
