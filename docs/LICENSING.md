@@ -2,25 +2,23 @@
 
 ## Project license
 
-Presenter Copilot is licensed under the Apache License 2.0. See the repository root [LICENSE](../LICENSE).
+Presenter Copilot's own code and documentation are licensed under the MIT License. See the repository root [LICENSE](../LICENSE).
 
-Apache-2.0 was selected because it:
+The MIT license permits commercial and non-commercial use, modification, and redistribution, subject to retaining its copyright and permission notice.
 
-- permits commercial and non-commercial use;
-- permits modification and redistribution;
-- includes an explicit contributor patent grant;
-- works well for infrastructure, developer tooling, and open-source AI applications;
-- does not require downstream applications to be open-sourced merely because they use or modify this project.
+## Earlier Apache-2.0 grants
+
+Earlier revisions and releases were offered under Apache-2.0. Permissions already granted for those versions remain in effect; this license change does not withdraw them.
 
 ## Contributions
 
-Unless explicitly stated otherwise, contributions intentionally submitted to the project are accepted under Apache-2.0, consistent with Section 5 of the license.
+Unless explicitly stated otherwise, contributions intentionally submitted to the project are accepted under the MIT License. Contributors retain their copyrights; their contributions are made available under the repository's license.
 
 The project does not currently require a Contributor License Agreement (CLA) or Developer Certificate of Origin (DCO). This may be revisited before a broad public contribution program or commercial open-core offering.
 
 ## Third-party code and models
 
-Apache-2.0 applies to this repository's own code and documentation. It does not override licenses or usage terms for third-party dependencies, model weights, APIs, SDKs, fonts, media, datasets, or operating-system components.
+The MIT License applies to this repository's own code and documentation. It does not override licenses or usage terms for third-party dependencies, model weights, APIs, SDKs, fonts, media, datasets, or operating-system components.
 
 Before adding a dependency or model:
 
@@ -32,14 +30,14 @@ Before adding a dependency or model:
 
 ## Remote model providers
 
-Using an API, ChatGPT/Codex integration, or another hosted model may be governed by separate provider terms. The project's Apache-2.0 license does not grant access to, or rights in, those services.
+Using an API, ChatGPT/Codex integration, or another hosted model may be governed by separate provider terms. The project's MIT license does not grant access to, or rights in, those services.
 
 Provider integrations should therefore remain optional and replaceable.
 
 ## Trademarks and product name
 
-Apache-2.0 does not grant trademark rights. "Presenter Copilot" is currently a working project title, not a cleared public trademark. Public branding should not be finalized until name, domain, app-store, competitor, and trademark screening is complete.
+The MIT License does not grant trademark rights. "Presenter Copilot" is currently a working project title, not a cleared public trademark. Public branding should not be finalized until name, domain, app-store, competitor, and trademark screening is complete.
 
 ## Future commercial features
 
-A future hosted service, enterprise management layer, managed deployment service, or separately developed component may use different commercial terms. Any such change must not retroactively remove Apache-2.0 rights already granted to released open-source code.
+A future hosted service, enterprise management layer, managed deployment service, or separately developed component may use different commercial terms. Any such change must not retroactively remove MIT rights already granted to released open-source code.

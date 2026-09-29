@@ -152,13 +152,13 @@ High-stakes presentations often involve exact numbers and defensible claims. Gen
 
 ## D-012 — Apache-2.0 for the open-source repository
 
-**Status:** Accepted
+**Status:** Superseded by D-058
 
-The repository is licensed under the Apache License 2.0.
+At the time of this decision, the repository was licensed under the Apache License 2.0.
 
 Reason:
 
-Apache-2.0 is permissive, allows commercial use and modification, and includes an explicit contributor patent grant. It is a strong fit for an open-source AI/tooling project while leaving room for future separately developed hosted or enterprise services.
+Apache-2.0 is permissive, allows commercial use and modification, and includes an explicit contributor patent grant. It was considered a strong fit for an open-source AI/tooling project while leaving room for future separately developed hosted or enterprise services.
 
 This decision does not determine the eventual commercial boundary. Remaining questions include:
 
@@ -897,3 +897,12 @@ are optional Core environment inputs; no new durable authentication state exists
 
 This prevents a local-network label from bypassing Local Only and keeps backend
 compatibility in one adapter rather than adding renderer authority or new privacy modes.
+
+## D-058 — MIT license for repository-owned work
+
+**Status:** Accepted
+
+Apply the MIT License to the repository's own code and documentation from this
+revision forward. Third-party components remain subject to their own licenses.
+Permissions already granted for earlier Apache-2.0 versions remain in effect;
+this change does not withdraw them.

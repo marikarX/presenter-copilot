@@ -2,6 +2,7 @@
   "name": "@presenter-copilot/desktop",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "main": "dist/main/main.js",
   "scripts": {
     "build": "pnpm build:main && pnpm build:renderer",

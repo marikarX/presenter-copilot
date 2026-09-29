@@ -2,6 +2,7 @@
   "name": "presenter-copilot",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Local-first AI copilot for high-stakes presentations",
   "packageManager": "pnpm@11.19.0",
   "engines": {

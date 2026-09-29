@@ -47,4 +47,4 @@ After 1.0, the project should define explicit compatibility and deprecation poli
 
 ## Commercial relationship
 
-If commercial services or enterprise components are introduced, governance of the Apache-2.0 repository and ownership of separate commercial components should remain clearly documented. Open-source contributions must not be silently moved behind a proprietary license.
+If commercial services or enterprise components are introduced, governance of the MIT-licensed repository and ownership of separate commercial components should remain clearly documented. Open-source contributions must not be silently moved behind a proprietary license.

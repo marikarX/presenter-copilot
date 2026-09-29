@@ -228,7 +228,7 @@ Possible commercial features:
 
 ## Open-source strategy checkpoint
 
-Apache-2.0 has been selected for the open-source repository. Before broad public release, still decide:
+The repository uses MIT for its own code and documentation. Before broad public release, still decide:
 
 - what remains fully open source;
 - whether commercial functionality is hosted, enterprise-only, or open-core;

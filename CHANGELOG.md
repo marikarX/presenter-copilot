@@ -6,6 +6,12 @@ The project intends to follow [Semantic Versioning](https://semver.org/) once ve
 
 ## Unreleased
 
+### Changed
+
+- Change the license for repository-owned code and documentation from
+  Apache-2.0 to MIT. Existing Apache-2.0 permissions granted for earlier
+  versions remain in effect.
+
 ### Added
 
 - Milestone 9 release hardening: explicit model status/prepare/remove controls,

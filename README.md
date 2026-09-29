@@ -235,7 +235,7 @@ Immersive Rehearsal is documented as a post-MVP roadmap direction and does not c
 
 ## License
 
-Presenter Copilot is licensed under the [Apache License 2.0](LICENSE). Third-party models, SDKs, APIs, datasets, and dependencies remain subject to their own licenses and terms.
+Presenter Copilot is licensed under the [MIT License](LICENSE). Third-party models, SDKs, APIs, datasets, and dependencies remain subject to their own licenses and terms.
 
 ## Working positioning
 

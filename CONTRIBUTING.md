@@ -51,7 +51,7 @@ AI-assisted code and documentation are allowed. Contributors remain responsible 
 
 ## Licensing
 
-By submitting a contribution, you agree that it may be distributed under the repository's Apache License 2.0.
+By submitting a contribution, you agree that it may be distributed under the repository's MIT License.
 
 ## Conduct
 
