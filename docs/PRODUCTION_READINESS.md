@@ -81,6 +81,10 @@ falls back to width-matched Segoe UI/Calibri/Georgia via CSS size-adjust;
 probe right edge 652 vs 645 px (was 601).
 PostScript-only font names (for example `ArialMT`) no longer silently render
 in the browser default font; they take the normal fallback (Arial).
+Clear-material bevel: PowerPoint measurement confirms the 10% opacity; an
+edge-shading model was tried and reverted because PowerPoint's rim extends
+outside the image bounds (renderer geometry), which an image alias cannot
+reproduce without worsening record 90000004.
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

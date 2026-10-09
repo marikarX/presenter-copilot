@@ -24,6 +24,26 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Clear-material bevel investigation — 2026-10-09 (not adopted)
+
+PowerPoint rendered flat pictures with record 90000004's exact profile:
+clear material, `bevelT h=63500`, "chilly" top light rig and an orthographic
+front camera (`.local/session2/bevel_probe.py`).
+
+- Over a white slide, black became 230 and mid-grey became 242: an effective
+  10% opacity. This independently confirms the re-fitted
+  `OBSERVED_CLEAR_MATERIAL_PREVIEW_ALPHA = 0.1`.
+- The bevel adds a dark edge band about one bevel width (6 pt) wide.
+  Darkening is roughly peak x exp(-4.3 d), with peaks of about 0.63 on the
+  left and right, 0.28 at the top and 0.5 at the bottom (faster decay).
+  PowerPoint's rim starts one pixel outside the picture bounds (3D geometry).
+
+A preview-only model baked into the duotone alias matched PowerPoint's rim
+within about 10 levels from the second pixel inward. It could not reproduce
+the outermost, out-of-bounds pixel, and it worsened record 90000004 (median
+RGB MAE from 6.588% to 6.671%). It was therefore reverted. Matching the rim
+needs geometry outside the image bounds in the renderer itself.
+
 ### Width-matched fallback for Office cloud fonts — 2026-10-09
 
 A font probe (`.local/session2/font_probe.py`) rendered the same wrapped
