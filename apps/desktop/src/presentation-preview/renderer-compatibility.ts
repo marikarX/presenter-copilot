@@ -1945,6 +1945,32 @@ function hslToRgb(
   };
 }
 
+function srgbToLinear(channel: number): number {
+  const value = channel / 255;
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+function linearToSrgb(value: number): number {
+  const clamped = Math.min(1, Math.max(0, value));
+  return clampByte(
+    255 *
+      (clamped <= 0.0031308
+        ? clamped * 12.92
+        : 1.055 * clamped ** (1 / 2.4) - 0.055),
+  );
+}
+
+function mapLinear(
+  color: RGBColor,
+  transform: (value: number) => number,
+): RGBColor {
+  return {
+    r: linearToSrgb(transform(srgbToLinear(color.r))),
+    g: linearToSrgb(transform(srgbToLinear(color.g))),
+    b: linearToSrgb(transform(srgbToLinear(color.b))),
+  };
+}
+
 function applyColorTransforms(
   element: Element,
   base: RGBColor,
@@ -1957,20 +1983,16 @@ function applyColorTransforms(
     const amount = Number(value) / 100_000;
     if (!Number.isFinite(amount)) return null;
     if (transform.localName === "tint" && amount >= 0 && amount <= 1) {
-      color = {
-        r: clampByte(color.r * amount + 255 * (1 - amount)),
-        g: clampByte(color.g * amount + 255 * (1 - amount)),
-        b: clampByte(color.b * amount + 255 * (1 - amount)),
-      };
+      // PowerPoint mixes tint and shade in linear light (measured: black at
+      // 98% tint renders 39, 50% tint renders 188).
+      color = mapLinear(color, (value) => value * amount + (1 - amount));
     } else if (transform.localName === "shade" && amount >= 0 && amount <= 1) {
-      color = {
-        r: clampByte(color.r * amount),
-        g: clampByte(color.g * amount),
-        b: clampByte(color.b * amount),
-      };
+      color = mapLinear(color, (value) => value * amount);
     } else if (transform.localName === "satMod" && amount >= 0 && amount <= 8) {
+      // PowerPoint scales saturation without a cap and clamps the final RGB
+      // (measured: FA8D3D at 400% renders 255,97,0).
       const [hue, saturation, lightness] = rgbToHsl(color);
-      color = hslToRgb(hue, Math.min(1, saturation * amount), lightness);
+      color = hslToRgb(hue, saturation * amount, lightness);
     } else if (transform.localName === "lumMod" && amount >= 0 && amount <= 8) {
       const [hue, saturation, lightness] = rgbToHsl(color);
       color = hslToRgb(hue, saturation, Math.min(1, lightness * amount));

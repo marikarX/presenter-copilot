@@ -1078,7 +1078,8 @@ describe("preview renderer compatibility", () => {
 
     expect(report.duotoneImageReferencesNormalized).toBe(2);
     expect(report.compatibilityPartsSkipped).toBe(0);
-    expect(renderedPixels).toEqual([0, 0, 0, 255, 5, 5, 5, 255]);
+    // Linear-light tint, as PowerPoint renders it.
+    expect(renderedPixels).toEqual([0, 0, 0, 255, 36, 36, 36, 255]);
     expect(new Uint8Array(sourceBytes)).toEqual(originalBytes);
   });
 
@@ -1125,7 +1126,7 @@ describe("preview renderer compatibility", () => {
     expect(report.themeOverrideColorsNormalized).toBe(2);
     expect(report.compatibilityPartsSkipped).toBe(0);
     expect(updatedSlide).toContain('<a:srgbClr val="CCCCFF"/>');
-    expect(updatedSlide).toContain('<a:srgbClr val="E6E6FF"/>');
+    expect(updatedSlide).toContain('<a:srgbClr val="E7E7FF"/>');
     expect(updatedSlide).not.toContain('<a:schemeClr val="accent2"');
     expect(updatedSlide).not.toBe(originalSlide);
     expect(new Uint8Array(sourceBytes)).toEqual(originalBytes);
@@ -1239,7 +1240,7 @@ describe("preview renderer compatibility", () => {
     );
     expect(report.themeBackgroundImageFillsResolved).toBe(1);
     expect(report.compatibilityPartsSkipped).toBe(0);
-    expect(transformedPixels).toEqual([0, 0, 0, 255, 5, 5, 5, 255]);
+    expect(transformedPixels).toEqual([0, 0, 0, 255, 36, 36, 36, 255]);
     expect(updatedMaster).toContain("<p:bgPr>");
     expect(updatedMaster).not.toContain("<p:bgRef");
     expect(updatedMaster).toContain('r:embed="rIdPresenterPreviewBackground1"');

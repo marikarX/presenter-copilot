@@ -134,6 +134,15 @@ Commits this session:
   superscript and empty-paragraph sizes). Airline slide 21 now wraps line for
   line like PowerPoint (MAE 12.14% -> 10.21%); corpus mean slide RGB MAE
   3.170% -> 3.148% on the same 563 slides (26 better, 15 slightly worse).
+- Preview color transforms in the compatibility layer now follow measured
+  PowerPoint behavior: tint and shade mix in linear light (black at 98% tint
+  renders 39, not 5) and satMod scales saturation without a cap before
+  clamping RGB (FA8D3D at 400% renders 255,97,0). This fixes theme
+  duotone backgrounds and duotone pictures that rendered near-black or pink
+  (Durand slide 5 MAE 11.03% -> 4.80%; Philippine slide 1 -> 4.09%). Corpus
+  mean slide RGB MAE 3.148% -> 3.046%, median 2.714% -> 2.562% (46 slides
+  better, none worse). Remaining visible gaps: tiled background textures are
+  stretched, 3D perspective/bevel SmartArt is flat, small bullets sit high.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
