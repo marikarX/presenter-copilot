@@ -52,6 +52,11 @@ Commits this session:
   replaced; corpus format-editable objects 2173 -> 2416; 9 real-deck edits
   open in PowerPoint. Only equations (26 shapes) remain structurally blocked.
 
+Preview fidelity re-baseline (33-deck corpus vs PowerPoint): no regression
+since 2026-10-02 on 28 common decks (median RGB MAE 2.522%, PSNR 18.686 dB;
+4 slides improved, 0 regressed); 3 OLE-embedding decks are now refused by
+the active-content policy. Details in `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
+
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`
 117/117, `test-bullet-marker.mjs` 4/4.

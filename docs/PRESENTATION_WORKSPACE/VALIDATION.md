@@ -4,6 +4,26 @@
 
 Validate both product usefulness and document fidelity before treating Presentation Workspace as a core product surface.
 
+### Preview fidelity re-baseline — 2026-10-09
+
+`pnpm workspace:visual-compare -- --preview-compatibility all` was rerun on
+the 33-deck corpus against local PowerPoint. The comparison is with the
+2026-10-02 report (`.local/preview-compare-33-current-tree-20261002.json`).
+
+- On the 28 decks compared in both runs, the median of per-deck median RGB MAE
+  is unchanged at 2.522% and median PSNR at 18.686 dB. Four slides improved by
+  more than one MAE point; none regressed by more than one point.
+- Three decks that were compared on 10-02 (records 5789785, 7761240, 1287949)
+  are now refused before PowerPoint with `POWERPOINT_ACTIVE_CONTENT_BLOCKED`.
+  All three embed OLE objects (`ppt/embeddings/oleObject*.bin`). The refusal
+  is the active-content safety policy added after the baseline, not a preview
+  regression. Two decks remain skipped for external relationships.
+- 15 slides had unstable PowerPoint renders (21 on 10-02) and are excluded
+  from stable-difference metrics as before.
+- Visual fidelity is still a release gate. These numbers show no regression
+  from this week's editing changes, not acceptable fidelity. Report:
+  `.local/preview-compare-33-20261009.json`.
+
 ### List numbering and bullet markers on the local corpus — 2026-10-09
 
 Read-only inventory of the 33 cached corpus decks
