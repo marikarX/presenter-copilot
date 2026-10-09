@@ -60,6 +60,11 @@ Preview `a:lum` now matches PowerPoint's measured brightness/contrast (the
 old formula inverted contrast increases and blended brightness toward white);
 the dependent clear-material alpha was re-fitted to 0.1. Record 90000004 median
 RGB MAE 7.030% -> 6.853%; no other slide moved by more than one point.
+Embedded picture bullets (`buBlip` with a plain `r:embed`) are now a
+replaceable imported marker like symbol glyphs; replacing removes only the
+`buBlip`. Full check 1914 passed. Equations stay read-only by design: editing
+inside `mc:AlternateContent` would leave PowerPoint's pre-rendered fallback
+image inconsistent.
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`
@@ -196,7 +201,7 @@ Remaining human-gated items:
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: remaining direct-edit gaps (picture bullets, equations), held revision-change GUI replies,
+Next: remaining gaps (equations by design), held revision-change GUI replies,
 fidelity corpus review and human acceptance gates. Signing and clean Windows
 validation remain accepted debt.
 

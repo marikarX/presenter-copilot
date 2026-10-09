@@ -1854,7 +1854,25 @@ def _paragraph_bullet_mode_for_shape(
         and not (bullet_node.text and bullet_node.text.strip())
     ):
         return _PARAGRAPH_MODE_BY_AUTONUM_TYPE[bullet_node.get("type", "")], True
+    if bullet_node.tag == f"{{{DRAWING_NS}}}buBlip" and _is_plain_picture_bullet(bullet_node):
+        # An embedded picture marker is kept as an imported marker that can be
+        # replaced; replacing it removes only the buBlip, never the image part.
+        return None, True
     return None, False
+
+
+def _is_plain_picture_bullet(node: etree._Element) -> bool:
+    blips = list(node)
+    if node.attrib or len(blips) != 1 or blips[0].tag != f"{{{DRAWING_NS}}}blip":
+        return False
+    blip = blips[0]
+    embed = blip.get(f"{{{REL_NS}}}embed")
+    return (
+        isinstance(embed, str)
+        and bool(embed)
+        and set(blip.attrib) == {f"{{{REL_NS}}}embed"}
+        and not len(blip)
+    )
 
 
 def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:

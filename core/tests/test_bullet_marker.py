@@ -514,3 +514,28 @@ def test_fields_with_unexpected_markup_stay_read_only(tmp_path: Path) -> None:
         assert not deck.target()[0]["text_format_editable"]
     finally:
         deck.core.close()
+
+
+def _embedded_picture_bullet(properties: etree._Element) -> None:
+    bullet = properties.find(f"{A}buChar")
+    picture = etree.Element(f"{A}buBlip")
+    etree.SubElement(
+        picture,
+        f"{A}blip",
+        {"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed": "rId2"},
+    )
+    properties.replace(bullet, picture)
+
+
+def test_embedded_picture_bullets_can_be_replaced_by_a_text_marker(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _embedded_picture_bullet)
+    try:
+        style = deck.target()[0]["text_style"]
+        assert style["bullet_editable"] and style["bullet_state"] is None
+        assert deck.format({"bullet_mode": "bullet_square"})["ok"]
+        for properties in deck.properties():
+            assert properties.find(f"{A}buBlip") is None
+            assert properties.find(f"{A}buChar").get("char") == "▪"
+        assert deck.target()[0]["text_style"]["bullet_state"] == "bullet_square"
+    finally:
+        deck.core.close()
