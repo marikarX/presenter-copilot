@@ -237,6 +237,7 @@ type TextStyle = {
   italic: boolean | null;
   underline?: boolean | null;
   strikethrough?: boolean | null;
+  font_family?: string | null;
   font_size_pt: number | null;
   font_color: string | null;
   color_editable: boolean;
@@ -269,6 +270,7 @@ type TextStyleChange = Partial<
     | "italic"
     | "underline"
     | "strikethrough"
+    | "font_family"
     | "font_size_pt"
     | "font_color"
     | "alignment"
@@ -401,7 +403,34 @@ type ShapeStyleDraft = {
 
 type NewShapeType = "rect" | "ellipse";
 
+const FONT_FAMILY_SUGGESTIONS = [
+  "+mn-lt",
+  "+mj-lt",
+  "Aptos",
+  "Arial",
+  "Calibri",
+  "Cambria",
+  "Consolas",
+  "Georgia",
+  "Segoe UI",
+  "Times New Roman",
+  "Verdana",
+];
+
+function validFontFamily(value: string): boolean {
+  return (
+    value === "+mn-lt" ||
+    value === "+mj-lt" ||
+    // eslint-disable-next-line no-control-regex
+    (/^[^\u0000-\u001f\u007f<>"&+\s][^\u0000-\u001f\u007f<>"&]{0,30}$/.test(
+      value,
+    ) &&
+      value === value.trim())
+  );
+}
+
 type TextStyleDraft = {
+  font_family: string;
   font_size_pt: string;
   font_color: string;
   alignment: string;
@@ -943,7 +972,10 @@ function isTextStyle(value: unknown): value is TextStyle {
     (candidate.italic === null || typeof candidate.italic === "boolean") &&
     (candidate.underline == null || typeof candidate.underline === "boolean") &&
     (candidate.strikethrough == null ||
-      typeof candidate.strikethrough === "boolean");
+      typeof candidate.strikethrough === "boolean") &&
+    (candidate.font_family == null ||
+      (typeof candidate.font_family === "string" &&
+        candidate.font_family.length <= 256));
   const validFontSize =
     candidate.font_size_pt === null ||
     (typeof candidate.font_size_pt === "number" &&
@@ -1211,6 +1243,7 @@ export function PresentationWorkspace({
   const [voiceClarification, setVoiceClarification] = useState("");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [textStyleDraft, setTextStyleDraft] = useState<TextStyleDraft>({
+    font_family: "",
     font_size_pt: "",
     font_color: "#000000",
     alignment: "",
@@ -2072,6 +2105,7 @@ export function PresentationWorkspace({
     setTextRewriteProposal(null);
     setRewriteBusy(false);
     setTextStyleDraft({
+      font_family: "",
       font_size_pt: "",
       font_color: "#000000",
       alignment: "",
@@ -2509,6 +2543,7 @@ export function PresentationWorkspace({
         setSelectedTargetHandle(firstTarget?.key ?? "");
         setMockText(firstTarget?.text.slice(0, MAX_MOCK_TEXT_CHARS) ?? "");
         setTextStyleDraft({
+          font_family: firstTarget?.style.font_family ?? "",
           font_size_pt: firstTarget?.style.font_size_pt?.toString() ?? "",
           font_color: firstTarget?.style.font_color ?? "#000000",
           alignment: firstTarget?.style.alignment ?? "",
@@ -7473,6 +7508,7 @@ export function PresentationWorkspace({
                             target?.text.slice(0, MAX_MOCK_TEXT_CHARS) ?? "",
                           );
                           setTextStyleDraft({
+                            font_family: target?.style.font_family ?? "",
                             font_size_pt:
                               target?.style.font_size_pt?.toString() ?? "",
                             font_color: target?.style.font_color ?? "#000000",
@@ -8030,6 +8066,48 @@ export function PresentationWorkspace({
                           }
                         >
                           Apply paragraph format
+                        </button>
+                        <label>
+                          Font (theme: +mn-lt body, +mj-lt headings)
+                          <input
+                            type="text"
+                            list="pw-font-family-suggestions"
+                            maxLength={31}
+                            placeholder="Mixed or inherited"
+                            aria-label="Font family"
+                            value={textStyleDraft.font_family}
+                            onChange={(event) =>
+                              setTextStyleDraft((current) => ({
+                                ...current,
+                                font_family: event.target.value,
+                              }))
+                            }
+                            disabled={!loadedSourceId || loading}
+                          />
+                          <datalist id="pw-font-family-suggestions">
+                            {FONT_FAMILY_SUGGESTIONS.map((font) => (
+                              <option key={font} value={font} />
+                            ))}
+                          </datalist>
+                        </label>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() =>
+                            void saveTextStyleRevision({
+                              font_family: textStyleDraft.font_family,
+                            })
+                          }
+                          disabled={
+                            !loadedSourceId ||
+                            loading ||
+                            !selectedTarget.style.fingerprint ||
+                            !validFontFamily(textStyleDraft.font_family) ||
+                            textStyleDraft.font_family ===
+                              selectedTarget.style.font_family
+                          }
+                        >
+                          Apply font
                         </button>
                         <label>
                           Font size (points, 6–96)

@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
 
-// Actual Electron/Core/native PPTX for underline and strikethrough.
+// Actual Electron/Core/native PPTX for underline, strikethrough and font family.
 const require = createRequire(import.meta.url);
 const desktop = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -197,12 +197,30 @@ try {
     "Toggling underline off writes an explicit no-underline and keeps the strike",
   );
 
+  const apply = page.getByRole("button", { name: "Apply font", exact: true });
+  await page.getByLabel("Font family", { exact: true }).fill("+custom");
+  assert.equal(await apply.isDisabled(), true, "Invalid font name blocks save");
+  await page.getByLabel("Font family", { exact: true }).fill("Georgia");
+  await apply.click();
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  const font = await style();
+  assert.equal(font.font_family, "Georgia");
+  assert.equal(font.strikethrough, true);
+  assert.equal(
+    await apply.isDisabled(),
+    true,
+    "Font field reads back the save",
+  );
+  checks.push(
+    "GUI rejects an invalid font name and applies Georgia as one native revision",
+  );
+
   await workspace
     .getByRole("button", { name: "Undo last presentation edit", exact: true })
     .click();
-  await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
-  assert.equal((await style()).underline, true);
-  checks.push("Undo restores the underlined revision");
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  assert.notEqual((await style()).font_family, "Georgia");
+  checks.push("Undo restores the previous font");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

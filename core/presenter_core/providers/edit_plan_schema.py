@@ -57,6 +57,7 @@ _STYLE_PROPERTIES = {
     "italic": {"type": "boolean"},
     "underline": {"type": "boolean"},
     "strikethrough": {"type": "boolean"},
+    "font_family": _text(31, 1),
     "font_size_pt": _integer(6, 96),
     "font_color": _text(7, 7),
     "alignment": _choice("left", "center", "right", "justify"),

@@ -198,6 +198,7 @@ class FidelityTextStyle:
     italic: bool | None = None
     underline: bool | None = None
     strikethrough: bool | None = None
+    font_family: str | None = None
     font_size_pt: float | None = None
     font_color: str | None = None
     color_editable: bool = False
@@ -430,6 +431,7 @@ class FidelityDocument:
                             "italic": obj.text_style.italic,
                             "underline": obj.text_style.underline,
                             "strikethrough": obj.text_style.strikethrough,
+                            "font_family": obj.text_style.font_family,
                             "font_size_pt": obj.text_style.font_size_pt,
                             "font_color": obj.text_style.font_color,
                             "color_editable": obj.text_style.color_editable,
@@ -1746,6 +1748,7 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         italic=uniform("italic"),
         underline=uniform("underline"),
         strikethrough=uniform("strikethrough"),
+        font_family=uniform("font_family"),
         font_size_pt=uniform("font_size_pt"),
         font_color=uniform("font_color"),
         color_editable=all(style.color_editable for style in styles),
@@ -2106,6 +2109,10 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
     ):
         return FidelityTextStyle(editable=False, fingerprint=fingerprint)
     underline = None if raw_underline is None else raw_underline != "none"
+    latin = [child for child in children if child.tag == f"{{{DRAWING_NS}}}latin"]
+    if len(latin) > 1:
+        return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+    font_family = latin[0].get("typeface") or None if latin else None
     strikethrough = None if raw_strike is None else raw_strike != "noStrike"
 
     fill_tags = {
@@ -2138,6 +2145,7 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
         italic=italic,
         underline=underline,
         strikethrough=strikethrough,
+        font_family=font_family,
         font_size_pt=font_size_pt,
         font_color=font_color,
         color_editable=color_editable,

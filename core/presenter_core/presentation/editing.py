@@ -7137,7 +7137,13 @@ class PresentationEditService:
                     PresentationEditService._apply_text_style_to_run(run, replacement_style)
                 # Breaks keep their own run properties; style them too so line
                 # height follows the new text size.
-                if replacement_style.keys() & {"bold", "italic", "font_size_pt", "font_color"}:
+                if replacement_style.keys() & {
+                    "bold",
+                    "italic",
+                    "font_family",
+                    "font_size_pt",
+                    "font_color",
+                }:
                     for line_break in shape.xpath("./p:txBody/a:p/a:br", namespaces=_NS):
                         PresentationEditService._apply_text_style_to_run(
                             line_break, replacement_style
@@ -7307,6 +7313,29 @@ class PresentationEditService:
                     "b" if name == "bold" else "i",
                     "1" if replacement_style[name] else "0",
                 )
+        if "font_family" in replacement_style:
+            latin = run_properties.find(f"{{{DRAWING_NS}}}latin")
+            if latin is None:
+                following = {
+                    f"{{{DRAWING_NS}}}{name}"
+                    for name in ("ea", "cs", "sym", "hlinkClick", "hlinkMouseOver", "rtl", "extLst")
+                }
+                latin = etree.Element(f"{{{DRAWING_NS}}}latin")
+                run_properties.insert(
+                    next(
+                        (
+                            index
+                            for index, child in enumerate(run_properties)
+                            if child.tag in following
+                        ),
+                        len(run_properties),
+                    ),
+                    latin,
+                )
+            # Panose/charset metadata described the previous font.
+            for attribute in list(latin.attrib):
+                del latin.attrib[attribute]
+            latin.set("typeface", replacement_style["font_family"])
         # Turning emphasis on keeps an existing underline/strike style (double, wavy...).
         for name, attribute, off, on in (
             ("underline", "u", "none", "sng"),
@@ -8642,6 +8671,7 @@ class PresentationEditService:
             "italic",
             "underline",
             "strikethrough",
+            "font_family",
             "font_size_pt",
             "font_color",
             "alignment",
@@ -8670,6 +8700,18 @@ class PresentationEditService:
                     raise invalid_request(
                         f"replacement_style.{name} must be a boolean.",
                         field=f"replacement_style.{name}",
+                    )
+                result[name] = item
+            elif name == "font_family":
+                if not isinstance(item, str) or not (
+                    item in {"+mn-lt", "+mj-lt"}
+                    or re.fullmatch(r"[^\x00-\x1f\x7f<>\"&+\s][^\x00-\x1f\x7f<>\"&]{0,30}", item)
+                    and item == item.strip()
+                ):
+                    raise invalid_request(
+                        "replacement_style.font_family must be a font name of up to 31 "
+                        "characters, +mn-lt or +mj-lt.",
+                        field="replacement_style.font_family",
                     )
                 result[name] = item
             elif name == "font_size_pt":

@@ -76,3 +76,55 @@ def test_non_boolean_emphasis_is_rejected(tmp_path: Path) -> None:
         assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
     finally:
         deck.core.close()
+
+
+def test_font_family_replaces_latin_typeface_and_drops_stale_metadata(tmp_path: Path) -> None:
+    def latin(properties: etree._Element) -> None:
+        for run in properties.getparent().findall("a:r", NS):
+            node = run.find(f"{A}rPr")
+            if node is None:
+                node = etree.Element(f"{A}rPr")
+                run.insert(0, node)
+            for old in node.findall(f"{A}latin") + node.findall(f"{A}ea"):
+                node.remove(old)
+            etree.SubElement(node, f"{A}latin", typeface="Calibri", panose="020F0502020204030204")
+            etree.SubElement(node, f"{A}ea", typeface="+mn-ea")
+
+    deck = _Deck(tmp_path, latin)
+    try:
+        assert deck.target()[0]["text_style"]["font_family"] == "Calibri"
+        assert deck.format({"font_family": "Georgia"})["ok"]
+        for run in _runs(deck):
+            assert dict(run.find(f"{A}latin").attrib) == {"typeface": "Georgia"}
+            assert [child.tag.removeprefix(A) for child in run][-2:] == ["latin", "ea"]
+        assert deck.target()[0]["text_style"]["font_family"] == "Georgia"
+        assert deck.format({"font_family": "+mj-lt"})["ok"]
+        assert deck.target()[0]["text_style"]["font_family"] == "+mj-lt"
+    finally:
+        deck.core.close()
+
+
+def _without_latin(properties: etree._Element) -> None:
+    for node in properties.getparent().findall("a:r/a:rPr", NS):
+        for old in node.findall(f"{A}latin"):
+            node.remove(old)
+
+
+def test_font_family_is_inserted_when_absent(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _without_latin)
+    try:
+        assert deck.target()[0]["text_style"]["font_family"] is None
+        assert deck.format({"font_family": "Segoe UI"})["ok"]
+        assert {run.find(f"{A}latin").get("typeface") for run in _runs(deck)} == {"Segoe UI"}
+    finally:
+        deck.core.close()
+
+
+@pytest.mark.parametrize("family", ["", " Arial", "+custom", "A" * 32, "Bad<Font>", "Tab\tFont"])
+def test_invalid_font_family_is_rejected(tmp_path: Path, family: str) -> None:
+    deck = _Deck(tmp_path, _keep)
+    try:
+        reply = deck.format({"font_family": family})
+        assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
+    finally:
+        deck.core.close()

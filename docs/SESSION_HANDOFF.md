@@ -71,7 +71,12 @@ Commits this session:
 - Underline and strikethrough are direct-run text styles (Text panel toggles,
   `format_text_shape` and Copilot plans). Turning one on keeps an existing
   double/wavy style; turning it off writes `u="none"` / `strike="noStrike"`;
-  unknown values keep the shape read-only. `test-text-emphasis.mjs` 4/4.
+  unknown values keep the shape read-only.
+- Font family (`a:latin` typeface, or theme `+mn-lt`/`+mj-lt`) is a direct-run
+  style with a suggestion list in the Text panel and in Copilot plans. It
+  replaces the typeface in place, drops stale panose/charset metadata and
+  inserts `latin` in schema order. PowerPoint reads back single underline,
+  single strike and Georgia. `test-text-emphasis.mjs` 6/6.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
