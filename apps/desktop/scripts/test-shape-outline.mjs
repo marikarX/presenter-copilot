@@ -203,6 +203,11 @@ try {
     [40, "#E0EDFA"],
   );
   checks.push("GUI sets 40% fill transparency while keeping the fill color");
+  await page.getByRole("button", { name: "Add shadow", exact: true }).click();
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  assert.equal((await style()).shadow, true);
+  await page.getByText("Shadow: on", { exact: true }).waitFor();
+  checks.push("GUI adds a shape shadow as one native revision");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

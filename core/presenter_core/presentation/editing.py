@@ -525,6 +525,11 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This shape fill uses a style the color editor cannot safely retain.",
             )
+        if "shadow" in replacement_style and not style.shadow_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape uses effects the shadow editor cannot safely retain.",
+            )
         if "line_color" in replacement_style and not style.line_editable:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
@@ -7754,6 +7759,8 @@ class PresentationEditService:
                 if property_name in {"line_width_pt", "line_dash"}
                 else "fill_editable"
                 if property_name == "fill_transparency_percent"
+                else "shadow_editable"
+                if property_name == "shadow"
                 else f"{property_name.removesuffix('_color')}_editable"
             )
             if not getattr(obj.shape_style, editable_field):
@@ -7805,6 +7812,8 @@ class PresentationEditService:
                     width_pt=replacement_style.get("line_width_pt"),
                     dash=replacement_style.get("line_dash"),
                 )
+                if "shadow" in replacement_style:
+                    PresentationEditService._set_shape_shadow(shape, replacement_style["shadow"])
                 if "fill_transparency_percent" in replacement_style:
                     PresentationEditService._set_fill_transparency(
                         shape, replacement_style["fill_transparency_percent"]
@@ -7993,6 +8002,34 @@ class PresentationEditService:
             rgb.append(copy.deepcopy(kept_alpha[0]))
         PresentationEditService._insert_ordered_shape_property(
             container, solid_fill, insertion_rank=insertion_rank
+        )
+
+    @staticmethod
+    def _set_shape_shadow(shape: etree._Element, enabled: bool) -> None:
+        """Write PowerPoint's offset bottom-right outer shadow, or an explicit empty list."""
+        shape_properties = shape.find(f"{{{PRESENTATION_NS}}}spPr")
+        if shape_properties is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape does not have a supported property container.",
+            )
+        for existing in shape_properties.findall(f"{{{DRAWING_NS}}}effectLst"):
+            shape_properties.remove(existing)
+        effects = etree.Element(f"{{{DRAWING_NS}}}effectLst")
+        if enabled:
+            shadow = etree.SubElement(
+                effects,
+                f"{{{DRAWING_NS}}}outerShdw",
+                blurRad="50800",
+                dist="38100",
+                dir="2700000",
+                algn="tl",
+                rotWithShape="0",
+            )
+            color = etree.SubElement(shadow, f"{{{DRAWING_NS}}}prstClr", val="black")
+            etree.SubElement(color, f"{{{DRAWING_NS}}}alpha", val="40000")
+        PresentationEditService._insert_ordered_shape_property(
+            shape_properties, effects, insertion_rank=4
         )
 
     @staticmethod
@@ -8924,6 +8961,7 @@ class PresentationEditService:
     @staticmethod
     def _shape_style_field(value: Any) -> dict[str, Any]:
         names = {
+            "shadow",
             "fill_color",
             "fill_transparency_percent",
             "line_color",
@@ -8952,6 +8990,14 @@ class PresentationEditService:
                         field="replacement_style.line_width_pt",
                     )
                 result[name] = float(color)
+                continue
+            if name == "shadow":
+                if type(color) is not bool:
+                    raise invalid_request(
+                        "replacement_style.shadow must be a boolean.",
+                        field="replacement_style.shadow",
+                    )
+                result[name] = color
                 continue
             if name == "fill_transparency_percent":
                 if type(color) is not int or not 0 <= color <= 100:

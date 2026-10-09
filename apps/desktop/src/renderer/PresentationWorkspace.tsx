@@ -375,6 +375,8 @@ type ShapeStyle = {
   line_dash: string | null;
   line_format_editable: boolean;
   fill_transparency_percent?: number | null;
+  shadow?: boolean | null;
+  shadow_editable?: boolean;
 };
 
 const SHAPE_LINE_DASHES: ReadonlyArray<[string, string]> = [
@@ -986,7 +988,8 @@ function isPresentationObject(value: unknown): value is PresentationObject {
           shapeStyle.fingerprint !== null &&
           (shapeStyle.fill_editable ||
             shapeStyle.line_editable ||
-            shapeStyle.line_format_editable))));
+            shapeStyle.line_format_editable ||
+            shapeStyle.shadow_editable === true))));
   return (
     typeof candidate.object_id === "string" &&
     UUID_PATTERN.test(candidate.object_id) &&
@@ -5157,20 +5160,31 @@ export function PresentationWorkspace({
 
   const saveShapeColorRevision = useCallback(
     async (
-      property: "fill_color" | "line_color" | "outline" | "transparency",
+      property:
+        | "fill_color"
+        | "line_color"
+        | "outline"
+        | "transparency"
+        | "shadow_on"
+        | "shadow_off",
     ) => {
       const source = selectedSource;
       const revision = currentRevision;
       const target = selectedObject;
       const style = target?.shape_style;
       const editable =
-        property === "fill_color" || property === "transparency"
-          ? style?.fill_editable
-          : property === "line_color"
-            ? style?.line_editable
-            : style?.line_format_editable;
-      const replacement: Record<string, string | number> = {};
-      if (property === "transparency") {
+        property === "shadow_on" || property === "shadow_off"
+          ? style?.shadow_editable
+          : property === "fill_color" || property === "transparency"
+            ? style?.fill_editable
+            : property === "line_color"
+              ? style?.line_editable
+              : style?.line_format_editable;
+      const replacement: Record<string, string | number | boolean> = {};
+      if (property === "shadow_on" || property === "shadow_off") {
+        const enabled = property === "shadow_on";
+        if (style?.shadow !== enabled) replacement.shadow = enabled;
+      } else if (property === "transparency") {
         const percent = Number(objectStyleDraft.fill_transparency_percent);
         if (
           Number.isInteger(percent) &&
@@ -5212,6 +5226,8 @@ export function PresentationWorkspace({
         Object.keys(replacement).length === 0 ||
         (property !== "outline" &&
           property !== "transparency" &&
+          property !== "shadow_on" &&
+          property !== "shadow_off" &&
           style[property] === replacement[property])
       ) {
         setNotice("The selected shape style is unchanged.");
@@ -9784,6 +9800,46 @@ export function PresentationWorkspace({
                             stays read-only.
                           </p>
                         )}
+                        {selectedObject.shape_style.shadow_editable ? (
+                          <div className="pw-shape-color-control">
+                            <p className="muted">
+                              Shadow:{" "}
+                              {selectedObject.shape_style.shadow === true
+                                ? "on"
+                                : selectedObject.shape_style.shadow === false
+                                  ? "off"
+                                  : "from the theme style"}
+                            </p>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void saveShapeColorRevision("shadow_on")
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                selectedObject.shape_style.shadow === true
+                              }
+                            >
+                              Add shadow
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void saveShapeColorRevision("shadow_off")
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                selectedObject.shape_style.shadow === false
+                              }
+                            >
+                              Remove shadow
+                            </button>
+                          </div>
+                        ) : null}
                         {selectedObject.shape_style.line_format_editable ? (
                           <div className="pw-shape-color-control">
                             <label>

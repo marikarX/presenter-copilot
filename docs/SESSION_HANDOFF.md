@@ -90,7 +90,12 @@ Commits this session:
   property in the Objects panel and Copilot plans. Imported fills with a
   whole-percent alpha are now editable; recoloring keeps the transparency;
   0% removes the alpha; unfilled shapes need a color first (both can be set
-  together). PowerPoint reads back 0.4 for 40%. `test-shape-outline.mjs` 4/4.
+  together). PowerPoint reads back 0.4 for 40%.
+- Shape shadow on/off: a single outer shadow (PowerPoint's offset
+  bottom-right preset) or an explicit empty effect list; theme-driven, mixed
+  or DAG effects stay read-only. Objects panel and Copilot plans. PowerPoint
+  reports the shadow visible at a 3 pt diagonal offset.
+  `test-shape-outline.mjs` 5/5.
 - Text links: one external http/https/mailto click link across a text
   shape's runs is a reviewed edit (`presentation.workspace.set_text_hyperlink`,
   Text panel and Copilot plans). Script, file and relative targets are
@@ -291,7 +296,7 @@ Remaining human-gated items:
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: further Workspace authoring (e.g. shape effects such as shadows, table
+Next: further Workspace authoring (e.g. table
 cell text emphasis parity, link targets to other slides), then the open
 fidelity gaps (image bevel rim geometry, glyph rasterization) and the
 human-gated items above. Last full check 1981 passed; Workspace GUI 117/117;

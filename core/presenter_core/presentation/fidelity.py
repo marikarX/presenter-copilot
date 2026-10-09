@@ -241,6 +241,8 @@ class FidelityShapeStyle:
     fill_color: str | None = None
     fill_editable: bool = False
     fill_transparency_percent: int | None = None
+    shadow: bool | None = None
+    shadow_editable: bool = False
     line_color: str | None = None
     line_editable: bool = False
     line_width_pt: float | None = None
@@ -511,6 +513,8 @@ class FidelityDocument:
                             "fill_transparency_percent": (
                                 obj.shape_style.fill_transparency_percent
                             ),
+                            "shadow": obj.shape_style.shadow,
+                            "shadow_editable": obj.shape_style.shadow_editable,
                             "line_color": obj.shape_style.line_color,
                             "line_editable": obj.shape_style.line_editable,
                             "line_width_pt": obj.shape_style.line_width_pt,
@@ -1319,9 +1323,12 @@ def _shape_style(
     line_width_pt, line_dash, line_format_editable = (
         _shape_line_format(lines[0] if lines else None) if structure_ok else (None, None, False)
     )
+    shadow_editable, shadow = _shape_shadow(shape_properties)
     return FidelityShapeStyle(
-        editable=fill_editable or line_editable or line_format_editable,
+        editable=fill_editable or line_editable or line_format_editable or shadow_editable,
         fingerprint=fingerprint,
+        shadow=shadow,
+        shadow_editable=shadow_editable,
         fill_color=fill_color,
         fill_editable=fill_editable,
         fill_transparency_percent=fill_transparency,
@@ -1331,6 +1338,23 @@ def _shape_style(
         line_dash=line_dash,
         line_format_editable=line_format_editable,
     )
+
+
+def _shape_shadow(shape_properties: etree._Element) -> tuple[bool, bool | None]:
+    """(editable, shadow): theme-driven (None), explicit none (False) or one outer shadow."""
+    effects = shape_properties.findall(f"{{{DRAWING_NS}}}effectLst")
+    if shape_properties.find(f"{{{DRAWING_NS}}}effectDag") is not None or len(effects) > 1:
+        return False, None
+    if not effects:
+        return True, None
+    children = list(effects[0])
+    if effects[0].attrib:
+        return False, None
+    if not children:
+        return True, False
+    if len(children) == 1 and children[0].tag == f"{{{DRAWING_NS}}}outerShdw":
+        return True, True
+    return False, None
 
 
 def _ordered_property_children_supported(
