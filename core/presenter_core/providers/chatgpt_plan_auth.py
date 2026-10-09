@@ -43,6 +43,8 @@ MODEL_LIST_ENDPOINT = f"{RESOURCE}/models"
 APP_NAME = "Presenter Copilot"
 OAUTH_SCOPE = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 MAX_AUTH_RESPONSE_BYTES = 256 * 1024
+# The live model catalog carries per-model metadata well beyond auth replies.
+MAX_MODEL_LIST_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_ACCESS_TOKEN_CHARS = 16_384
 MAX_CODE_CHARS = 4_096
 MAX_MODEL_COUNT = 500
@@ -314,7 +316,7 @@ class ChatGPTPlanAuthService:
             "GET",
             MODEL_LIST_ENDPOINT,
             headers={"Authorization": f"Bearer {token}"},
-            max_bytes=MAX_AUTH_RESPONSE_BYTES,
+            max_bytes=MAX_MODEL_LIST_RESPONSE_BYTES,
             error_code="CHATGPT_MODEL_LIST_FAILED",
         )
         raw_models, standard_shape = _catalog_items(data)

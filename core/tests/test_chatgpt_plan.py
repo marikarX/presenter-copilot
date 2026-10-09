@@ -518,3 +518,27 @@ def test_chatgpt_plan_model_catalog_accepts_standard_list_shape() -> None:
         assert invalid.value.code == "CHATGPT_MODEL_LIST_INVALID"
     finally:
         auth.close()
+
+
+def test_chatgpt_plan_model_catalog_accepts_large_live_sized_responses() -> None:
+    # The live catalog exceeded the 256 KiB auth-response bound during acceptance.
+    harness = _OAuthHarness()
+    harness.model_payload = {
+        "models": [
+            {
+                "slug": f"model-{index}",
+                "display_name": f"Model {index}",
+                "visibility": "list",
+                "description": "x" * 2000,
+            }
+            for index in range(200)
+        ]
+    }
+    auth = harness.make_auth(InMemoryChatGPTPlanCredentialStore())
+    try:
+        auth.sign_in()
+        harness.complete_login("oaiapp_presenter_one")
+        assert len(json.dumps(harness.model_payload)) > 256 * 1024
+        assert len(auth.model_options()) == 200
+    finally:
+        auth.close()

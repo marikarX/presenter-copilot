@@ -108,24 +108,33 @@ Fast Decisions live local acceptance (2026-10-09):
 This is integration evidence, not calibration: thresholds remain uncalibrated
 until a licensing-safe human-labeled set exists.
 
+Sign in with ChatGPT live acceptance (2026-10-09, user's eligible account,
+isolated data root, synthetic content only):
+
+- First-time consent completed in the user's browser (80 s); the session
+  survived an app restart (DPAPI vault).
+- Model listing initially failed: the live catalog exceeded the 256 KiB bound
+  shared with OAuth replies (`CHATGPT_MODEL_LIST_FAILED`). Fixed with a
+  separate streamed 8 MiB bound for the catalog plus a regression test. On the
+  same live session afterwards: 3 models (`gpt-6-luna`, `gpt-5.6-terra`,
+  `gpt-5.6-luna`) in 651 ms.
+- One synthetic slide-purpose decision through the ChatGPT-plan Fast Decisions
+  provider: `recommendation` (correct), 2330 ms provider latency, no
+  confidence value returned, review required.
+- Sign-out completed with remote token revocation confirmed.
+- The Settings disclosure texts were not re-read live in this run (the guided
+  script stopped at model listing before the fix); they are covered by the
+  fixture GUI test. Receipts: `.local/chatgpt-live/`.
+
 Human-gated items (cannot be completed by an agent):
 
-- Sign in with ChatGPT live acceptance: run
-  `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live` with an
-  eligible account. It automates consent wait, restart persistence, model
-  listing, disclosures, one synthetic decision, catalog refresh and sign-out,
-  and writes a token-free receipt to `.local/chatgpt-live/`.
+- Sign in with ChatGPT: accepted live (above). Rerun
+  `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live` against a
+  release candidate to cover the Settings disclosures end to end.
 - Fast Decisions calibration needs a licensing-safe human-labeled set. Live
   local integration is now exercised (see above); rerun with
   `PRESENTER_DECISION_LIVE_MODEL=<id> node apps/desktop/scripts/accept-fast-decisions-local.mjs`
   after starting a loopback model server.
-- An unauthenticated probe of the app's real ChatGPT-plan authorize URL
-  (`dynamic_agent_client`, custom scope, `resource`/`ext_agent_host_id`/
-  `agent_name_hint`) reached `auth.openai.com`, but both a plain HTTP client
-  (403) and headless Chromium ("Just a moment…") stop at Cloudflare's bot
-  challenge. Whether OpenAI accepts these parameters therefore can only be
-  confirmed in a real user browser, which is the consent step the guided
-  script waits for. Probe: `.local/session2/chatgpt_authorize_probe.py`.
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
