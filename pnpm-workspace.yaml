@@ -11,3 +11,5 @@ allowBuilds:
   electron-winstaller: false
 minimumReleaseAgeExclude:
   - globals@17.12.0
+patchedDependencies:
+  '@aiden0z/pptx-renderer@1.3.0': patches/@aiden0z__pptx-renderer@1.3.0.patch

@@ -24,6 +24,25 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Superscript/subscript renderer patch — 2026-10-09
+
+With the user's approval, `@aiden0z/pptx-renderer@1.3.0` is patched via
+`pnpm patch` (`patches/@aiden0z__pptx-renderer@1.3.0.patch`, registered in
+`pnpm-workspace.yaml`). A mixed-text probe at Arial 60 pt
+(`.local/session2/baseline_probe.py`) measured PowerPoint shifting raised or
+lowered text by exactly baseline% x run font size (+30% gave 24 px, -25%
+gave 19 px) at about two-thirds size. The renderer used CSS `vertical-align:
+N%` relative to the shrunken run's own line height, at 0.65 size, which gave
+20 px / 14 px.
+
+The patch sets `vertical-align` to `(baseline/100) x font size` in points and
+the shifted size to 2/3, in all three bundles. After the patch, superscript
+shifts 25 px vs 24 and subscript 19 px vs 19, with the size ratio at
+0.638 vs 0.655 (was 0.621). The corpus has 254 such runs in 6 decks.
+Whole-slide metrics did not move on the corpus (glyph areas are tiny); no
+slide changed by more than one point. Full check and `test-workspace.mjs`
+117/117 pass.
+
 ### Text-layout probe: preview vs PowerPoint — 2026-10-09
 
 A synthetic deck (`.local/session2/text_probe.py`) puts three wrapped Arial
