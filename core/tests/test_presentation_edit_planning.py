@@ -1122,6 +1122,7 @@ def test_provider_text_link_binds_current_link_and_applies(tmp_path: Path) -> No
                         "slide_id": inventory["slide_id"],
                         "object_id": target["object_id"],
                         "replacement_url": "https://example.com/pilot",
+                        "replacement_slide_id": None,
                     },
                     "rationale": "Link the pilot brief",
                     "evidence_ids": [],
@@ -1156,6 +1157,6 @@ def test_provider_text_link_binds_current_link_and_applies(tmp_path: Path) -> No
             )["objects"]
             if obj["object_id"] == target["object_id"]
         )
-        assert linked["hyperlink"] == {"url": "https://example.com/pilot"}
+        assert linked["hyperlink"] == {"url": "https://example.com/pilot", "slide_id": None}
     finally:
         core.close()

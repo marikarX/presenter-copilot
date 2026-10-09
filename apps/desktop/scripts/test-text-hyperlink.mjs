@@ -41,6 +41,7 @@ slide=deck.slides.add_slide(deck.slide_layouts[6])
 box=slide.shapes.add_textbox(Inches(1),Inches(1),Inches(7),Inches(2))
 box.name='Agenda list'
 run=box.text_frame.paragraphs[0].add_run();run.text='Retire the legacy plan';run.font.size=Pt(28)
+deck.slides.add_slide(deck.slide_layouts[6])
 deck.save(sys.argv[1])
 `,
     fixture,
@@ -151,7 +152,7 @@ try {
     ).object_id;
     return inventory.objects.find((item) => item.object_id === id).hyperlink;
   };
-  assert.deepEqual(await style(), { url: null });
+  assert.deepEqual(await style(), { url: null, slide_id: null });
   checks.push("A plain text box reports an editable, unlinked text target");
 
   await page
@@ -174,7 +175,10 @@ try {
   await field.fill("https://example.com/legacy-plan");
   await apply.click();
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
-  assert.deepEqual(await style(), { url: "https://example.com/legacy-plan" });
+  assert.deepEqual(await style(), {
+    url: "https://example.com/legacy-plan",
+    slide_id: null,
+  });
   assert.equal(await field.inputValue(), "https://example.com/legacy-plan");
   checks.push(
     "GUI blocks a script link and applies an https link to the text as one native revision",
@@ -183,15 +187,39 @@ try {
 
   await remove.click();
   await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
-  assert.deepEqual(await style(), { url: null });
+  assert.deepEqual(await style(), { url: null, slide_id: null });
   checks.push("Remove link clears the link");
 
   await workspace
     .getByRole("button", { name: "Undo last presentation edit", exact: true })
     .click();
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
-  assert.deepEqual(await style(), { url: "https://example.com/legacy-plan" });
+  assert.deepEqual(await style(), {
+    url: "https://example.com/legacy-plan",
+    slide_id: null,
+  });
   checks.push("Undo restores the link");
+  const slideTwo = (
+    await ask("presentation.workspace.list_text_targets", {
+      project_id: project,
+      document_id: document,
+      revision_id: (
+        await ask("presentation.workspace.list_revisions", {
+          project_id: project,
+          document_id: document,
+        })
+      ).current_revision_id,
+      slide_number: 2,
+    })
+  ).slide_id;
+  await page
+    .getByLabel("Link to slide", { exact: true })
+    .selectOption({ label: "Slide 2" });
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  assert.deepEqual(await style(), { url: null, slide_id: slideTwo });
+  checks.push(
+    "GUI replaces the web link with a jump to slide 2 as one native revision",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

@@ -172,9 +172,10 @@ class FidelityPictureCrop:
 
 @dataclass(frozen=True)
 class FidelityHyperlink:
-    """One external click link shared by every text run, or none."""
+    """One click link shared by every text run: a web address, another slide, or none."""
 
     url: str | None = None
+    slide_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -535,7 +536,9 @@ class FidelityDocument:
                         else None
                     ),
                     "hyperlink": (
-                        {"url": obj.hyperlink.url} if obj.hyperlink is not None else None
+                        {"url": obj.hyperlink.url, "slide_id": obj.hyperlink.slide_id}
+                        if obj.hyperlink is not None
+                        else None
                     ),
                     "rotation": (
                         {
@@ -644,6 +647,14 @@ def inspect_pptx_snapshot(
             seen_slide_ids: set[str] = set()
             total_objects = 0
             total_text_chars = 0
+            # Slide part -> stable slide id, so slide-jump links resolve to identities.
+            slide_part_ids: dict[str, str] = {}
+            for slide_ref in slide_ids:
+                relation = relationships.get(slide_ref.get(f"{{{REL_NS}}}id") or "")
+                if relation is not None and relation[0] == SLIDE_REL_TYPE:
+                    slide_part_ids[_resolve_internal_part("ppt", relation[1])] = _stable_id(
+                        f"{document_id}\0identity-v1\0slide\0{slide_ref.get('id')}"
+                    )
             for ordinal, slide_ref in enumerate(slide_ids, start=1):
                 ooxml_slide_id = slide_ref.get("id")
                 relationship_id = slide_ref.get(f"{{{REL_NS}}}id")
@@ -672,7 +683,9 @@ def inspect_pptx_snapshot(
                     slide_height_emu=slide_height_emu,
                     chart_text=chart_texts(archive, members, slide_root, part_name),
                     group_picture_ids=grouping_picture_ids(archive, members, slide_root, part_name),
-                    hyperlink_targets=slide_hyperlink_targets(archive, members, part_name),
+                    hyperlink_targets=slide_hyperlink_targets(
+                        archive, members, part_name, slide_part_ids
+                    ),
                 )
                 speaker_notes, notes_editable = _speaker_notes_for_slide(
                     archive,
@@ -906,7 +919,7 @@ def _objects_for_slide(
     slide_height_emu: int,
     chart_text: dict[str, str] | None = None,
     group_picture_ids: set[str] | None = None,
-    hyperlink_targets: dict[str, str] | None = None,
+    hyperlink_targets: dict[str, tuple[str, str]] | None = None,
 ) -> tuple[FidelityObject, ...]:
     shape_tree = root.find(f".//{{{PRESENTATION_NS}}}spTree")
     if shape_tree is None:
@@ -1473,32 +1486,52 @@ def slide_background(slide_root: etree._Element) -> FidelityBackground | None:
 
 
 HYPERLINK_REL_TYPE = f"{REL_NS}/hyperlink"
-_HYPERLINK_ATTRIBUTES = {f"{{{REL_NS}}}id", "tooltip", "history", "highlightClick", "endSnd"}
+_HYPERLINK_ATTRIBUTES = {
+    f"{{{REL_NS}}}id",
+    "action",
+    "tooltip",
+    "history",
+    "highlightClick",
+    "endSnd",
+}
+SLIDE_JUMP_ACTION = "ppaction://hlinksldjump"
 
 
 def slide_hyperlink_targets(
-    archive: zipfile.ZipFile, members: dict[str, zipfile.ZipInfo], part_name: str
-) -> dict[str, str]:
-    """External hyperlink relationship targets of one slide part."""
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    part_name: str,
+    slide_part_ids: dict[str, str] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Link relationships of one slide: ("url", address) or ("slide", slide id)."""
     directory, name = posixpath.split(part_name)
     info = members.get(f"{directory}/_rels/{name}.rels")
     if info is None:
         return {}
-    return {
-        relationship_id: target
-        for relationship_id, (relationship_type, target, mode) in _relationships(
-            _parse_xml_part(archive, info)
-        ).items()
-        if relationship_type == HYPERLINK_REL_TYPE and mode == "External"
-    }
+    result: dict[str, tuple[str, str]] = {}
+    for relationship_id, (relationship_type, target, mode) in _relationships(
+        _parse_xml_part(archive, info)
+    ).items():
+        if relationship_type == HYPERLINK_REL_TYPE and mode == "External":
+            result[relationship_id] = ("url", target)
+        elif relationship_type == SLIDE_REL_TYPE and mode == "Internal" and slide_part_ids:
+            try:
+                part = _resolve_internal_part(directory, target)
+            except CoreDomainError:
+                continue
+            if part in slide_part_ids:
+                result[relationship_id] = ("slide", slide_part_ids[part])
+    return result
 
 
-def shape_hyperlink(candidate: etree._Element, targets: dict[str, str]) -> FidelityHyperlink | None:
+def shape_hyperlink(
+    candidate: etree._Element, targets: dict[str, tuple[str, str]]
+) -> FidelityHyperlink | None:
     """The uniform external click link of a text shape; None when mixed or unsupported."""
     runs = candidate.xpath("./p:txBody/a:p/a:r | ./p:txBody/a:p/a:fld", namespaces=_NS)
     if not runs:
         return None
-    urls: set[str | None] = set()
+    urls: set[tuple[str, str] | None] = set()
     for run in runs:
         properties = run.find(f"{{{DRAWING_NS}}}rPr")
         links = [] if properties is None else properties.findall(f"{{{DRAWING_NS}}}hlinkClick")
@@ -1519,10 +1552,20 @@ def shape_hyperlink(candidate: etree._Element, targets: dict[str, str]) -> Fidel
             or relationship_id not in targets
         ):
             return None
+        kind = targets[relationship_id][0]
+        if link.get("action") != (SLIDE_JUMP_ACTION if kind == "slide" else None):
+            return None
         urls.add(targets[relationship_id])
     if len(urls) != 1:
         return None
-    return FidelityHyperlink(url=urls.pop())
+    value = urls.pop()
+    if value is None:
+        return FidelityHyperlink()
+    return (
+        FidelityHyperlink(slide_id=value[1])
+        if value[0] == "slide"
+        else FidelityHyperlink(url=value[1])
+    )
 
 
 _FLIP_VALUES = {"0": False, "false": False, "1": True, "true": True}

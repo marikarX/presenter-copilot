@@ -17,6 +17,8 @@ from presenter_core.presentation.fidelity import (
     DRAWING_NS,
     HYPERLINK_REL_TYPE,
     REL_NS,
+    SLIDE_JUMP_ACTION,
+    SLIDE_REL_TYPE,
     FidelityHyperlink,
     _parse_xml_part,
     inspect_pptx_snapshot,
@@ -69,6 +71,8 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
             "expected_text",
             "expected_url",
             "replacement_url",
+            "expected_slide_id",
+            "replacement_slide_id",
         },
     )
     project = editor._project_id(params.get("project_id"))
@@ -79,10 +83,22 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
     expected_text = params.get("expected_text")
     if not isinstance(expected_text, str):
         raise invalid_request("expected_text must be a string.", field="expected_text")
-    expected = FidelityHyperlink(url=hyperlink_url(params.get("expected_url"), "expected_url"))
-    replacement = FidelityHyperlink(
-        url=hyperlink_url(params.get("replacement_url"), "replacement_url")
-    )
+
+    def link(prefix: str) -> FidelityHyperlink:
+        url = hyperlink_url(params.get(f"{prefix}_url"), f"{prefix}_url")
+        raw_slide = params.get(f"{prefix}_slide_id")
+        target_slide = (
+            None if raw_slide is None else editor._uuid_field(raw_slide, f"{prefix}_slide_id")
+        )
+        if url is not None and target_slide is not None:
+            raise invalid_request(
+                f"Choose either {prefix}_url or {prefix}_slide_id, not both.",
+                field=f"{prefix}_slide_id",
+            )
+        return FidelityHyperlink(url=url, slide_id=target_slide)
+
+    expected = link("expected")
+    replacement = link("replacement")
     source = editor._current_revision_source(project, document)
     if source["revision_id"] != revision:
         raise editor._revision_conflict()
@@ -109,7 +125,7 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
     if obj.hyperlink is None:
         raise CoreDomainError(
             "PRESENTATION_EDIT_UNSUPPORTED",
-            "This text uses mixed, internal or hover links that stay read-only.",
+            "This text uses mixed, action or hover links that stay read-only.",
         )
     if obj.text != expected_text or obj.hyperlink != expected:
         raise CoreDomainError(
@@ -117,6 +133,12 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
             "The text or its link changed. Refresh the preview and try again.",
             retryable=True,
         )
+    slide_parts = {item.slide_id: item.part_name for item in fidelity.slides}
+    if replacement.slide_id is not None and replacement.slide_id not in slide_parts:
+        raise CoreDomainError(
+            "PRESENTATION_EDIT_TARGET_NOT_FOUND", "The linked slide is unavailable."
+        )
+    part_ids = {part: identity for identity, part in slide_parts.items()}
     if replacement == expected:
         return {
             "changed": False,
@@ -141,7 +163,7 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
             rels = _parse_xml_part(archive, members[rels_part])
             node = editor._find_shape(root, obj.ooxml_id)
             if shape_hyperlink(
-                node, slide_hyperlink_targets(archive, members, slide.part_name)
+                node, slide_hyperlink_targets(archive, members, slide.part_name, part_ids)
             ) != (expected):
                 raise CoreDomainError(
                     "PRESENTATION_EDIT_STALE_TARGET",
@@ -163,20 +185,31 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
                 for link in properties.findall(f"{A}hlinkClick"):
                     previous.add(link.get(f"{{{REL_NS}}}id", ""))
                     properties.remove(link)
-            if replacement.url is not None:
+            if replacement.url is not None or replacement.slide_id is not None:
                 used = {item.get("Id") for item in rels}
                 number = 1
                 while f"rId{number}" in used:
                     number += 1
                 relationship_id = f"rId{number}"
-                etree.SubElement(
-                    rels,
-                    f"{{{PACKAGE_REL_NS}}}Relationship",
-                    Id=relationship_id,
-                    Type=HYPERLINK_REL_TYPE,
-                    Target=replacement.url,
-                    TargetMode="External",
-                )
+                if replacement.url is not None:
+                    etree.SubElement(
+                        rels,
+                        f"{{{PACKAGE_REL_NS}}}Relationship",
+                        Id=relationship_id,
+                        Type=HYPERLINK_REL_TYPE,
+                        Target=replacement.url,
+                        TargetMode="External",
+                    )
+                else:
+                    etree.SubElement(
+                        rels,
+                        f"{{{PACKAGE_REL_NS}}}Relationship",
+                        Id=relationship_id,
+                        Type=SLIDE_REL_TYPE,
+                        Target=posixpath.relpath(
+                            slide_parts[replacement.slide_id or ""], directory
+                        ),
+                    )
                 for run in runs:
                     properties = run.find(f"{A}rPr")
                     if properties is None:
@@ -184,6 +217,8 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
                         run.insert(0, properties)
                     link = etree.Element(f"{A}hlinkClick")
                     link.set(f"{{{REL_NS}}}id", relationship_id)
+                    if replacement.slide_id is not None:
+                        link.set("action", SLIDE_JUMP_ACTION)
                     properties.insert(
                         next(
                             (
@@ -250,4 +285,10 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
         return True
 
     result = editor._commit_revision(project, document, revision, source, write)
-    return {**result, "slide_id": slide_id, "object_id": object_id, "url": replacement.url}
+    return {
+        **result,
+        "slide_id": slide_id,
+        "object_id": object_id,
+        "url": replacement.url,
+        "linked_slide_id": replacement.slide_id,
+    }

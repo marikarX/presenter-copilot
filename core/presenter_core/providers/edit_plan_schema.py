@@ -196,7 +196,11 @@ PARAMETER_SCHEMAS = {
     "adjust_picture": _object({**_TARGET, "replacement_adjustment": _ADJUSTMENT}),
     "rotate_object": _object({**_TARGET, "replacement_rotation": _ROTATION}),
     "set_text_hyperlink": _object(
-        {**_TARGET, "replacement_url": {"anyOf": [_text(2048, 1), {"type": "null"}]}}
+        {
+            **_TARGET,
+            "replacement_url": {"anyOf": [_text(2048, 1), {"type": "null"}]},
+            "replacement_slide_id": {"anyOf": [_text(36, 36), {"type": "null"}]},
+        }
     ),
     "set_slide_background": _object(
         {"slide_id": _ID, "replacement_color": {"anyOf": [_text(7, 7), {"type": "null"}]}}

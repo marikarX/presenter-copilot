@@ -403,7 +403,7 @@ type PresentationObject = {
   picture_crop: PictureCrop | null;
   picture_adjustment?: PictureAdjustment | null;
   rotation?: ObjectRotation | null;
-  hyperlink?: { url: string | null } | null;
+  hyperlink?: { url: string | null; slide_id?: string | null } | null;
   shape_style: ShapeStyle | null;
 };
 
@@ -928,7 +928,10 @@ function isPresentationObject(value: unknown): value is PresentationObject {
     hyperlink == null ||
     (typeof hyperlink === "object" &&
       (hyperlink.url === null ||
-        (typeof hyperlink.url === "string" && hyperlink.url.length <= 2048)));
+        (typeof hyperlink.url === "string" && hyperlink.url.length <= 2048)) &&
+      (hyperlink.slide_id == null ||
+        (typeof hyperlink.slide_id === "string" &&
+          UUID_PATTERN.test(hyperlink.slide_id))));
   const rotation = candidate.rotation;
   const validRotation =
     rotation === undefined ||
@@ -4467,7 +4470,7 @@ export function PresentationWorkspace({
       : (selectedTextLink?.url ?? "");
 
   const saveTextHyperlinkRevision = useCallback(
-    async (url: string | null) => {
+    async (url: string | null, linkedSlideId: string | null = null) => {
       const source = selectedSource;
       const revision = currentRevision;
       const target = selectedTarget;
@@ -4479,7 +4482,8 @@ export function PresentationWorkspace({
         !target ||
         !current ||
         (url !== null && !validHyperlinkUrl(url)) ||
-        url === current.url ||
+        (url !== null && linkedSlideId !== null) ||
+        (url === current.url && linkedSlideId === (current.slide_id ?? null)) ||
         loadedSourceId !== source.id ||
         loading
       ) {
@@ -4500,7 +4504,9 @@ export function PresentationWorkspace({
             object_id: target.object_id,
             expected_text: target.text,
             expected_url: current.url,
+            expected_slide_id: current.slide_id ?? null,
             replacement_url: url,
+            replacement_slide_id: linkedSlideId,
           },
         );
         if (
@@ -8531,15 +8537,41 @@ export function PresentationWorkspace({
                               disabled={
                                 !loadedSourceId ||
                                 loading ||
-                                selectedTextLink.url === null
+                                (selectedTextLink.url === null &&
+                                  !selectedTextLink.slide_id)
                               }
                             >
                               Remove link
                             </button>
+                            <label>
+                              Or link to slide
+                              <select
+                                aria-label="Link to slide"
+                                value={selectedTextLink.slide_id ?? ""}
+                                onChange={(event) =>
+                                  event.target.value &&
+                                  void saveTextHyperlinkRevision(
+                                    null,
+                                    event.target.value,
+                                  )
+                                }
+                                disabled={!loadedSourceId || loading}
+                              >
+                                <option value="">Choose a slide</option>
+                                {fidelityReport?.slides.map((slide) => (
+                                  <option
+                                    key={slide.slide_id}
+                                    value={slide.slide_id}
+                                  >
+                                    Slide {slide.ordinal}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                           </div>
                         ) : selectedTextObject ? (
                           <p className="muted">
-                            This text uses mixed, slide-jump or hover links that
+                            This text uses mixed, action or hover links that
                             stay read-only.
                           </p>
                         ) : null}

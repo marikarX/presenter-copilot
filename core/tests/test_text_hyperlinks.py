@@ -82,7 +82,7 @@ class _Links(_Deck):
 def test_link_sets_changes_and_removes_without_orphans(tmp_path: Path) -> None:
     deck = _Links(tmp_path, _keep)
     try:
-        assert deck.hyperlink() == {"url": None}
+        assert deck.hyperlink() == {"url": None, "slide_id": None}
         assert deck.link("https://example.com/report")["ok"]
         links, runs = deck.parts()
         assert [(item.get("Target"), item.get("TargetMode")) for item in links] == [
@@ -91,7 +91,7 @@ def test_link_sets_changes_and_removes_without_orphans(tmp_path: Path) -> None:
         assert {run.find(f"{A}rPr/{A}hlinkClick").get(f"{{{REL_NS}}}id") for run in runs} == {
             links[0].get("Id")
         }
-        assert deck.hyperlink() == {"url": "https://example.com/report"}
+        assert deck.hyperlink() == {"url": "https://example.com/report", "slide_id": None}
 
         assert deck.link("mailto:team@example.com")["ok"]
         links, _ = deck.parts()
@@ -101,7 +101,7 @@ def test_link_sets_changes_and_removes_without_orphans(tmp_path: Path) -> None:
         links, runs = deck.parts()
         assert links == []
         assert all(run.find(f"{A}rPr/{A}hlinkClick") is None for run in runs)
-        assert deck.hyperlink() == {"url": None}
+        assert deck.hyperlink() == {"url": None, "slide_id": None}
         same = deck.link(None)
         assert same["ok"] and same["result"]["changed"] is False
     finally:
@@ -153,5 +153,80 @@ def test_internal_slide_jump_links_stay_read_only(tmp_path: Path) -> None:
     deck = _Links(tmp_path, jump)
     try:
         assert deck.hyperlink() is None
+    finally:
+        deck.core.close()
+
+
+def test_link_can_jump_to_another_slide_and_be_removed(tmp_path: Path) -> None:
+    deck = _Links(tmp_path, _keep)
+    try:
+        other = next(number for number in (1, 2, 3) if number != deck.slide_number)
+        target_slide = _call(
+            deck.core,
+            "other",
+            "presentation.workspace.list_text_targets",
+            {
+                "project_id": deck.project,
+                "document_id": deck.document,
+                "revision_id": deck.revision,
+                "slide_number": other,
+            },
+        )["result"]["slide_id"]
+        target, slide_id = deck.target()
+        reply = _call(
+            deck.core,
+            "jump",
+            "presentation.workspace.set_text_hyperlink",
+            {
+                "project_id": deck.project,
+                "document_id": deck.document,
+                "expected_revision_id": deck.revision,
+                "slide_id": slide_id,
+                "object_id": target["object_id"],
+                "expected_text": target["current_text"],
+                "expected_url": None,
+                "replacement_slide_id": target_slide,
+            },
+        )
+        assert reply["ok"], reply
+        deck.revision = reply["result"]["revision_id"]
+        assert deck.hyperlink() == {"url": None, "slide_id": target_slide}
+        with deck.core._storage.project_database(deck.project) as connection:
+            row = connection.execute(
+                "SELECT local_snapshot_path FROM presentation_revisions WHERE id=?",
+                (deck.revision,),
+            ).fetchone()
+        path = deck.core._storage.paths.snapshot_path(
+            deck.project, row["local_snapshot_path"], require_exists=True
+        )
+        with zipfile.ZipFile(path) as archive:
+            rels = etree.fromstring(
+                archive.read(f"ppt/slides/_rels/slide{deck.slide_number}.xml.rels")
+            )
+        jumps = [item for item in rels if item.get("Type", "").endswith("/slide")]
+        assert [item.get("Target") for item in jumps] == [f"slide{other}.xml"]
+        _links, runs = deck.parts()
+        assert {run.find(f"{A}rPr/{A}hlinkClick").get("action") for run in runs} == {
+            "ppaction://hlinksldjump"
+        }
+        target, slide_id = deck.target()
+        cleared = _call(
+            deck.core,
+            "clear",
+            "presentation.workspace.set_text_hyperlink",
+            {
+                "project_id": deck.project,
+                "document_id": deck.document,
+                "expected_revision_id": deck.revision,
+                "slide_id": slide_id,
+                "object_id": target["object_id"],
+                "expected_text": target["current_text"],
+                "expected_slide_id": target_slide,
+                "replacement_url": None,
+            },
+        )
+        assert cleared["ok"], cleared
+        deck.revision = cleared["result"]["revision_id"]
+        assert deck.hyperlink() == {"url": None, "slide_id": None}
     finally:
         deck.core.close()

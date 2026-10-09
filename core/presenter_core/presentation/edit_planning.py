@@ -880,6 +880,11 @@ class PresentationEditPlanningService:
                 raise invalid_request("The proposed text link is not editable.")
             params["expected_text"] = obj.text
             params["expected_url"] = obj.hyperlink.url
+            params["expected_slide_id"] = obj.hyperlink.slide_id
+            if params.get("replacement_slide_id") is None:
+                params.pop("replacement_slide_id", None)
+            if params.get("replacement_url") is None and "replacement_slide_id" in params:
+                params.pop("replacement_url", None)
         elif kind == "replace_text_shape":
             if (
                 not (obj.single_run_text_edit_candidate or obj.uniform_run_text_edit_candidate)

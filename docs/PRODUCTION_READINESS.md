@@ -105,7 +105,10 @@ Commits this session:
   rejected; changing or removing a link deletes the orphaned relationship;
   slide-jump, hover and mixed links stay read-only. Preview windows already
   deny navigation, so links are inert in the app. PowerPoint resolves the
-  written address. `test-text-hyperlink.mjs` 4/4.
+  written address. Links can instead jump to another slide
+  (`replacement_slide_id`, `hlinksldjump` with an internal slide
+  relationship; "Link to slide" picker); PowerPoint resolves the jump to the
+  chosen slide. `test-text-hyperlink.mjs` 5/5.
 - Deck-wide find and replace over slide text and speaker notes
   (`presentation.workspace.find_text` / `replace_text_all`, "Find and
   replace" dialog; results carry a `slide`/`speaker_notes` target):
