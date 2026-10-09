@@ -3862,10 +3862,13 @@ def test_multirun_text_format_applies_to_each_run_and_preserves_unrelated_style(
         ("◦", "bullet_hollow", True),
         ("▪", "bullet_square", True),
         ("–", "bullet_dash", True),
-        ("★", None, False),
+        # A single custom glyph is a replaceable imported marker, not a mode.
+        ("★", None, True),
+        ("★★", None, False),
+        ("", None, False),
     ),
 )
-def test_only_predefined_bullet_glyphs_are_editable(
+def test_only_predefined_bullet_glyphs_report_modes(
     character: str,
     expected_mode: str | None,
     expected_editable: bool,

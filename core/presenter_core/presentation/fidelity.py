@@ -1636,23 +1636,39 @@ def _bullet_nodes(paragraph_properties: etree._Element | None) -> list[etree._El
 def _bullet_decoration(
     node: etree._Element,
 ) -> tuple[str, str | int | None] | None:
-    """Classify one supported color/size/font decoration, or None when unsupported."""
+    """Classify one supported color/size/font decoration, or None when unsupported.
+
+    A None value means the decoration is retained but has no exact direct value to
+    report (follow-text, theme or transformed colors, point sizes); replacing it
+    only happens when the user explicitly sets that property.
+    """
     name = node.tag.removeprefix(f"{{{DRAWING_NS}}}")
     if node.text and node.text.strip():
         return None
+    if name in {"buClrTx", "buSzTx", "buFontTx"}:
+        if node.attrib or len(node):
+            return None
+        return {"buClrTx": "color", "buSzTx": "size", "buFontTx": "font"}[name], None
     if name == "buClr":
         if node.attrib or len(node) != 1:
             return None
         color = node[0]
         value = color.get("val", "")
-        if (
-            color.tag != f"{{{DRAWING_NS}}}srgbClr"
-            or set(color.attrib) != {"val"}
-            or len(color)
-            or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
-        ):
+        if color.tag not in {f"{{{DRAWING_NS}}}srgbClr", f"{{{DRAWING_NS}}}schemeClr"}:
             return None
-        return "color", f"#{value.upper()}"
+        if (
+            color.tag == f"{{{DRAWING_NS}}}srgbClr"
+            and set(color.attrib) == {"val"}
+            and not len(color)
+            and re.fullmatch(r"[0-9A-Fa-f]{6}", value)
+        ):
+            return "color", f"#{value.upper()}"
+        return "color", None
+    if name == "buSzPts":
+        raw = node.get("val", "")
+        if set(node.attrib) != {"val"} or len(node) or not re.fullmatch(r"[0-9]{3,6}", raw):
+            return None
+        return "size", None
     if name == "buSzPct":
         raw = node.get("val", "")
         if set(node.attrib) != {"val"} or len(node) or not re.fullmatch(r"[0-9]{4,6}", raw):
@@ -1665,14 +1681,22 @@ def _bullet_decoration(
             return None
         return "size", value // 1000
     if name == "buFont":
+        typeface = node.get("typeface")
         if (
             len(node)
             or not set(node.attrib) <= {"typeface", "panose", "pitchFamily", "charset"}
-            or node.get("typeface") not in _PLAIN_BULLET_FONTS
+            or not isinstance(typeface, str)
+            or not 0 < len(typeface) <= 64
         ):
             return None
-        return "font", None
+        # Symbol fonts are retained for the imported glyph and dropped when the
+        # marker type changes; see PresentationEditService._apply_paragraph_bullet.
+        return "font", typeface
     return None
+
+
+def plain_bullet_font(typeface: str | None) -> bool:
+    return typeface in _PLAIN_BULLET_FONTS
 
 
 def _paragraph_bullet_decoration_for_shape(
@@ -1742,8 +1766,11 @@ def _paragraph_bullet_mode_for_shape(
         and not len(bullet_node)
         and not (bullet_node.text and bullet_node.text.strip())
     ):
-        mode = _PARAGRAPH_BULLET_MODE_BY_CHAR.get(bullet_node.get("char", ""))
-        return (mode, True) if mode is not None else (None, False)
+        char = bullet_node.get("char", "")
+        mode = _PARAGRAPH_BULLET_MODE_BY_CHAR.get(char)
+        # A single custom glyph (for example a Wingdings square) is kept as an
+        # imported marker that can be replaced, but is not reported as a mode.
+        return (mode, True) if mode is not None else (None, len(char) == 1)
     if (
         bullet_node.tag == f"{{{DRAWING_NS}}}buNone"
         and not bullet_node.attrib

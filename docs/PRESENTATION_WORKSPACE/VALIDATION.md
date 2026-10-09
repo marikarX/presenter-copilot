@@ -32,6 +32,28 @@ direct-marker list to exercise. Visual comparison of the rendered bullets was
 not part of this run. Script: `.local/session2/corpus_bullets.py`; receipts:
 `corpus-bullets-{before,head,edit}.json`.
 
+Follow-up tolerance (same day): follow-text markers (`buClrTx`, `buSzTx`,
+`buFontTx`), point sizes, theme/transformed bullet colors and single-glyph
+symbol bullets are retained and editable instead of read-only. Picture
+bullets and preset/system color models stay read-only. With this change all
+1836 format-editable text objects in the corpus are bullet-editable (from
+1654 originally).
+
+The run also found a real fidelity bug. A paragraph inherited a Wingdings
+bullet font from its shape list style, so an applied "•" or number would have
+rendered as a symbol. Applying a visible marker now removes a direct symbol
+`buFont` and, when no text font remains, writes `buFontTx` so the marker
+follows the text font.
+
+Final corpus pass: 13 real decks were edited through actual Core. Seven were
+Wingdings lists changed to "•" with a color. Six were recognised lists changed
+to lettered numbering from B with color and 120% size. Every edit read back
+exactly, every edited paragraph's marker uses a text font, and PowerPoint
+opened each copy. PowerPoint-rendered original/edited PNG pairs for all 13
+were reviewed for two representative decks (26 slide 2, 22 slide 2). Markers
+changed as intended and text positions did not move. Renders:
+`.local/session2/corpus-renders/`.
+
 ### Native templates and draft authoring — 2026-10-03
 
 General voice-plan follow-up: nine Core voice tests exercise rewrite, current

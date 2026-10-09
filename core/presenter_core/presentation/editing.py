@@ -71,6 +71,7 @@ from presenter_core.presentation.fidelity import (
     _shape_style,
     _text_style_for_shape,
     inspect_pptx_snapshot,
+    plain_bullet_font,
 )
 from presenter_core.presentation.revisions import MAX_REVISION_NUMBER
 from presenter_core.storage.paths import normalize_project_id
@@ -7107,6 +7108,12 @@ class PresentationEditService:
             ):
                 paragraph_properties.remove(child)
 
+        # New glyphs and numbers need a text font; a symbol bullet font would
+        # render them as unrelated symbols.
+        for font in paragraph_properties.findall(f"{{{DRAWING_NS}}}buFont"):
+            if not plain_bullet_font(font.get("typeface")):
+                paragraph_properties.remove(font)
+
         bullet_tag_name = (
             "buChar"
             if bullet_mode in PARAGRAPH_BULLET_CHAR_BY_MODE
@@ -7128,6 +7135,21 @@ class PresentationEditService:
             if previous_start is not None:
                 bullet_node.set("startAt", previous_start)
         paragraph_properties.insert(insert_index, bullet_node)
+        if bullet_mode == "none" or any(
+            paragraph_properties.find(f"{{{DRAWING_NS}}}{name}") is not None
+            for name in ("buFont", "buFontTx")
+        ):
+            return
+        # Without a direct text font the marker would inherit the list style's bullet
+        # font, which may be a symbol font (for example Wingdings in lstStyle or the
+        # master). Follow the text font so the chosen glyph or number renders as shown.
+        font_index = _paragraph_property_insert_index(paragraph_properties, "buFontTx")
+        if font_index is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This paragraph's properties cannot safely accept a list style.",
+            )
+        paragraph_properties.insert(font_index, etree.Element(f"{{{DRAWING_NS}}}buFontTx"))
 
     @staticmethod
     def _apply_paragraph_numbering_start(paragraph: etree._Element, start: int) -> None:

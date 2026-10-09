@@ -178,10 +178,76 @@ def _theme_color(properties: etree._Element) -> None:
     properties.find(f"{A}buChar").addprevious(color)
 
 
+def _symbol_glyph(properties: etree._Element) -> None:
+    bullet = properties.find(f"{A}buChar")
+    bullet.set("char", "\u00a7")  # Wingdings square
+    bullet.addprevious(etree.Element(f"{A}buFont", typeface="Wingdings"))
+
+
+def _follow_text(properties: etree._Element) -> None:
+    bullet = properties.find(f"{A}buChar")
+    for name in ("buClrTx", "buSzTx", "buFontTx"):
+        bullet.addprevious(etree.Element(f"{A}{name}"))
+
+
+def _point_size(properties: etree._Element) -> None:
+    properties.find(f"{A}buChar").addprevious(etree.Element(f"{A}buSzPts", val="1800"))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "state"),
+    [
+        (_theme_color, "bullet"),
+        (_follow_text, "bullet"),
+        (_point_size, "bullet"),
+        (_symbol_glyph, None),
+    ],
+    ids=["theme-color", "follow-text", "point-size", "symbol-glyph"],
+)
+def test_common_real_deck_decoration_is_editable(tmp_path: Path, mutate, state) -> None:
+    deck = _Deck(tmp_path, mutate)
+    try:
+        style = deck.target()[0]["text_style"]
+        assert style["bullet_editable"] and style["bullet_state"] == state
+        assert style["bullet_color_editable"] and style["bullet_size_editable"]
+        assert style["bullet_color"] is None and style["bullet_size_percent"] is None
+        assert deck.format({"bullet_color": "#336699", "bullet_size_percent": 90})["ok"]
+        for properties in deck.properties():
+            names = [n for n in _names(properties) if n.startswith("bu")]
+            assert "buClrTx" not in names and "buSzTx" not in names
+            assert "buSzPts" not in names
+            assert names.count("buClr") == 1 and names.count("buSzPct") == 1
+        assert deck.format({"bullet_mode": "numbered"})["ok"]
+        for properties in deck.properties():
+            fonts = [f.get("typeface") for f in properties.findall(f"{A}buFont")]
+            assert "Wingdings" not in fonts
+        style = deck.target()[0]["text_style"]
+        assert (style["bullet_state"], style["bullet_color"], style["bullet_size_percent"]) == (
+            "numbered",
+            "#336699",
+            90,
+        )
+    finally:
+        deck.core.close()
+
+
+def _picture_bullet(properties: etree._Element) -> None:
+    bullet = properties.find(f"{A}buChar")
+    blip = etree.Element(f"{A}buBlip")
+    etree.SubElement(blip, f"{A}blip")
+    properties.replace(bullet, blip)
+
+
+def _unknown_color_model(properties: etree._Element) -> None:
+    color = etree.Element(f"{A}buClr")
+    etree.SubElement(color, f"{A}prstClr", val="red")
+    properties.find(f"{A}buChar").addprevious(color)
+
+
 @pytest.mark.parametrize(
     "mutate",
-    [_with_font("Wingdings"), _theme_color],
-    ids=["symbol-font", "theme-color"],
+    [_picture_bullet, _unknown_color_model],
+    ids=["picture-bullet", "preset-color"],
 )
 def test_unsupported_bullet_decoration_stays_read_only(tmp_path: Path, mutate) -> None:
     deck = _Deck(tmp_path, mutate)
@@ -274,5 +340,40 @@ def test_malformed_start_values_stay_read_only(tmp_path: Path, start: str) -> No
     try:
         style = deck.target()[0]["text_style"]
         assert not style["bullet_editable"] and style["numbering_start"] is None
+    finally:
+        deck.core.close()
+
+
+def _inherited_symbol_font(properties: etree._Element) -> None:
+    # The paragraph has no direct marker; the shape list style supplies Wingdings.
+    properties.remove(properties.find(f"{A}buChar"))
+    body = properties.getparent().getparent()
+    style = body.find(f"{A}lstStyle")
+    if style is None:
+        style = etree.Element(f"{A}lstStyle")
+        body.find(f"{A}bodyPr").addnext(style)
+    if style.find(f"{A}lvl1pPr") is None:
+        level = etree.SubElement(style, f"{A}lvl1pPr")
+        etree.SubElement(level, f"{A}buFont", typeface="Wingdings", charset="2")
+        etree.SubElement(level, f"{A}buChar", char="§")
+
+
+@pytest.mark.parametrize("mode", ["bullet", "numbered_roman_lower"])
+def test_new_marker_follows_text_font_instead_of_inherited_symbol_font(
+    tmp_path: Path, mode: str
+) -> None:
+    deck = _Deck(tmp_path, _inherited_symbol_font)
+    try:
+        assert deck.target()[0]["text_style"]["bullet_editable"]
+        assert deck.format({"bullet_mode": mode})["ok"]
+        for properties in deck.properties():
+            names = _names(properties)
+            assert "buFontTx" in names and "buFont" not in names
+            assert names.index("buFontTx") < names.index(
+                "buChar" if mode == "bullet" else "buAutoNum"
+            )
+        assert deck.target()[0]["text_style"]["bullet_state"] == mode
+        # Removing the marker does not add a font.
+        assert deck.format({"bullet_mode": "none"})["ok"]
     finally:
         deck.core.close()
