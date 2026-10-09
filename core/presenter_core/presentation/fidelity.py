@@ -100,7 +100,21 @@ PARAGRAPH_BULLET_CHAR_BY_MODE = {
 _PARAGRAPH_BULLET_MODE_BY_CHAR = {
     character: mode for mode, character in PARAGRAPH_BULLET_CHAR_BY_MODE.items()
 }
-PARAGRAPH_BULLET_MODES = frozenset({"none", "numbered", *PARAGRAPH_BULLET_CHAR_BY_MODE})
+# Plain automatic numbering schemes; custom start values stay read-only.
+PARAGRAPH_AUTONUM_TYPE_BY_MODE = {
+    "numbered": "arabicPeriod",
+    "numbered_paren": "arabicParenR",
+    "numbered_alpha_lower": "alphaLcPeriod",
+    "numbered_alpha_upper": "alphaUcPeriod",
+    "numbered_roman_lower": "romanLcPeriod",
+    "numbered_roman_upper": "romanUcPeriod",
+}
+_PARAGRAPH_MODE_BY_AUTONUM_TYPE = {
+    kind: mode for mode, kind in PARAGRAPH_AUTONUM_TYPE_BY_MODE.items()
+}
+PARAGRAPH_BULLET_MODES = frozenset(
+    {"none", *PARAGRAPH_AUTONUM_TYPE_BY_MODE, *PARAGRAPH_BULLET_CHAR_BY_MODE}
+)
 _XML_DECLARATION_PATTERN = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 _IDENTITY_NAMESPACE = uuid.UUID("f3c3c788-716e-4c4c-9081-ff23a23c896f")
 _NS = {"p": PRESENTATION_NS, "a": DRAWING_NS, "r": REL_NS, "rel": PACKAGE_REL_NS}
@@ -1595,11 +1609,12 @@ def _paragraph_bullet_mode_for_shape(
         return "none", True
     if (
         bullet_node.tag == f"{{{DRAWING_NS}}}buAutoNum"
-        and bullet_node.attrib == {"type": "arabicPeriod"}
+        and set(bullet_node.attrib) == {"type"}
+        and bullet_node.get("type") in _PARAGRAPH_MODE_BY_AUTONUM_TYPE
         and not len(bullet_node)
         and not (bullet_node.text and bullet_node.text.strip())
     ):
-        return "numbered", True
+        return _PARAGRAPH_MODE_BY_AUTONUM_TYPE[bullet_node.get("type", "")], True
     return None, False
 
 

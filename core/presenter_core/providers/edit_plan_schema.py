@@ -44,8 +44,19 @@ _STYLE_PROPERTIES = {
     "font_size_pt": _integer(6, 96),
     "font_color": _text(7, 7),
     "alignment": _choice("left", "center", "right", "justify"),
+    # Must equal presentation.fidelity.PARAGRAPH_BULLET_MODES (asserted by tests).
     "bullet_mode": _choice(
-        "none", "numbered", "bullet_disc", "bullet_hollow", "bullet_square", "bullet_dash"
+        "none",
+        "numbered",
+        "numbered_paren",
+        "numbered_alpha_lower",
+        "numbered_alpha_upper",
+        "numbered_roman_lower",
+        "numbered_roman_upper",
+        "bullet",
+        "bullet_hollow",
+        "bullet_square",
+        "bullet_dash",
     ),
     "left_indent_pt": _integer(0, 144),
     "first_line_indent_pt": _integer(-144, 144),

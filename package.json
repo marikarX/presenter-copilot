@@ -50,6 +50,9 @@
     "test:ui:corpus-overflow": "pnpm build && node apps/desktop/scripts/test-workspace-corpus-overflow.mjs",
     "test:e2e:release": "node scripts/release-acceptance.mjs",
     "test:ui": "pnpm build && node apps/desktop/scripts/test-workspace.mjs",
+    "test:ui:chatgpt-settings": "pnpm build && node apps/desktop/scripts/test-chatgpt-settings.mjs",
+    "test:ui:objection-comparison": "pnpm build && node apps/desktop/scripts/test-rehearsal-objection-comparison.mjs",
+    "accept:chatgpt-live": "pnpm build && node apps/desktop/scripts/accept-chatgpt-live.mjs",
     "test:codex-containment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-codex-containment.ps1",
     "test:codex-real": "uv run --directory core --project . --locked python -m presenter_core.tools.codex_acceptance --real"
   },

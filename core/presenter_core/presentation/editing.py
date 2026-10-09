@@ -46,6 +46,7 @@ from presenter_core.presentation.fidelity import (
     MAX_TEXT_PARAGRAPH_SPACING_PT,
     NOTES_SLIDE_REL_TYPE,
     OBJECT_LIMIT,
+    PARAGRAPH_AUTONUM_TYPE_BY_MODE,
     PARAGRAPH_BULLET_CHAR_BY_MODE,
     PARAGRAPH_BULLET_MODES,
     PRESENTATION_NS,
@@ -7059,7 +7060,9 @@ class PresentationEditService:
         bullet_tag_name = (
             "buChar"
             if bullet_mode in PARAGRAPH_BULLET_CHAR_BY_MODE
-            else {"none": "buNone", "numbered": "buAutoNum"}[bullet_mode]
+            else "buAutoNum"
+            if bullet_mode in PARAGRAPH_AUTONUM_TYPE_BY_MODE
+            else "buNone"
         )
         insert_index = _paragraph_property_insert_index(paragraph_properties, bullet_tag_name)
         if insert_index is None:
@@ -7070,8 +7073,8 @@ class PresentationEditService:
         bullet_node = etree.Element(f"{{{DRAWING_NS}}}{bullet_tag_name}")
         if bullet_mode in PARAGRAPH_BULLET_CHAR_BY_MODE:
             bullet_node.set("char", PARAGRAPH_BULLET_CHAR_BY_MODE[bullet_mode])
-        elif bullet_mode == "numbered":
-            bullet_node.set("type", "arabicPeriod")
+        elif bullet_mode in PARAGRAPH_AUTONUM_TYPE_BY_MODE:
+            bullet_node.set("type", PARAGRAPH_AUTONUM_TYPE_BY_MODE[bullet_mode])
         paragraph_properties.insert(insert_index, bullet_node)
 
     @staticmethod

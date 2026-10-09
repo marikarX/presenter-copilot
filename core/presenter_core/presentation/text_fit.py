@@ -41,6 +41,40 @@ class FontMetrics:
             ) from None
 
 
+_ROMAN = (
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
+    (1, "I"),
+)
+
+
+def numbering_marker(kind: str, value: int) -> str | None:
+    """Return the visible marker for a plain native numbering scheme, if supported."""
+    if kind in {"arabicPeriod", "arabicParenR", "arabicPlain"}:
+        return str(value) + {"arabicPeriod": ".", "arabicParenR": ")", "arabicPlain": ""}[kind]
+    if kind in {"alphaLcPeriod", "alphaUcPeriod"}:
+        # PowerPoint repeats the letter after z: a..z, aa..zz, aaa...
+        letter = chr(ord("a") + (value - 1) % 26) * ((value - 1) // 26 + 1)
+        return (letter.upper() if kind == "alphaUcPeriod" else letter) + "."
+    if kind in {"romanLcPeriod", "romanUcPeriod"} and value <= 3999:
+        remaining, numeral = value, ""
+        for amount, symbol in _ROMAN:
+            count, remaining = divmod(remaining, amount)
+            numeral += symbol * count
+        return (numeral.lower() if kind == "romanLcPeriod" else numeral) + "."
+    return None
+
+
 def number(value: str, label: str, *, negative: bool = False) -> int:
     if not re.fullmatch("-?[0-9]{1,10}" if negative else "[0-9]{1,10}", value):
         raise unsupported(f"Unsupported {label} cannot be measured for text fitting.")
@@ -203,11 +237,12 @@ def paragraph_height(
         font = installed_font(str(family), False, False, max(1, round(marker_size * 4)))
         if numbered is not None:
             marker_number = number(numbered.get("startAt", "1"), "bullet numbering") + ordinal - 1
-            suffixes = {"arabicPeriod": ".", "arabicParenR": ")", "arabicPlain": ""}
             kind = numbered.get("type", "")
-            if kind not in suffixes or not 1 <= marker_number <= 32767:
+            if not 1 <= marker_number <= 32767:
                 raise unsupported("Unsupported native numbering requires manual fitting.")
-            marker = str(marker_number) + suffixes[kind]
+            marker = numbering_marker(kind, marker_number)
+            if marker is None:
+                raise unsupported("Unsupported native numbering requires manual fitting.")
         else:
             assert bullet is not None
             marker = bullet.get("char", "")

@@ -4010,6 +4010,11 @@ def test_plain_paragraph_supports_automatic_numbering(tmp_path: Path) -> None:
     ("bullet_mode", "bullet_tag", "bullet_attribute", "bullet_value"),
     (
         ("numbered", "buAutoNum", "type", "arabicPeriod"),
+        ("numbered_paren", "buAutoNum", "type", "arabicParenR"),
+        ("numbered_alpha_lower", "buAutoNum", "type", "alphaLcPeriod"),
+        ("numbered_alpha_upper", "buAutoNum", "type", "alphaUcPeriod"),
+        ("numbered_roman_lower", "buAutoNum", "type", "romanLcPeriod"),
+        ("numbered_roman_upper", "buAutoNum", "type", "romanUcPeriod"),
         ("bullet_hollow", "buChar", "char", "◦"),
         ("bullet_square", "buChar", "char", "▪"),
         ("bullet_dash", "buChar", "char", "–"),
@@ -4250,6 +4255,8 @@ def test_custom_numbering_style_remains_read_only(tmp_path: Path) -> None:
                     assert plain_bullet is not None
                     custom_number = etree.Element(f"{{{DRAWING_NS}}}buAutoNum")
                     custom_number.set("type", "romanUcPeriod")
+                    # A custom start value keeps an otherwise plain scheme read-only.
+                    custom_number.set("startAt", "3")
                     properties.replace(plain_bullet, custom_number)
                     content = etree.tostring(
                         root,
@@ -4342,7 +4349,9 @@ def test_unsupported_source_left_indent_stays_read_only(tmp_path: Path) -> None:
                 bullet_chars = paragraph_properties.findall(f"{{{DRAWING_NS}}}buChar")
                 assert len(bullet_chars) == 1
                 paragraph_properties.remove(bullet_chars[0])
-                auto_number = etree.Element(f"{{{DRAWING_NS}}}buAutoNum", {"type": "romanUcPeriod"})
+                auto_number = etree.Element(
+                    f"{{{DRAWING_NS}}}buAutoNum", {"type": "romanUcPeriod", "startAt": "3"}
+                )
                 bullet_insert_index = _paragraph_property_insert_index(
                     paragraph_properties, "buAutoNum"
                 )

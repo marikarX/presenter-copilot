@@ -90,6 +90,11 @@ const TEXT_BULLET_STATES = [
   "bullet_dash",
   "none",
   "numbered",
+  "numbered_paren",
+  "numbered_alpha_lower",
+  "numbered_alpha_upper",
+  "numbered_roman_lower",
+  "numbered_roman_upper",
 ] as const;
 const SLIDE_PURPOSES = [
   "opening",
@@ -7246,6 +7251,21 @@ export function PresentationWorkspace({
                             <option value="bullet_dash">Dash · –</option>
                             <option value="numbered">
                               Automatic number · 1.
+                            </option>
+                            <option value="numbered_paren">
+                              Automatic number · 1)
+                            </option>
+                            <option value="numbered_alpha_lower">
+                              Lowercase letter · a.
+                            </option>
+                            <option value="numbered_alpha_upper">
+                              Uppercase letter · A.
+                            </option>
+                            <option value="numbered_roman_lower">
+                              Lowercase roman · i.
+                            </option>
+                            <option value="numbered_roman_upper">
+                              Uppercase roman · I.
                             </option>
                             <option value="none">No bullet</option>
                           </select>

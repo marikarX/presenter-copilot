@@ -2140,7 +2140,7 @@ try {
     exact: true,
   });
   await studioPanel("Text");
-  await paragraphBulletMode.selectOption("bullet_hollow");
+  await paragraphBulletMode.selectOption("numbered_roman_upper");
   await studioPanel("Text");
   const paragraphLeftIndent = page.getByRole("spinbutton", {
     name: /Left indent \(points, 0–144\)/,
@@ -2191,7 +2191,7 @@ try {
   await studioPanel("Text");
   assert.equal(await paragraphAlignment.inputValue(), "center");
   await studioPanel("Text");
-  assert.equal(await paragraphBulletMode.inputValue(), "bullet_hollow");
+  assert.equal(await paragraphBulletMode.inputValue(), "numbered_roman_upper");
   await studioPanel("Text");
   assert.equal(await paragraphLeftIndent.inputValue(), "24");
   await studioPanel("Text");
@@ -2244,7 +2244,7 @@ try {
   await noOverflow("Workspace shape-creation controls");
   await studioPanel("Objects");
   checks.push(
-    "Core saves and indexes text, direct text and multi-paragraph formatting including predefined bullet glyphs, paragraph alignment, indentation, line and before/after spacing, shape fill/outline formatting, shape and picture creation, picture cropping and replacement, blank-slide creation using another slide's layout, existing-slide layout application with text preservation and undo/redo, text-box creation, speaker-notes, object-layout, object-duplication, slide-order, slide duplication/deletion, and safe object-deletion revisions, exports current and immutable original copies, verifies the save-and-open handoff with OS launching mocked, supports undo/redo, then restores and re-indexes revision 1",
+    "Core saves and indexes text, direct text and multi-paragraph formatting including predefined bullet glyphs and roman numbering, paragraph alignment, indentation, line and before/after spacing, shape fill/outline formatting, shape and picture creation, picture cropping and replacement, blank-slide creation using another slide's layout, existing-slide layout application with text preservation and undo/redo, text-box creation, speaker-notes, object-layout, object-duplication, slide-order, slide duplication/deletion, and safe object-deletion revisions, exports current and immutable original copies, verifies the save-and-open handoff with OS launching mocked, supports undo/redo, then restores and re-indexes revision 1",
   );
   checks.push(
     overflowAcknowledgementShown

@@ -271,7 +271,7 @@ def test_fit_catalog_readonly_for_unsupported_script_and_numbering(tmp_path):
         with zipfile.ZipFile(path(core, params)) as archive:
             reader = TextInheritance(archive, "ppt/slides/slide1.xml")
             shape = reader.slide.find("p:cSld/p:spTree/p:sp", _NS)
-            shape.find("p:txBody/a:p/a:pPr/a:buAutoNum", _NS).set("type", "romanUcPeriod")
+            shape.find("p:txBody/a:p/a:pPr/a:buAutoNum", _NS).set("type", "circleNumDbPlain")
             before = etree.tostring(shape)
             assert not inspect_fit(reader, shape, text="text")["editable"]
             assert etree.tostring(shape) == before
