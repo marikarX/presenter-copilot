@@ -45,6 +45,13 @@ _ADJUSTMENT = _object(
         "grayscale": {"type": "boolean"},
     }
 )
+_ROTATION = _object(
+    {
+        "rotation_degrees": {"type": "number", "minimum": 0, "maximum": 359.999},
+        "flip_horizontal": {"type": "boolean"},
+        "flip_vertical": {"type": "boolean"},
+    }
+)
 _STYLE_PROPERTIES = {
     "bold": {"type": "boolean"},
     "italic": {"type": "boolean"},
@@ -180,6 +187,7 @@ PARAMETER_SCHEMAS = {
     ),
     "crop_picture": _object({**_TARGET, "replacement_crop": _CROP}),
     "adjust_picture": _object({**_TARGET, "replacement_adjustment": _ADJUSTMENT}),
+    "rotate_object": _object({**_TARGET, "replacement_rotation": _ROTATION}),
     "reorder_slides": _object(
         {"ordered_slide_ids": {"type": "array", "minItems": 1, "maxItems": 5000, "items": _ID}}
     ),

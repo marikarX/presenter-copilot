@@ -144,6 +144,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "presentation.workspace.format_shape_style",
     "presentation.workspace.replace_speaker_notes",
     "presentation.workspace.transform_object",
+    "presentation.workspace.rotate_object",
     "presentation.workspace.adjust_picture",
     "presentation.workspace.crop_picture",
     "presentation.workspace.replace_picture_image",

@@ -59,6 +59,15 @@ Commits this session:
   preview renderer patch now applies PowerPoint's measured contrast curve
   (slope 1/(1-c) for positive contrast, about mid-grey after brightness).
   `test-picture-adjust.mjs` passes 3/3 (range rejection, apply, undo).
+- Object rotation (clockwise degrees, 0.01 steps, quick 90 degree turns) and
+  horizontal/vertical flips are reviewed edits for slide-level shapes and
+  pictures (`presentation.workspace.rotate_object`, Objects panel and Copilot
+  plans). Rotated or flipped shapes/pictures are no longer read-only: they
+  move, resize, duplicate and delete with rotation preserved (134 corpus
+  objects newly editable). The canvas draws rotated outlines and hides
+  unrotated resize handles; grouping and new-slide layouts still require
+  upright objects. PowerPoint reopens a 30.5 degree flipped edit exactly.
+  `test-object-rotation.mjs` passes 4/4.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

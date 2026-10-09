@@ -60,6 +60,7 @@ from presenter_core.presentation.fidelity import (
     FidelityGeometry,
     FidelityPictureAdjustment,
     FidelityPictureCrop,
+    FidelityRotation,
     _formatable_text_runs,
     _is_uniform_run_text_shape,
     _notes_body_is_plain_editable,
@@ -76,6 +77,7 @@ from presenter_core.presentation.fidelity import (
     _styled_paragraphs,
     _text_style_for_shape,
     inspect_pptx_snapshot,
+    object_rotation,
     plain_bullet_font,
 )
 from presenter_core.presentation.revisions import MAX_REVISION_NUMBER
@@ -801,6 +803,131 @@ class PresentationEditService:
                 image_bytes=image_bytes,
                 image_format=image_format,
             ),
+        )
+
+    def rotate_object(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Set rotation and flips on a verified slide-level shape or picture."""
+        reject_unknown_fields(
+            params,
+            {
+                "project_id",
+                "document_id",
+                "expected_revision_id",
+                "slide_id",
+                "object_id",
+                "expected_geometry",
+                "expected_rotation",
+                "replacement_rotation",
+            },
+        )
+        project_id = self._project_id(params.get("project_id"))
+        document_id = self._document_id(params.get("document_id"))
+        expected_revision_id = self._uuid_field(
+            params.get("expected_revision_id"), "expected_revision_id"
+        )
+        slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
+        object_id = self._uuid_field(params.get("object_id"), "object_id")
+        expected_geometry = self._geometry_field(
+            params.get("expected_geometry"), "expected_geometry"
+        )
+        expected_rotation = self._rotation_field(
+            params.get("expected_rotation"), "expected_rotation"
+        )
+        replacement_rotation = self._rotation_field(
+            params.get("replacement_rotation"), "replacement_rotation"
+        )
+        source = self._current_revision_source(project_id, document_id)
+        if source["revision_id"] != expected_revision_id:
+            raise self._revision_conflict()
+        source_path = self._storage.paths.snapshot_path(
+            project_id, source["local_snapshot_path"], require_exists=True
+        )
+        with source_path.open("rb") as source_handle:
+            if os.fstat(source_handle.fileno()).st_size != int(source["byte_size"]):
+                raise CoreDomainError(
+                    "SOURCE_SNAPSHOT_CHANGED",
+                    "The stored presentation no longer matches its revision record.",
+                )
+            fidelity = inspect_pptx_snapshot(
+                source_handle,
+                document_id=document_id,
+                expected_sha256=str(source["sha256"]),
+                byte_size=int(source["byte_size"]),
+            )
+        slide = next((item for item in fidelity.slides if item.slide_id == slide_id), None)
+        obj = (
+            next((item for item in slide.objects if item.object_id == object_id), None)
+            if slide is not None
+            else None
+        )
+        if slide is None or obj is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_TARGET_NOT_FOUND", "The selected object is unavailable."
+            )
+        if not obj.geometry_editable or obj.geometry is None or obj.rotation is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "Only slide-level shapes and pictures can be rotated.",
+            )
+        if obj.geometry != expected_geometry or obj.rotation != expected_rotation:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_STALE_TARGET",
+                "The object changed. Refresh the preview and try again.",
+                retryable=True,
+            )
+        if replacement_rotation == expected_rotation:
+            return {
+                "changed": False,
+                "revision_id": source["revision_id"],
+                "revision_number": int(source["revision_number"]),
+                "sha256": source["sha256"],
+                "byte_size": int(source["byte_size"]),
+            }
+        return self._commit_revision(
+            project_id,
+            document_id,
+            expected_revision_id,
+            source,
+            lambda original_path, staged_path: self._write_revised_geometry_package(
+                original_path,
+                staged_path,
+                document_id=document_id,
+                expected_sha256=str(source["sha256"]),
+                expected_byte_size=int(source["byte_size"]),
+                slide_id=slide_id,
+                object_id=object_id,
+                expected_geometry=expected_geometry,
+                replacement_geometry=expected_geometry,
+                expected_rotation=expected_rotation,
+                replacement_rotation=replacement_rotation,
+            ),
+        )
+
+    @staticmethod
+    def _rotation_field(value: Any, field: str) -> FidelityRotation:
+        names = {"rotation_degrees", "flip_horizontal", "flip_vertical"}
+        if not isinstance(value, dict) or set(value) != names:
+            raise invalid_request(
+                f"{field} must contain rotation_degrees, flip_horizontal and flip_vertical.",
+                field=field,
+            )
+        degrees = value["rotation_degrees"]
+        if (
+            type(degrees) not in {int, float}
+            or not math.isfinite(degrees)
+            or not 0 <= degrees < 360
+            or abs(degrees * 60_000 - round(degrees * 60_000)) > 1e-4
+        ):
+            raise invalid_request(
+                f"{field}.rotation_degrees must be at least 0 and below 360.",
+                field=f"{field}.rotation_degrees",
+            )
+        if any(type(value[name]) is not bool for name in ("flip_horizontal", "flip_vertical")):
+            raise invalid_request(f"{field} flips must be booleans.", field=field)
+        return FidelityRotation(
+            rotation=round(degrees * 60_000) % 21_600_000,
+            flip_horizontal=value["flip_horizontal"],
+            flip_vertical=value["flip_vertical"],
         )
 
     def adjust_picture(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -2828,6 +2955,8 @@ class PresentationEditService:
         object_id: str,
         expected_geometry: FidelityGeometry,
         replacement_geometry: FidelityGeometry,
+        expected_rotation: FidelityRotation | None = None,
+        replacement_rotation: FidelityRotation | None = None,
     ) -> None:
         with source_path.open("rb") as source_handle:
             if os.fstat(source_handle.fileno()).st_size != expected_byte_size:
@@ -2902,6 +3031,26 @@ class PresentationEditService:
                         expected_geometry,
                         replacement_geometry,
                     )
+                if replacement_rotation is not None:
+                    node = PresentationEditService._find_object_node(
+                        slide_root, ooxml_id=obj.ooxml_id, kind=obj.kind
+                    )
+                    if object_rotation(node, obj.kind, None) != expected_rotation:
+                        raise CoreDomainError(
+                            "PRESENTATION_EDIT_STALE_TARGET",
+                            "The object rotation changed. Refresh the preview and try again.",
+                            retryable=True,
+                        )
+                    transform = offset.getparent()
+                    for name, value in (
+                        ("rot", str(replacement_rotation.rotation)),
+                        ("flipH", "1" if replacement_rotation.flip_horizontal else None),
+                        ("flipV", "1" if replacement_rotation.flip_vertical else None),
+                    ):
+                        if value is None or value == "0":
+                            transform.attrib.pop(name, None)
+                        else:
+                            transform.set(name, value)
                 offset.set("x", str(replacement_geometry.x_emu))
                 offset.set("y", str(replacement_geometry.y_emu))
                 extent.set("cx", str(replacement_geometry.width_emu))
@@ -2976,6 +3125,9 @@ class PresentationEditService:
             revised_object is None
             or not revised_object.geometry_editable
             or revised_object.geometry != replacement_geometry
+            or (
+                replacement_rotation is not None and revised_object.rotation != replacement_rotation
+            )
         ):
             raise CoreDomainError(
                 "PRESENTATION_EDIT_VALIDATION_FAILED",

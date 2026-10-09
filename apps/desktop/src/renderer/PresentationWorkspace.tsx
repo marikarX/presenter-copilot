@@ -311,6 +311,18 @@ type PictureCrop = {
   bottom_percent: number;
 };
 
+type ObjectRotation = {
+  rotation_degrees: number;
+  flip_horizontal: boolean;
+  flip_vertical: boolean;
+};
+
+type ObjectRotationDraft = {
+  rotation_degrees: string;
+  flip_horizontal: boolean;
+  flip_vertical: boolean;
+};
+
 type PictureAdjustment = {
   brightness_percent: number;
   contrast_percent: number;
@@ -358,6 +370,7 @@ type PresentationObject = {
   geometry: ObjectGeometry | null;
   picture_crop: PictureCrop | null;
   picture_adjustment?: PictureAdjustment | null;
+  rotation?: ObjectRotation | null;
   shape_style: ShapeStyle | null;
 };
 
@@ -616,6 +629,46 @@ function pictureCropDraft(crop: PictureCrop | null): PictureCropDraft {
   };
 }
 
+function objectRotationDraft(
+  rotation: ObjectRotation | null | undefined,
+): ObjectRotationDraft {
+  return {
+    rotation_degrees: String(
+      Math.round((rotation?.rotation_degrees ?? 0) * 100) / 100,
+    ),
+    flip_horizontal: rotation?.flip_horizontal ?? false,
+    flip_vertical: rotation?.flip_vertical ?? false,
+  };
+}
+
+function objectRotationFromDraft(
+  draft: ObjectRotationDraft,
+  current: ObjectRotation | null | undefined,
+): ObjectRotation | null {
+  const degrees = Number(draft.rotation_degrees);
+  if (!draft.rotation_degrees.trim() || !Number.isFinite(degrees)) return null;
+  // Keep the exact stored angle when the rounded display value is unchanged.
+  const unchanged =
+    current &&
+    draft.rotation_degrees === objectRotationDraft(current).rotation_degrees;
+  const normalized = unchanged
+    ? current.rotation_degrees
+    : Math.round((((degrees % 360) + 360) % 360) * 100) / 100;
+  return {
+    rotation_degrees: normalized === 360 ? 0 : normalized,
+    flip_horizontal: draft.flip_horizontal,
+    flip_vertical: draft.flip_vertical,
+  };
+}
+
+function sameObjectRotation(left: ObjectRotation, right: ObjectRotation) {
+  return (
+    left.rotation_degrees === right.rotation_degrees &&
+    left.flip_horizontal === right.flip_horizontal &&
+    left.flip_vertical === right.flip_vertical
+  );
+}
+
 function pictureAdjustmentDraft(
   adjustment: PictureAdjustment | null | undefined,
 ): PictureAdjustmentDraft {
@@ -789,6 +842,17 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       ) &&
       pictureCrop.left_percent + pictureCrop.right_percent < 100 &&
       pictureCrop.top_percent + pictureCrop.bottom_percent < 100);
+  const rotation = candidate.rotation;
+  const validRotation =
+    rotation === undefined ||
+    rotation === null ||
+    (!!rotation &&
+      typeof rotation.rotation_degrees === "number" &&
+      Number.isFinite(rotation.rotation_degrees) &&
+      rotation.rotation_degrees >= 0 &&
+      rotation.rotation_degrees < 360 &&
+      typeof rotation.flip_horizontal === "boolean" &&
+      typeof rotation.flip_vertical === "boolean");
   const pictureAdjustment = candidate.picture_adjustment;
   const validPictureAdjustment =
     pictureAdjustment === undefined ||
@@ -850,6 +914,8 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       typeof candidate.group_reason === "string") &&
     validPictureCrop &&
     validPictureAdjustment &&
+    validRotation &&
+    (rotation == null || candidate.kind === "sp" || candidate.kind === "pic") &&
     (pictureAdjustment == null || candidate.kind === "pic") &&
     validShapeStyle &&
     (pictureCrop === null || candidate.kind === "pic") &&
@@ -1232,6 +1298,8 @@ export function PresentationWorkspace({
   const [objectCropDraft, setObjectCropDraft] = useState<PictureCropDraft>(() =>
     pictureCropDraft(null),
   );
+  const [objectRotationDraftState, setObjectRotationDraft] =
+    useState<ObjectRotationDraft>(() => objectRotationDraft(null));
   const [objectAdjustmentDraft, setObjectAdjustmentDraft] =
     useState<PictureAdjustmentDraft>(() => pictureAdjustmentDraft(null));
   const [objectStyleDraft, setObjectStyleDraft] = useState<ShapeStyleDraft>(
@@ -1586,6 +1654,10 @@ export function PresentationWorkspace({
         )
       : null;
   const replacementPictureCrop = pictureCropFromDraft(objectCropDraft);
+  const replacementObjectRotation = objectRotationFromDraft(
+    objectRotationDraftState,
+    selectedObject?.rotation,
+  );
   const replacementPictureAdjustment = pictureAdjustmentFromDraft(
     objectAdjustmentDraft,
   );
@@ -2026,6 +2098,7 @@ export function PresentationWorkspace({
     setObjectGeometryDraft({ x: "", y: "", width: "", height: "" });
     setObjectCropDraft(pictureCropDraft(null));
     setObjectAdjustmentDraft(pictureAdjustmentDraft(null));
+    setObjectRotationDraft(objectRotationDraft(null));
     setObjectStyleDraft(draftForShapeStyle(null));
     setSlideSizeEmu(null);
     setSlideContext(null);
@@ -2409,6 +2482,9 @@ export function PresentationWorkspace({
         );
         setObjectAdjustmentDraft(
           pictureAdjustmentDraft(firstEditableObject?.picture_adjustment),
+        );
+        setObjectRotationDraft(
+          objectRotationDraft(firstEditableObject?.rotation),
         );
         setObjectStyleDraft(
           draftForShapeStyle(firstEditableObject?.shape_style ?? null),
@@ -4258,6 +4334,104 @@ export function PresentationWorkspace({
     loading,
     project.id,
     replacementPictureCrop,
+    selectedObject,
+    selectedSlide,
+    selectedSource,
+  ]);
+
+  const saveObjectRotationRevision = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const target = selectedObject;
+    const replacement = replacementObjectRotation;
+    if (
+      !source ||
+      !revision ||
+      !UUID_PATTERN.test(activeSlideId) ||
+      !target?.geometry_editable ||
+      !target.geometry ||
+      !target.rotation ||
+      !replacement ||
+      sameObjectRotation(target.rotation, replacement) ||
+      loadedSourceId !== source.id ||
+      loading
+    ) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    setMockSvg(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.rotate_object",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          slide_id: activeSlideId,
+          object_id: target.object_id,
+          expected_geometry: target.geometry,
+          expected_rotation: target.rotation,
+          replacement_rotation: replacement,
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id) ||
+        !Number.isSafeInteger(result.revision_number) ||
+        result.revision_number < 1 ||
+        !/^[0-9a-f]{64}$/.test(result.sha256) ||
+        !Number.isSafeInteger(result.byte_size) ||
+        result.byte_size < 1 ||
+        (result.changed && result.parent_revision_id !== revision.revision_id)
+      ) {
+        throw new Error("The rotation revision could not be verified.");
+      }
+      if (!result.changed) {
+        setNotice("The object rotation is unchanged.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      let indexedRevision = false;
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+        indexedRevision = true;
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, target.object_id);
+      setNotice(
+        indexedRevision
+          ? `Saved revision ${result.revision_number} and refreshed the object rotation.`
+          : `Saved revision ${result.revision_number}. Re-index this presentation before using its content in rehearsal.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The object rotation could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    activeSlideId,
+    currentRevision,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    replacementObjectRotation,
     selectedObject,
     selectedSlide,
     selectedSource,
@@ -6214,6 +6388,9 @@ export function PresentationWorkspace({
                     );
                     setObjectAdjustmentDraft(
                       pictureAdjustmentDraft(object?.picture_adjustment),
+                    );
+                    setObjectRotationDraft(
+                      objectRotationDraft(object?.rotation),
                     );
                     setObjectStyleDraft(
                       draftForShapeStyle(object?.shape_style ?? null),
@@ -8415,6 +8592,9 @@ export function PresentationWorkspace({
                           setObjectAdjustmentDraft(
                             pictureAdjustmentDraft(object?.picture_adjustment),
                           );
+                          setObjectRotationDraft(
+                            objectRotationDraft(object?.rotation),
+                          );
                           setObjectStyleDraft(
                             draftForShapeStyle(object?.shape_style ?? null),
                           );
@@ -8517,6 +8697,113 @@ export function PresentationWorkspace({
                             ? "Review object layout"
                             : "Save object layout"}
                         </button>
+                        {selectedObject.rotation ? (
+                          <fieldset className="pw-picture-crop">
+                            <legend>Rotate and flip</legend>
+                            <p className="muted">
+                              Rotation is clockwise around the object&apos;s
+                              center; position and size stay the same.
+                            </p>
+                            <div className="pw-geometry-fields">
+                              <label>
+                                Rotation (degrees)
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="359.99"
+                                  step="0.01"
+                                  aria-label="Object rotation (degrees)"
+                                  value={
+                                    objectRotationDraftState.rotation_degrees
+                                  }
+                                  onChange={(event) =>
+                                    setObjectRotationDraft((current) => ({
+                                      ...current,
+                                      rotation_degrees: event.target.value,
+                                    }))
+                                  }
+                                  disabled={!loadedSourceId || loading}
+                                />
+                              </label>
+                            </div>
+                            <div className="pw-shape-color-control">
+                              {(
+                                [
+                                  [-90, "Rotate left 90°"],
+                                  [90, "Rotate right 90°"],
+                                ] as const
+                              ).map(([delta, label]) => (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() =>
+                                    setObjectRotationDraft((current) => {
+                                      const value =
+                                        Number(current.rotation_degrees) || 0;
+                                      return {
+                                        ...current,
+                                        rotation_degrees: String(
+                                          Math.round(
+                                            ((((value + delta) % 360) + 360) %
+                                              360) *
+                                              100,
+                                          ) / 100,
+                                        ),
+                                      };
+                                    })
+                                  }
+                                  disabled={!loadedSourceId || loading}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                            {(
+                              [
+                                ["flip_horizontal", "Flip horizontally"],
+                                ["flip_vertical", "Flip vertically"],
+                              ] as const
+                            ).map(([field, label]) => (
+                              <label key={field} className="checkbox-row">
+                                <input
+                                  type="checkbox"
+                                  aria-label={label}
+                                  checked={objectRotationDraftState[field]}
+                                  onChange={(event) =>
+                                    setObjectRotationDraft((current) => ({
+                                      ...current,
+                                      [field]: event.target.checked,
+                                    }))
+                                  }
+                                  disabled={!loadedSourceId || loading}
+                                />
+                                {label}
+                              </label>
+                            ))}
+                            {replacementObjectRotation === null ? (
+                              <p className="muted" role="alert">
+                                Enter a rotation in degrees.
+                              </p>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => void saveObjectRotationRevision()}
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !replacementObjectRotation ||
+                                sameObjectRotation(
+                                  selectedObject.rotation,
+                                  replacementObjectRotation,
+                                )
+                              }
+                            >
+                              Apply rotation
+                            </button>
+                          </fieldset>
+                        ) : null}
                         {selectedObject.kind === "pic" ? (
                           selectedObject.picture_crop ? (
                             <>

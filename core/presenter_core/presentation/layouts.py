@@ -14,10 +14,12 @@ from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.presentation.fidelity import (
     _NS,
     REL_NS,
+    FidelityRotation,
     _geometry_for_object,
     _parse_xml_part,
     _relationships,
     _resolve_internal_part,
+    object_rotation,
 )
 from presenter_core.presentation.workspace_source import PresentationWorkspaceSourceService
 
@@ -197,6 +199,8 @@ def catalog(archive: zipfile.ZipFile, document: str) -> list[dict[str, Any]]:
                             slide_width_emu=int(size.get("cx", "")),
                             slide_height_emu=int(size.get("cy", "")),
                         )[1]
+                        # New slides keep upright placeholders only.
+                        and object_rotation(shape, "sp", tree) == FidelityRotation()
                         for shape in tree
                     )
                 except ValueError:

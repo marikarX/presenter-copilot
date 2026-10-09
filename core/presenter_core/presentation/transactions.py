@@ -27,6 +27,7 @@ PLAN_OPERATIONS = frozenset(
         "change_object_layer",
         "crop_picture",
         "adjust_picture",
+        "rotate_object",
         "replace_picture_image",
         "reorder_slides",
         "apply_slide_layout",

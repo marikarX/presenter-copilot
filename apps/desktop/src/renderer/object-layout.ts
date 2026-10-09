@@ -9,6 +9,7 @@ export type LayoutObject = {
   name: string;
   geometry_editable: boolean;
   geometry: LayoutGeometry | null;
+  rotation?: { rotation_degrees: number } | null;
 };
 export const LAYOUT_ACTIONS = [
   ["left", "Align left"],

@@ -893,6 +893,7 @@ class PresentationEditPlanningService:
             "duplicate_object",
             "crop_picture",
             "adjust_picture",
+            "rotate_object",
             "ungroup_object",
         }:
             if obj.geometry is None:
@@ -908,6 +909,14 @@ class PresentationEditPlanningService:
                 params["replacement_crop"] = {
                     f"{key}_percent": value / 1000
                     for key, value in params["replacement_crop"].items()
+                }
+            if kind == "rotate_object":
+                if obj.rotation is None:
+                    raise invalid_request("The proposed object cannot be rotated safely.")
+                params["expected_rotation"] = {
+                    "rotation_degrees": obj.rotation.rotation / 60_000,
+                    "flip_horizontal": obj.rotation.flip_horizontal,
+                    "flip_vertical": obj.rotation.flip_vertical,
                 }
             if kind == "adjust_picture":
                 if obj.picture_adjustment is None:

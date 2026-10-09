@@ -14,6 +14,7 @@ import {
   RESIZE_HANDLES,
   type ResizeHandle,
   translationOperations,
+  type LayoutGeometry,
   type LayoutObject,
 } from "./object-layout";
 
@@ -149,8 +150,17 @@ export function SlideObjectCanvas({
       ghosts.find((op) => op.params.object_id === o.object_id)?.params
         .replacement_geometry ?? o.geometry!,
   );
+  const rotationTransform = (object: LayoutObject, g: LayoutGeometry) => {
+    const degrees = object.rotation?.rotation_degrees ?? 0;
+    return degrees
+      ? `rotate(${degrees} ${g.x_emu + g.width_emu / 2} ${g.y_emu + g.height_emu / 2})`
+      : undefined;
+  };
+  // Resize handles act on unrotated frames, so rotated selections only move.
   const bounds =
-    displayGeometry.length && selection.length === selectedIds.length
+    displayGeometry.length &&
+    selection.length === selectedIds.length &&
+    selection.every((o) => !o.rotation?.rotation_degrees)
       ? {
           left: Math.min(...displayGeometry.map((g) => g.x_emu)),
           top: Math.min(...displayGeometry.map((g) => g.y_emu)),
@@ -546,6 +556,7 @@ export function SlideObjectCanvas({
                   y={g.y_emu}
                   width={g.width_emu}
                   height={g.height_emu}
+                  transform={rotationTransform(object, g)}
                   vectorEffect="non-scaling-stroke"
                   className={selected ? "is-selected" : ""}
                   onPointerDown={(event) => {
@@ -593,18 +604,25 @@ export function SlideObjectCanvas({
                 />
               );
             })}
-            {ghosts.map((operation) => (
-              <rect
-                key={`ghost:${operation.params.object_id}`}
-                className="pw-object-marquee"
-                pointerEvents="none"
-                x={operation.params.replacement_geometry.x_emu}
-                y={operation.params.replacement_geometry.y_emu}
-                width={operation.params.replacement_geometry.width_emu}
-                height={operation.params.replacement_geometry.height_emu}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
+            {ghosts.map((operation) => {
+              const object = movable.find(
+                (item) => item.object_id === operation.params.object_id,
+              );
+              const g = operation.params.replacement_geometry;
+              return (
+                <rect
+                  key={`ghost:${operation.params.object_id}`}
+                  className="pw-object-marquee"
+                  pointerEvents="none"
+                  x={g.x_emu}
+                  y={g.y_emu}
+                  width={g.width_emu}
+                  height={g.height_emu}
+                  transform={object ? rotationTransform(object, g) : undefined}
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
+            })}
             {bounds
               ? RESIZE_HANDLES.map(([handle, label]) => {
                   const x = handle.includes("w")

@@ -171,6 +171,15 @@ class FidelityPictureCrop:
 
 
 @dataclass(frozen=True)
+class FidelityRotation:
+    """Direct slide-level rotation (60000ths of a degree, normalized) and flips."""
+
+    rotation: int = 0
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+
+
+@dataclass(frozen=True)
 class FidelityPictureAdjustment:
     """Direct picture brightness/contrast (a:lum, whole percents) and grayscale."""
 
@@ -280,6 +289,7 @@ class FidelityObject:
     text_style: FidelityTextStyle | None = None
     picture_crop: FidelityPictureCrop | None = None
     picture_adjustment: FidelityPictureAdjustment | None = None
+    rotation: FidelityRotation | None = None
     shape_style: FidelityShapeStyle | None = None
     semantic_source_kind: str | None = None
 
@@ -480,6 +490,15 @@ class FidelityDocument:
                             "bottom_percent": obj.picture_crop.bottom / 1_000,
                         }
                         if obj.picture_crop is not None
+                        else None
+                    ),
+                    "rotation": (
+                        {
+                            "rotation_degrees": obj.rotation.rotation / 60_000,
+                            "flip_horizontal": obj.rotation.flip_horizontal,
+                            "flip_vertical": obj.rotation.flip_vertical,
+                        }
+                        if obj.rotation is not None
                         else None
                     ),
                     "picture_adjustment": (
@@ -988,6 +1007,9 @@ def _objects_for_slide(
                 picture_adjustment=(
                     None if alternate_content else _picture_adjustment(candidate, kind)
                 ),
+                rotation=(
+                    None if alternate_content else object_rotation(candidate, kind, shape_tree)
+                ),
                 shape_style=shape_style,
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
@@ -1303,6 +1325,42 @@ def _solid_rgb_color(container: etree._Element, fill_tags: set[str]) -> tuple[bo
     return True, None
 
 
+_FLIP_VALUES = {"0": False, "false": False, "1": True, "true": True}
+
+
+def object_rotation(
+    candidate: etree._Element, kind: str, shape_tree: etree._Element | None
+) -> FidelityRotation | None:
+    """Rotation/flip of a direct-child shape or picture with a simple transform."""
+    if kind not in {"sp", "pic"} or (
+        shape_tree is not None and candidate.getparent() is not shape_tree
+    ):
+        return None
+    transforms = candidate.xpath("./p:spPr/a:xfrm", namespaces=_NS)
+    if len(transforms) != 1:
+        return None
+    transform = transforms[0]
+    if [child.tag for child in transform] != [
+        f"{{{DRAWING_NS}}}off",
+        f"{{{DRAWING_NS}}}ext",
+    ] or not set(transform.attrib) <= {"rot", "flipH", "flipV"}:
+        return None
+    raw = transform.get("rot", "0")
+    flip_horizontal = transform.get("flipH", "0")
+    flip_vertical = transform.get("flipV", "0")
+    if (
+        not re.fullmatch(r"-?[0-9]{1,10}", raw)
+        or flip_horizontal not in _FLIP_VALUES
+        or flip_vertical not in _FLIP_VALUES
+    ):
+        return None
+    return FidelityRotation(
+        rotation=int(raw) % 21_600_000,
+        flip_horizontal=_FLIP_VALUES[flip_horizontal],
+        flip_vertical=_FLIP_VALUES[flip_vertical],
+    )
+
+
 def _geometry_for_object(
     candidate: etree._Element,
     *,
@@ -1339,6 +1397,10 @@ def _geometry_for_object(
     except ValueError:
         rotation_is_zero = False
     no_flip = all(transform.get(name) in {None, "0", "false"} for name in ("flipH", "flipV"))
+    # Shapes and pictures keep their rotation/flip through moves and resizes.
+    supported_orientation = (rotation_is_zero and no_flip) or (
+        object_rotation(candidate, kind, shape_tree) is not None
+    )
     direct_child = candidate.getparent() is shape_tree
     simple_transform = [child.tag for child in transform] == [
         f"{{{DRAWING_NS}}}off",
@@ -1356,8 +1418,7 @@ def _geometry_for_object(
         geometry,
         direct_child
         and simple_transform
-        and rotation_is_zero
-        and no_flip
+        and supported_orientation
         and in_slide_bounds
         and (kind != "graphicFrame" or _graphic_frame_geometry_supported(candidate, geometry)),
     )

@@ -969,3 +969,69 @@ def test_provider_picture_adjustment_binds_current_adjustment_and_applies(
         assert adjusted["picture_adjustment"] == wanted
     finally:
         core.close()
+
+
+def test_provider_rotation_binds_current_rotation_and_applies(tmp_path: Path) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": params["expected_revision_id"], "slide_number": 1},
+        )
+        target = next(obj for obj in inventory["objects"] if obj["rotation"] is not None)
+        wanted = {"rotation_degrees": 15.5, "flip_horizontal": False, "flip_vertical": True}
+
+        def modify(output: dict[str, Any], _invocation: Any) -> None:
+            output["operations"] = [
+                {
+                    "type": "rotate_object",
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "object_id": target["object_id"],
+                        "replacement_rotation": wanted,
+                    },
+                    "rationale": "Tilt the callout",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(core, "presentation.workspace.propose_edit_plan", params)
+        bound = proposal["operations"][0]["params"]
+        assert bound["expected_rotation"] == target["rotation"]
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        rotated = next(
+            obj
+            for obj in call(
+                core,
+                "presentation.workspace.list_text_targets",
+                {**scope, "revision_id": result["revision_id"], "slide_number": 1},
+            )["objects"]
+            if obj["object_id"] == target["object_id"]
+        )
+        assert rotated["rotation"] == wanted
+        assert rotated["geometry"] == target["geometry"]
+    finally:
+        core.close()
