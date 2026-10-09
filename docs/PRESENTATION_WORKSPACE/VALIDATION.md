@@ -24,6 +24,17 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Shape and table probe — 2026-10-09
+
+Synthetic probe (`.local/session2/shape_probe.py`): a 3x3 text table, a
+rectangle with a 6 pt outline, a 4 pt straight connector and a filled rounded
+rectangle. Each was rendered by PowerPoint and the preview at the same size.
+All extents agree within 2 px. Stroke thickness is 8 vs 8 px (outline) and
+5 vs 5 px (line). Dark-pixel areas agree within 1%, for example 36417 vs
+36415 px for the rounded rectangle. No geometry or stroke defect was found;
+remaining corpus differences sit in text rasterization, image effects and 3D
+material (bevels), not basic shapes or tables.
+
 ### Superscript/subscript renderer patch — 2026-10-09
 
 With the user's approval, `@aiden0z/pptx-renderer@1.3.0` is patched via
