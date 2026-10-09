@@ -105,6 +105,26 @@ Fast Decisions live local acceptance (2026-10-09):
   so confidence thresholds can only be calibrated for providers that report
   confidence; a local model can be judged on accuracy and abstention only.
 
+Fast Decisions real-deck evaluation (2026-10-09, at the user's request,
+assistant-labeled, NOT human-labeled):
+
+- 100 corpus slides sampled deterministically from the 684-slide sheet and
+  labeled by the assistant (`labeler` column says so). Sheet and report stay
+  in `.local/calibration/` (third-party slide text).
+- Local 4B model (GPU, loopback): 44/100 agreement, 27 "unclear" answers,
+  47% agreement when it committed, median 1026 ms / p95 2507 ms, no failures.
+  The self-authored smoke scored 80-90% on the same model, so real slides are
+  much harder.
+- Main disagreements: explanatory "evidence" slides labeled appendix, opening
+  or summary by the model; section dividers labeled unclear or problem. Part
+  of this is label ambiguity in the purpose taxonomy (evidence vs appendix vs
+  transition).
+- No confidence values were returned, so no threshold can be recommended for
+  this provider (status `no_confidence_returned`). Purpose suggestions must
+  stay review-only; this local model is not suitable for unattended use.
+- Human labels are still required for a calibration claim; the
+  assistant-labeled sample is directional evidence only.
+
 This is integration evidence, not calibration: thresholds remain uncalibrated
 until a licensing-safe human-labeled set exists.
 
