@@ -76,7 +76,7 @@ Commits this session:
   style with a suggestion list in the Text panel and in Copilot plans. It
   replaces the typeface in place, drops stale panose/charset metadata and
   inserts `latin` in schema order. PowerPoint reads back single underline,
-  single strike and Georgia. `test-text-emphasis.mjs` 6/6.
+  single strike and Georgia. `test-text-emphasis.mjs` 5/5.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
