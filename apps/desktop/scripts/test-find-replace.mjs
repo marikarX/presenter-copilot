@@ -47,6 +47,7 @@ q=split.text_frame.paragraphs[0]; q.add_run().text='Leg'; q.add_run().text='acy 
 second=deck.slides.add_slide(deck.slide_layouts[6])
 other=second.shapes.add_textbox(Inches(1),Inches(1),Inches(7),Inches(1)); other.name='Second slide'
 other.text_frame.text='LEGACY in capitals'
+first.notes_slide.notes_text_frame.text='Say legacy once in notes'
 deck.save(sys.argv[1])
 `,
     fixture,
@@ -162,11 +163,11 @@ try {
   await dialog.getByRole("button", { name: "Find", exact: true }).click();
   const results = dialog.getByRole("status", { name: "Search results" });
   await results
-    .getByText("3 replaceable matches · 1 not replaceable")
+    .getByText("4 replaceable matches · 1 not replaceable")
     .waitFor();
-  assert.equal(await results.getByRole("listitem").count(), 3);
+  assert.equal(await results.getByRole("listitem").count(), 4);
   checks.push(
-    "GUI finds 3 replaceable matches across two slides and reports the run-spanning match as not replaceable",
+    "GUI finds 4 replaceable matches across two slides and speaker notes and reports the run-spanning match as not replaceable",
   );
   await dialog.getByLabel("Match case", { exact: true }).check();
   assert.equal(
@@ -181,12 +182,12 @@ try {
   await dialog.getByLabel("Replace with", { exact: true }).fill("current");
   await page.screenshot({ path: path.join(output, "find-replace.png") });
   await dialog
-    .getByRole("button", { name: "Replace all 3", exact: true })
+    .getByRole("button", { name: "Replace all 4", exact: true })
     .click();
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
   const after = await search("legacy");
   assert.deepEqual([after.replaceable_matches, after.skipped_matches], [0, 1]);
-  assert.equal((await search("current")).replaceable_matches, 3);
+  assert.equal((await search("current")).replaceable_matches, 4);
   checks.push(
     "Replace all saves one native revision and keeps the split match untouched",
   );
@@ -195,7 +196,7 @@ try {
     .getByRole("button", { name: "Undo last presentation edit", exact: true })
     .click();
   await workspace.getByText("Current · Revision 1", { exact: true }).waitFor();
-  assert.equal((await search("legacy")).replaceable_matches, 3);
+  assert.equal((await search("legacy")).replaceable_matches, 4);
   checks.push("Undo restores every replaced match");
   assert.deepEqual(errors, []);
   await writeFile(

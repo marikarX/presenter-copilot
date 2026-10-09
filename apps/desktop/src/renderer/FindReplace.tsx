@@ -3,9 +3,10 @@ import { createPortal } from "react-dom";
 import { isCoreError, unwrapInvokeResult } from "../shared/protocol";
 
 type Match = {
+  target: "slide" | "speaker_notes";
   slide_id: string;
   slide_number: number;
-  object_id: string;
+  object_id: string | null;
   name: string;
   excerpt: string;
   replaceable_count: number;
@@ -33,8 +34,11 @@ function isFindResult(value: unknown): value is FindResult {
     Array.isArray(result.objects) &&
     result.objects.every(
       (item) =>
-        typeof item?.slide_id === "string" &&
-        typeof item.object_id === "string" &&
+        (item?.target === "slide" || item?.target === "speaker_notes") &&
+        typeof item.slide_id === "string" &&
+        (item.target === "slide"
+          ? typeof item.object_id === "string"
+          : item.object_id === null) &&
         typeof item.name === "string" &&
         typeof item.excerpt === "string" &&
         Number.isSafeInteger(item.slide_number) &&
@@ -131,6 +135,7 @@ export function FindReplace({
             expected_matches: current.objects
               .filter((item) => item.replaceable_count > 0)
               .map((item) => ({
+                target: item.target,
                 slide_id: item.slide_id,
                 object_id: item.object_id,
                 replaceable_count: item.replaceable_count,
@@ -192,10 +197,10 @@ export function FindReplace({
               >
                 <h2 id="pw-find-replace-title">Find and replace</h2>
                 <p>
-                  Search all slide text. Replacing keeps each run&apos;s
-                  formatting and saves one revision you can undo. Matches that
-                  span differently formatted text, or sit in fields such as
-                  slide numbers, are listed but not replaced.
+                  Search all slide text and speaker notes. Replacing keeps each
+                  run&apos;s formatting and saves one revision you can undo.
+                  Matches that span differently formatted text, or sit in fields
+                  such as slide numbers, are listed but not replaced.
                 </p>
                 <label>
                   Find
@@ -241,7 +246,9 @@ export function FindReplace({
                     </p>
                     <ul>
                       {current.objects.map((item) => (
-                        <li key={item.object_id}>
+                        <li
+                          key={`${item.target}:${item.slide_id}:${item.object_id ?? ""}`}
+                        >
                           Slide {item.slide_number} · {item.name}:{" "}
                           {item.excerpt} ({item.replaceable_count}
                           {item.skipped_count

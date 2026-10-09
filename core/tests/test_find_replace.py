@@ -69,7 +69,10 @@ class _Workspace:
                 "match_case": found["match_case"],
                 "replacement": replacement,
                 "expected_matches": [
-                    {key: item[key] for key in ("slide_id", "object_id", "replaceable_count")}
+                    {
+                        key: item[key]
+                        for key in ("target", "slide_id", "object_id", "replaceable_count")
+                    }
                     for item in found["objects"]
                     if item["replaceable_count"]
                 ],
@@ -176,10 +179,64 @@ def test_text_inside_group_shapes_is_found_and_replaced(tmp_path: Path) -> None:
                 "query": "legacy",
                 "replacement": "current",
                 "expected_matches": [
-                    {k: match[k] for k in ("slide_id", "object_id", "replaceable_count")}
+                    {k: match[k] for k in ("target", "slide_id", "object_id", "replaceable_count")}
                 ],
             },
         )
         assert reply["ok"] and reply["result"]["replaced_matches"] == 1, reply
+    finally:
+        core.close()
+
+
+def test_speaker_notes_are_searched_and_replaced_with_slides(tmp_path: Path) -> None:
+    source = tmp_path / "notes.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(1), Inches(1), Inches(4), Inches(1)
+    ).text_frame.text = "Legacy roadmap"
+    slide.notes_slide.notes_text_frame.text = "Mention the legacy budget twice: legacy."
+    deck.save(source)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document, "expected_revision_id": revision}
+        found = _call(
+            core, "find", "presentation.workspace.find_text", {**scope, "query": "legacy"}
+        )
+        assert found["ok"], found
+        targets = {(m["target"], m["replaceable_count"]) for m in found["result"]["objects"]}
+        assert targets == {("slide", 1), ("speaker_notes", 2)}
+        reply = _call(
+            core,
+            "replace",
+            "presentation.workspace.replace_text_all",
+            {
+                **scope,
+                "query": "legacy",
+                "replacement": "current",
+                "expected_matches": [
+                    {k: m[k] for k in ("target", "slide_id", "object_id", "replaceable_count")}
+                    for m in found["result"]["objects"]
+                ],
+            },
+        )
+        assert reply["ok"] and reply["result"]["replaced_matches"] == 3, reply
+        inventory = _call(
+            core,
+            "targets",
+            "presentation.workspace.list_text_targets",
+            {
+                "project_id": project,
+                "document_id": document,
+                "revision_id": reply["result"]["revision_id"],
+                "slide_number": 1,
+            },
+        )["result"]
+        assert inventory["speaker_notes"]["current_text"] == (
+            "Mention the current budget twice: current."
+        )
     finally:
         core.close()

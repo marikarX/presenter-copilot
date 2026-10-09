@@ -90,8 +90,10 @@ Commits this session:
   slide-jump, hover and mixed links stay read-only. Preview windows already
   deny navigation, so links are inert in the app. PowerPoint resolves the
   written address. `test-text-hyperlink.mjs` 4/4.
-- Deck-wide find and replace (`presentation.workspace.find_text` /
-  `replace_text_all`, "Find and replace" dialog): replacement happens inside
+- Deck-wide find and replace over slide text and speaker notes
+  (`presentation.workspace.find_text` / `replace_text_all`, "Find and
+  replace" dialog; results carry a `slide`/`speaker_notes` target):
+  replacement happens inside
   each text run so mixed formatting survives; matches spanning runs or inside
   fields are listed as not replaceable. Replace-all requires the reviewed
   match set to be unchanged, writes one revision, verifies every other object
