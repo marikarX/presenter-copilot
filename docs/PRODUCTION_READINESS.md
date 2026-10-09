@@ -141,8 +141,14 @@ Commits this session:
   duotone backgrounds and duotone pictures that rendered near-black or pink
   (Durand slide 5 MAE 11.03% -> 4.80%; Philippine slide 1 -> 4.09%). Corpus
   mean slide RGB MAE 3.148% -> 3.046%, median 2.714% -> 2.562% (46 slides
-  better, none worse). Remaining visible gaps: tiled background textures are
-  stretched, 3D perspective/bevel SmartArt is flat, small bullets sit high.
+  better, none worse).
+- Tiled image fills: the renderer treated an empty `<a:srcRect/>` as a crop
+  and stretched tiled backgrounds; it now tiles them, and a preview-only pass
+  records PowerPoint's tile size (image pixels / PNG pHYs or JPEG JFIF DPI x
+  tile sx/sy) so tiles align with PowerPoint pixel for pixel. Corpus mean MAE
+  3.046% -> 2.929%, median 2.562% -> 2.512% (32 slides better, none worse).
+  Remaining visible gaps: 3D perspective/bevel SmartArt renders flat and
+  small hanging bullets sit slightly high.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

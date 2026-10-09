@@ -91,6 +91,7 @@ window.openDeck = async (compatibilityMode = "all") => {
     normalizePictureFillGeometry:
       allCompatibility || compatibilityMode === "picture-geometry-only",
     normalizeDuotoneImages: compatibilityMode === "all",
+    sizeTiledImageFills: compatibilityMode === "all",
     fillDefaultLineSpacing:
       allCompatibility || compatibilityMode === "line-spacing-only",
   };

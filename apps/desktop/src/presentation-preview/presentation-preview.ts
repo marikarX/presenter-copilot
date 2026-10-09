@@ -100,6 +100,7 @@ async function openPresentation(buffer: ArrayBuffer): Promise<void> {
       repairSmartArtRelationships: true,
       normalizePictureFillGeometry: true,
       normalizeDuotoneImages: true,
+      sizeTiledImageFills: true,
       fillDefaultLineSpacing: true,
     });
     ensureOpen();

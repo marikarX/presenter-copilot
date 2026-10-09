@@ -118,6 +118,7 @@ export interface PreviewRendererCompatibilityReport {
   smartArtRelationshipPartsUpdated: number;
   smartArtImageShapesPromoted: number;
   duotoneImageReferencesNormalized: number;
+  tiledImageFillsSized?: number;
   defaultLineSpacingLevelsFilled?: number;
   compatibilityPartsSkipped: number;
 }
@@ -133,6 +134,7 @@ export interface PreviewRendererCompatibilityOptions {
   inheritLayoutPlaceholderFills?: boolean;
   repairSmartArtRelationships?: boolean;
   normalizeDuotoneImages?: boolean;
+  sizeTiledImageFills?: boolean;
   fillDefaultLineSpacing?: boolean;
 }
 
@@ -2795,6 +2797,161 @@ async function normalizeDuotoneImages(
   return { references, partsSkipped };
 }
 
+const EMU_PER_INCH = 914_400;
+export const TILE_WIDTH_ATTRIBUTE = "presenterTileWidthEmu";
+export const TILE_HEIGHT_ATTRIBUTE = "presenterTileHeightEmu";
+
+/** Horizontal and vertical DPI from PNG pHYs or JPEG JFIF; 96 when absent. */
+export function rasterDpi(
+  source: Uint8Array,
+  mediaPath: string,
+): { x: number; y: number } {
+  const fallback = { x: 96, y: 96 };
+  const view = new DataView(
+    source.buffer,
+    source.byteOffset,
+    source.byteLength,
+  );
+  if (/\.png$/i.test(mediaPath)) {
+    let offset = 8;
+    while (offset + 12 <= source.byteLength && offset < 1024 * 1024) {
+      const length = view.getUint32(offset);
+      const type = String.fromCharCode(
+        ...source.subarray(offset + 4, offset + 8),
+      );
+      if (type === "pHYs" && length === 9 && offset + 17 <= source.byteLength) {
+        const x = view.getUint32(offset + 8);
+        const y = view.getUint32(offset + 12);
+        // Unit 1 is pixels per metre.
+        return source[offset + 16] === 1 && x > 0 && y > 0
+          ? { x: x * 0.0254, y: y * 0.0254 }
+          : fallback;
+      }
+      if (type === "IDAT" || type === "IEND") break;
+      offset += 12 + length;
+    }
+    return fallback;
+  }
+  if (
+    /\.jpe?g$/i.test(mediaPath) &&
+    source.byteLength > 18 &&
+    source[2] === 0xff &&
+    source[3] === 0xe0 &&
+    String.fromCharCode(...source.subarray(6, 11)) === "JFIF\0"
+  ) {
+    const unit = source[13];
+    const x = view.getUint16(14);
+    const y = view.getUint16(16);
+    if (x > 0 && y > 0 && (unit === 1 || unit === 2)) {
+      return unit === 1 ? { x, y } : { x: x * 2.54, y: y * 2.54 };
+    }
+  }
+  return fallback;
+}
+
+/** Record each tiled image fill's PowerPoint tile size (EMU) for the renderer. */
+async function sizeTiledImageFills(
+  files: PptxFiles,
+  platform: XmlPlatform,
+): Promise<{ fills: number; partsSkipped: number }> {
+  let fills = 0;
+  let partsSkipped = 0;
+  for (const collection of relationshipCollections(files)) {
+    for (const [
+      relationshipPath,
+      relationshipXml,
+    ] of collection.relationships) {
+      const sourcePath = relationshipSourcePath(relationshipPath);
+      if (!sourcePath || !collection.parts.has(sourcePath)) continue;
+      const sourceXml = collection.parts.get(sourcePath) ?? "";
+      if (!sourceXml.includes(":tile")) continue;
+      if (
+        sourceXml.length > MAX_XML_DOCUMENT_CHARS ||
+        relationshipXml.length > MAX_RELATIONSHIP_XML_CHARS
+      ) {
+        partsSkipped += 1;
+        continue;
+      }
+      const document = parseXml(sourceXml, platform, MAX_XML_DOCUMENT_CHARS);
+      const relationshipDocument = parseXml(
+        relationshipXml,
+        platform,
+        MAX_RELATIONSHIP_XML_CHARS,
+      );
+      const records = relationshipDocument
+        ? relationshipRecords(relationshipDocument)
+        : null;
+      if (!document || !records) {
+        partsSkipped += 1;
+        continue;
+      }
+      let changed = 0;
+      for (const tile of elementsWithLocalName(document, "tile")) {
+        const fill = tile.parentNode as Element | null;
+        if (
+          tile.namespaceURI !== DRAWING_NS ||
+          !fill ||
+          fill.localName !== "blipFill"
+        ) {
+          continue;
+        }
+        const blip = childElement(fill, DRAWING_NS, "blip");
+        const relationshipId = blip?.getAttributeNS(
+          OFFICE_RELATIONSHIP_NS,
+          "embed",
+        );
+        const relationship = relationshipId
+          ? records.records.get(relationshipId)
+          : undefined;
+        if (
+          !relationship ||
+          relationship.type !== IMAGE_RELATIONSHIP_TYPE ||
+          !isInternalTargetMode(relationship.targetMode)
+        ) {
+          continue;
+        }
+        const mediaPath = resolveInternalPackageTarget(
+          sourcePath,
+          relationship.target,
+        );
+        if (!mediaPath || !/^ppt\/media\/[^/]+$/i.test(mediaPath)) continue;
+        const bytes = await imageBytesForRelationship(
+          files,
+          mediaPath,
+          relationship.target,
+        );
+        const size = bytes ? boundedRasterDimensions(bytes, mediaPath) : null;
+        if (!bytes || !size || size.width < 1 || size.height < 1) continue;
+        const dpi = rasterDpi(bytes, mediaPath);
+        const scale = (name: string) => {
+          const value = Number(tile.getAttribute(name) ?? "100000");
+          return Number.isFinite(value) && value > 0 && value <= 10_000_000
+            ? value / 100_000
+            : 1;
+        };
+        const width = Math.round(
+          (size.width / dpi.x) * EMU_PER_INCH * scale("sx"),
+        );
+        const height = Math.round(
+          (size.height / dpi.y) * EMU_PER_INCH * scale("sy"),
+        );
+        if (width < 1 || height < 1) continue;
+        tile.setAttribute(TILE_WIDTH_ATTRIBUTE, String(width));
+        tile.setAttribute(TILE_HEIGHT_ATTRIBUTE, String(height));
+        changed += 1;
+      }
+      if (!changed) continue;
+      try {
+        collection.parts.set(sourcePath, platform.serialize(document));
+        fills += changed;
+      } catch {
+        partsSkipped += 1;
+      }
+    }
+  }
+  return { fills, partsSkipped };
+}
+
 function referencedDiagramDrawingPaths(
   context: RelationshipContext,
   files: PptxFiles,
@@ -3952,6 +4109,16 @@ export async function applyPreviewRendererCompatibility(
       files,
       platform,
     );
+  }
+  // Before duotone baking, which re-encodes images without their DPI.
+  if (options.sizeTiledImageFills === true) {
+    try {
+      const tiles = await sizeTiledImageFills(files, platform);
+      report.tiledImageFillsSized = tiles.fills;
+      report.compatibilityPartsSkipped += tiles.partsSkipped;
+    } catch {
+      report.compatibilityPartsSkipped += 1;
+    }
   }
   if (options.normalizeDuotoneImages === true) {
     try {
