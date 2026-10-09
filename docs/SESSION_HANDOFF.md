@@ -45,6 +45,9 @@ Commits this session:
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
+- Plain text fields (slide numbers, dates) are formattable and never
+  replaced; corpus format-editable objects 2173 -> 2416; 9 real-deck edits
+  open in PowerPoint. Only equations (26 shapes) remain structurally blocked.
 
 Validation: latest full `pnpm check` green on `7de3127` (1910 Core tests,
 desktop 312, lint/types/format) with `test-workspace.mjs` 117/117; earlier

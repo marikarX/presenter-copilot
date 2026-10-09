@@ -6788,7 +6788,7 @@ class PresentationEditService:
                     "\n".join(
                         "".join(
                             text_node.text or ""
-                            for run in paragraph.xpath("./a:r", namespaces=_NS)
+                            for run in paragraph.xpath("./a:r | ./a:fld", namespaces=_NS)
                             for text_node in run.xpath("./a:t", namespaces=_NS)
                         )
                         for paragraph in paragraphs
@@ -7641,7 +7641,7 @@ class PresentationEditService:
                 if (
                     len(paragraphs) != 1
                     or runs is None
-                    or shape.xpath("./p:txBody/a:p/a:br", namespaces=_NS)
+                    or shape.xpath("./p:txBody/a:p/a:br | ./p:txBody/a:p/a:fld", namespaces=_NS)
                     or (not allow_uniform_runs and len(runs) != 1)
                     or (len(runs) > 1 and not _is_uniform_run_text_shape(shape, "sp"))
                 ):

@@ -473,3 +473,44 @@ def test_unsupported_line_break_markup_stays_read_only(tmp_path: Path) -> None:
         assert not deck.target()[0]["text_format_editable"]
     finally:
         deck.core.close()
+
+
+def _with_slide_number_field(properties: etree._Element) -> None:
+    paragraph = properties.getparent()
+    if paragraph.getparent().find(f"{A}p") is not paragraph:
+        return
+    field = etree.Element(f"{A}fld", id="{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}", type="slidenum")
+    etree.SubElement(field, f"{A}rPr", lang="en-US")
+    etree.SubElement(field, f"{A}t").text = "7"
+    paragraph.find(f"{A}r").addnext(field)
+
+
+def test_fields_are_formattable_preserved_and_never_replacement_targets(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _with_slide_number_field)
+    try:
+        target = deck.target()[0]
+        assert target["text_format_editable"]
+        assert not target["single_run_editable"] and not target["uniform_run_editable"]
+        before = target["current_text"]
+        assert "7" in before
+        assert deck.format({"font_size_pt": 28})["ok"]
+        assert deck.target()[0]["current_text"] == before
+        field = deck.properties()[0].getparent().find(f"{A}fld")
+        assert field.get("type") == "slidenum" and field.find(f"{A}t").text == "7"
+        assert field.find(f"{A}rPr").get("sz") == "2800"
+    finally:
+        deck.core.close()
+
+
+def test_fields_with_unexpected_markup_stay_read_only(tmp_path: Path) -> None:
+    def mutate(properties: etree._Element) -> None:
+        _with_slide_number_field(properties)
+        field = properties.getparent().find(f"{A}fld")
+        if field is not None:
+            field.set("unexpected", "1")
+
+    deck = _Deck(tmp_path, mutate)
+    try:
+        assert not deck.target()[0]["text_format_editable"]
+    finally:
+        deck.core.close()

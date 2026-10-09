@@ -70,7 +70,17 @@ on the write path, because replacement rewrites runs. Text extraction is
 unchanged. Corpus format-editable objects rose from 2068 to 2173. Bold was
 applied to one text box with breaks in each of 16 real decks; every edit read
 back and opened in PowerPoint. In the deck 25 render, breaks are preserved and
-the text reflows only because bold glyphs are wider. Renders:
+the text reflows only because bold glyphs are wider.
+
+Fields (same day): plain text fields (`a:fld` with `id`/`type`, cached `t`,
+optional `rPr`/`pPr`) are styled like runs. They were the main remaining
+blocker, mostly slide numbers and dates in 243 shapes. The format path now
+includes field text when it rebuilds the current text. Shapes with fields are
+never offered for text replacement. Corpus format-editable objects rose from
+2173 to 2416. Bold was applied to one field-bearing text box in each of 9 real
+decks; every edit read back and opened in PowerPoint. The deck 12 slide 3
+render shows the slide-number field bold and still showing the slide number.
+Equations (`a14:m`, 26 shapes) remain read-only. Renders:
 `.local/session2/corpus-renders/`.
 
 ### Native templates and draft authoring — 2026-10-03

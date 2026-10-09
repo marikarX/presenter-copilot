@@ -1338,8 +1338,22 @@ def _is_single_run_text_shape(candidate: etree._Element, kind: str) -> bool:
 
 
 def _has_line_break(paragraphs: list[etree._Element]) -> bool:
-    """Text replacement rewrites runs, so shapes with line breaks stay format-only."""
-    return any(paragraph.find(f"{{{DRAWING_NS}}}br") is not None for paragraph in paragraphs)
+    """Text replacement rewrites runs, so shapes with breaks or fields stay format-only."""
+    return any(
+        paragraph.find(f"{{{DRAWING_NS}}}br") is not None
+        or paragraph.find(f"{{{DRAWING_NS}}}fld") is not None
+        for paragraph in paragraphs
+    )
+
+
+def _is_plain_field(field: etree._Element) -> bool:
+    """A field with cached text whose run properties can be styled safely."""
+    tags = [child.tag.removeprefix(f"{{{DRAWING_NS}}}") for child in field]
+    return (
+        set(field.attrib) <= {"id", "type"}
+        and tags in (["t"], ["rPr", "t"], ["pPr", "t"], ["rPr", "pPr", "t"])
+        and not any(len(child) for child in field if child.tag == f"{{{DRAWING_NS}}}t")
+    )
 
 
 def _is_uniform_run_text_shape(candidate: etree._Element, kind: str) -> bool:
@@ -1373,7 +1387,12 @@ def _formatable_text_runs(candidate: etree._Element, kind: str) -> list[etree._E
     paragraphs = _formatable_text_paragraphs(candidate, kind)
     if paragraphs is None:
         return None
-    return [run for paragraph in paragraphs for run in paragraph.xpath("./a:r", namespaces=_NS)]
+    # Fields (slide numbers, dates) are styled like runs but never replaced.
+    return [
+        run
+        for paragraph in paragraphs
+        for run in paragraph.xpath("./a:r | ./a:fld", namespaces=_NS)
+    ]
 
 
 def _formatable_text_paragraphs(
@@ -1393,6 +1412,7 @@ def _formatable_text_paragraphs(
         f"{{{DRAWING_NS}}}pPr",
         f"{{{DRAWING_NS}}}r",
         f"{{{DRAWING_NS}}}br",
+        f"{{{DRAWING_NS}}}fld",
         f"{{{DRAWING_NS}}}endParaRPr",
     }
     paragraph_property = f"{{{DRAWING_NS}}}pPr"
@@ -1400,9 +1420,10 @@ def _formatable_text_paragraphs(
     total_runs = 0
     for paragraph in paragraphs:
         runs = paragraph.xpath("./a:r", namespaces=_NS)
-        total_runs += len(runs)
+        fields = paragraph.xpath("./a:fld", namespaces=_NS)
+        total_runs += len(runs) + len(fields)
         if (
-            paragraph.xpath(".//a:fld", namespaces=_NS)
+            any(not _is_plain_field(field) for field in fields)
             or any(child.tag not in allowed_paragraph_children for child in paragraph)
             # Line breaks may carry only their own run properties.
             or any(
