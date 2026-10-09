@@ -229,6 +229,9 @@ export function ReasoningProviders({ disabled }: { disabled: boolean }) {
       setNotice(safe.message ?? "Provider request failed.");
     } finally {
       await load().catch(() => undefined);
+      // Local Fast Decisions reuse this endpoint and model, so their
+      // configured state changes with it.
+      await loadDecisionStatus().catch(() => undefined);
       setBusy(false);
     }
   }

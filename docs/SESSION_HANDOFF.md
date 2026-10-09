@@ -55,8 +55,33 @@ bullet-editable (from 1654). 13 real-deck edits read back exactly, use a
 text-font marker and open in PowerPoint; rendered before/after pairs were
 reviewed. Two decks are declined by the active/external-content safety policy.
 See `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
-LM Studio is installed on this host but its daemon would not start headlessly,
-so no local-model Fast Decisions run was possible this session.
+Fast Decisions live local acceptance (2026-10-09):
+
+- Model: the installed `Qwen3.8-4B-Q4_K_M.gguf`, served on `127.0.0.1:1234`
+  by LM Studio's bundled `llama-server` (the LM Studio app itself would not
+  start from the agent environment). Server stopped afterwards.
+- `presenter_core.tools.decision_acceptance` (10 self-authored synthetic
+  cases, `local_choice` provider):
+  - GPU (CUDA 12 build): two complete runs, 9/10 and 8/10 correct; median
+    882 / 948 ms, p95 1152 / 1375 ms; no timeouts.
+  - CPU (AVX2 build): 8/10 when given a 30 s timeout, but median 8.6 s and
+    p95 16.5 s; at the default 10 s timeout most requests time out. CPU-only
+    hosts do not meet a "fast" budget with this model.
+  - Errors cluster on the "opening" (agenda) case, and results vary between
+    runs on the same inputs.
+- New opt-in GUI acceptance `accept-fast-decisions-local.mjs` (actual
+  Electron/Core, live loopback model): Settings configures the local endpoint
+  and model and selects Local for Fast Decisions; the Workspace Purpose panel
+  returns live suggestions (581–1737 ms provider latency) that are saved only
+  after explicit review. The "We recommend funding the pilot" slide was
+  classified correctly in both runs; the Agenda slide came back "unclear" in
+  one run and "recommendation" in another.
+- Bug found and fixed: saving the local reasoning provider did not refresh
+  Fast Decisions status, so the panel kept showing the local model as "not
+  configured" and Save stayed disabled until Settings was reopened.
+
+This is integration evidence, not calibration: thresholds remain uncalibrated
+until a licensing-safe human-labeled set exists.
 
 Human-gated items (cannot be completed by an agent):
 
@@ -65,7 +90,10 @@ Human-gated items (cannot be completed by an agent):
   eligible account. It automates consent wait, restart persistence, model
   listing, disclosures, one synthetic decision, catalog refresh and sign-out,
   and writes a token-free receipt to `.local/chatgpt-live/`.
-- Fast Decisions calibration needs a licensing-safe human-labeled set.
+- Fast Decisions calibration needs a licensing-safe human-labeled set. Live
+  local integration is now exercised (see above); rerun with
+  `PRESENTER_DECISION_LIVE_MODEL=<id> node apps/desktop/scripts/accept-fast-decisions-local.mjs`
+  after starting a loopback model server.
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
