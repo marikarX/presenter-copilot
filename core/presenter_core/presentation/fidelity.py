@@ -131,6 +131,7 @@ _PLAIN_BULLET_FONTS = frozenset(
     }
 )
 MIN_BULLET_SIZE_PERCENT = 25
+MAX_NUMBERING_START = 9999
 MAX_BULLET_SIZE_PERCENT = 400
 PARAGRAPH_BULLET_MODES = frozenset(
     {"none", *PARAGRAPH_AUTONUM_TYPE_BY_MODE, *PARAGRAPH_BULLET_CHAR_BY_MODE}
@@ -198,6 +199,8 @@ class FidelityTextStyle:
     bullet_color_editable: bool = False
     bullet_size_percent: int | None = None
     bullet_size_editable: bool = False
+    numbering_start: int | None = None
+    numbering_start_editable: bool = False
 
 
 @dataclass(frozen=True)
@@ -389,6 +392,8 @@ class FidelityDocument:
                             "bullet_color_editable": obj.text_style.bullet_color_editable,
                             "bullet_size_percent": obj.text_style.bullet_size_percent,
                             "bullet_size_editable": obj.text_style.bullet_size_editable,
+                            "numbering_start": obj.text_style.numbering_start,
+                            "numbering_start_editable": (obj.text_style.numbering_start_editable),
                         }
                         if obj.text_style is not None
                         else None
@@ -1525,6 +1530,13 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         bullet_color_editable=decoration_editable,
         bullet_size_percent=_uniform_style_value([item[1] for item in decorations]),
         bullet_size_editable=decoration_editable,
+        numbering_start=_uniform_style_value(
+            [
+                _paragraph_numbering_start_for_shape(properties)
+                for properties in paragraph_properties
+            ]
+        ),
+        numbering_start_editable=bullet_editable,
     )
 
 
@@ -1683,6 +1695,25 @@ def _paragraph_bullet_decoration_for_shape(
     return color, size, True
 
 
+def _numbering_start_value(node: etree._Element) -> int | None:
+    raw = node.get("startAt", "1")
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", raw):
+        return None
+    return int(raw)
+
+
+def _paragraph_numbering_start_for_shape(
+    paragraph_properties: etree._Element | None,
+) -> int | None:
+    """Return the first number of a plain numbered paragraph, otherwise None."""
+    mode, editable = _paragraph_bullet_mode_for_shape(paragraph_properties)
+    if not editable or mode not in PARAGRAPH_AUTONUM_TYPE_BY_MODE:
+        return None
+    assert paragraph_properties is not None
+    node = paragraph_properties.find(f"{{{DRAWING_NS}}}buAutoNum")
+    return _numbering_start_value(node) if node is not None else None
+
+
 def _paragraph_bullet_mode_for_shape(
     paragraph_properties: etree._Element | None,
 ) -> tuple[str | None, bool]:
@@ -1722,7 +1753,9 @@ def _paragraph_bullet_mode_for_shape(
         return "none", True
     if (
         bullet_node.tag == f"{{{DRAWING_NS}}}buAutoNum"
-        and set(bullet_node.attrib) == {"type"}
+        and "type" in bullet_node.attrib
+        and set(bullet_node.attrib) <= {"type", "startAt"}
+        and _numbering_start_value(bullet_node) is not None
         and bullet_node.get("type") in _PARAGRAPH_MODE_BY_AUTONUM_TYPE
         and not len(bullet_node)
         and not (bullet_node.text and bullet_node.text.strip())

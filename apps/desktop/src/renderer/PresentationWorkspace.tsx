@@ -256,6 +256,8 @@ type TextStyle = {
   bullet_color_editable: boolean;
   bullet_size_percent: number | null;
   bullet_size_editable: boolean;
+  numbering_start: number | null;
+  numbering_start_editable: boolean;
 };
 
 type TextStyleChange = Partial<
@@ -273,6 +275,7 @@ type TextStyleChange = Partial<
     | "space_after_pt"
     | "bullet_color"
     | "bullet_size_percent"
+    | "numbering_start"
   >
 > & {
   bullet_mode?: (typeof TEXT_BULLET_STATES)[number];
@@ -359,6 +362,7 @@ type TextStyleDraft = {
   bullet_mode: string;
   bullet_color: string;
   bullet_size_percent: string;
+  numbering_start: string;
   left_indent_pt: string;
   first_line_indent_pt: string;
   line_spacing_pt: string;
@@ -791,7 +795,13 @@ function isTextStyle(value: unknown): value is TextStyle {
         candidate.bullet_size_percent >= 25 &&
         candidate.bullet_size_percent <= 400)) &&
     typeof candidate.bullet_color_editable === "boolean" &&
-    typeof candidate.bullet_size_editable === "boolean";
+    typeof candidate.bullet_size_editable === "boolean" &&
+    (candidate.numbering_start === null ||
+      (typeof candidate.numbering_start === "number" &&
+        Number.isSafeInteger(candidate.numbering_start) &&
+        candidate.numbering_start >= 1 &&
+        candidate.numbering_start <= 9999)) &&
+    typeof candidate.numbering_start_editable === "boolean";
   const validBulletState =
     candidate.bullet_state === null ||
     (typeof candidate.bullet_state === "string" &&
@@ -1034,6 +1044,7 @@ export function PresentationWorkspace({
     bullet_mode: "",
     bullet_color: "",
     bullet_size_percent: "",
+    numbering_start: "",
     left_indent_pt: "",
     first_line_indent_pt: "",
     line_spacing_pt: "",
@@ -1355,6 +1366,23 @@ export function PresentationWorkspace({
     replacementBulletSize !== selectedTarget.style.bullet_size_percent
   )
     replacementBulletMarker.bullet_size_percent = replacementBulletSize;
+  const parsedNumberingStart = /^\d+$/.test(textStyleDraft.numbering_start)
+    ? Number(textStyleDraft.numbering_start)
+    : null;
+  const replacementNumberingStart =
+    parsedNumberingStart !== null &&
+    parsedNumberingStart >= 1 &&
+    parsedNumberingStart <= 9999
+      ? parsedNumberingStart
+      : null;
+  const numberedListSelected = (
+    replacementTextBulletMode ??
+    selectedTarget?.style.bullet_state ??
+    ""
+  ).startsWith("numbered");
+  const invalidNumberingStart =
+    textStyleDraft.numbering_start !== "" &&
+    (replacementNumberingStart === null || !numberedListSelected);
   const replacementTextAlignment = TEXT_ALIGNMENTS.find(
     (alignment) => alignment === textStyleDraft.alignment,
   );
@@ -1368,6 +1396,14 @@ export function PresentationWorkspace({
     replacementTextBulletMode !== selectedTarget.style.bullet_state
   ) {
     replacementTextParagraphStyle.bullet_mode = replacementTextBulletMode;
+  }
+  if (
+    replacementNumberingStart !== null &&
+    numberedListSelected &&
+    selectedTarget?.style.numbering_start_editable &&
+    replacementNumberingStart !== (selectedTarget.style.numbering_start ?? 1)
+  ) {
+    replacementTextParagraphStyle.numbering_start = replacementNumberingStart;
   }
   if (
     replacementTextLeftIndent !== null &&
@@ -1858,6 +1894,7 @@ export function PresentationWorkspace({
       bullet_mode: "",
       bullet_color: "",
       bullet_size_percent: "",
+      numbering_start: "",
       left_indent_pt: "",
       first_line_indent_pt: "",
       line_spacing_pt: "",
@@ -2287,6 +2324,7 @@ export function PresentationWorkspace({
           bullet_color: firstTarget?.style.bullet_color ?? "",
           bullet_size_percent:
             firstTarget?.style.bullet_size_percent?.toString() ?? "",
+          numbering_start: firstTarget?.style.numbering_start?.toString() ?? "",
           left_indent_pt: firstTarget?.style.left_indent_pt?.toString() ?? "",
           first_line_indent_pt:
             firstTarget?.style.first_line_indent_pt?.toString() ?? "",
@@ -7026,6 +7064,8 @@ export function PresentationWorkspace({
                             bullet_size_percent:
                               target?.style.bullet_size_percent?.toString() ??
                               "",
+                            numbering_start:
+                              target?.style.numbering_start?.toString() ?? "",
                             left_indent_pt:
                               target?.style.left_indent_pt?.toString() ?? "",
                             first_line_indent_pt:
@@ -7325,6 +7365,28 @@ export function PresentationWorkspace({
                             <option value="none">No bullet</option>
                           </select>
                         </label>
+                        <label>
+                          Numbering starts at (1–9999)
+                          <input
+                            type="number"
+                            min="1"
+                            max="9999"
+                            step="1"
+                            placeholder="Keep imported"
+                            value={textStyleDraft.numbering_start}
+                            onChange={(event) =>
+                              setTextStyleDraft((current) => ({
+                                ...current,
+                                numbering_start: event.target.value,
+                              }))
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              !selectedTarget.style.numbering_start_editable
+                            }
+                          />
+                        </label>
                         <fieldset
                           className="pw-bullet-marker"
                           aria-label="Bullet marker"
@@ -7514,6 +7576,7 @@ export function PresentationWorkspace({
                             loading ||
                             !selectedTarget.style.fingerprint ||
                             invalidTextBulletMode ||
+                            invalidNumberingStart ||
                             invalidTextLeftIndent ||
                             invalidTextFirstLineIndent ||
                             invalidTextParagraphSpacing ||

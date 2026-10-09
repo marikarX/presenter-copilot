@@ -220,3 +220,59 @@ def test_copilot_schema_exposes_bullet_decoration() -> None:
     assert _STYLE_PROPERTIES["bullet_color"]["minLength"] == 7
     assert _STYLE_PROPERTIES["bullet_size_percent"]["minimum"] == 25
     assert _STYLE_PROPERTIES["bullet_size_percent"]["maximum"] == 400
+
+
+def _numbered_from(start: str | None) -> Callable[[etree._Element], None]:
+    def mutate(properties: etree._Element) -> None:
+        bullet = properties.find(f"{A}buChar")
+        number = etree.Element(f"{A}buAutoNum", type="arabicPeriod")
+        if start is not None:
+            number.set("startAt", start)
+        properties.replace(bullet, number)
+
+    return mutate
+
+
+def test_numbering_start_applies_carries_across_schemes_and_resets(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _with_font("Arial"))
+    try:
+        assert deck.target()[0]["text_style"]["numbering_start"] is None
+        rejected = deck.format({"numbering_start": 3})
+        assert not rejected["ok"]
+        assert rejected["error"]["code"] == "PRESENTATION_EDIT_UNSUPPORTED"
+        assert deck.format({"bullet_mode": "numbered", "numbering_start": 3})["ok"]
+        assert [p.find(f"{A}buAutoNum").get("startAt") for p in deck.properties()] == ["3"] * len(
+            deck.properties()
+        )
+        assert deck.target()[0]["text_style"]["numbering_start"] == 3
+        assert deck.format({"bullet_mode": "numbered_roman_upper"})["ok"]
+        style = deck.target()[0]["text_style"]
+        assert (style["bullet_state"], style["numbering_start"]) == ("numbered_roman_upper", 3)
+        assert deck.format({"numbering_start": 1})["ok"]
+        assert all(p.find(f"{A}buAutoNum").get("startAt") is None for p in deck.properties())
+        assert deck.target()[0]["text_style"]["numbering_start"] == 1
+    finally:
+        deck.core.close()
+
+
+def test_imported_custom_start_is_now_editable(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _numbered_from("5"))
+    try:
+        style = deck.target()[0]["text_style"]
+        assert style["bullet_state"] == "numbered" and style["bullet_editable"]
+        assert style["numbering_start"] == 5
+        for value in (0, 10000, "2"):
+            reply = deck.format({"numbering_start": value})
+            assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
+    finally:
+        deck.core.close()
+
+
+@pytest.mark.parametrize("start", ["0", "07", "12345", "x"])
+def test_malformed_start_values_stay_read_only(tmp_path: Path, start: str) -> None:
+    deck = _Deck(tmp_path, _numbered_from(start))
+    try:
+        style = deck.target()[0]["text_style"]
+        assert not style["bullet_editable"] and style["numbering_start"] is None
+    finally:
+        deck.core.close()

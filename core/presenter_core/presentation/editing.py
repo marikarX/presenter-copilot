@@ -38,6 +38,7 @@ from presenter_core.presentation.fidelity import (
     DRAWING_NS,
     EMU_PER_POINT,
     MAX_BULLET_SIZE_PERCENT,
+    MAX_NUMBERING_START,
     MAX_SLIDE_DIMENSION_EMU,
     MAX_SPEAKER_NOTES_CHARS,
     MAX_SPEAKER_NOTES_PARAGRAPHS,
@@ -369,6 +370,11 @@ class PresentationEditService:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This text paragraph's bullet size cannot be safely edited.",
+            )
+        if "numbering_start" in replacement_style and not style.numbering_start_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's list numbering cannot be safely edited.",
             )
         if "left_indent_pt" in replacement_style and not style.left_indent_editable:
             raise CoreDomainError(
@@ -6725,6 +6731,11 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This text paragraph's bullet size cannot be safely edited.",
             )
+        if "numbering_start" in replacement_style and not obj.text_style.numbering_start_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's list numbering cannot be safely edited.",
+            )
         if "left_indent_pt" in replacement_style and not obj.text_style.left_indent_editable:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
@@ -6810,6 +6821,7 @@ class PresentationEditService:
                     "bullet_mode",
                     "bullet_color",
                     "bullet_size_percent",
+                    "numbering_start",
                     "left_indent_pt",
                     "first_line_indent_pt",
                     "line_spacing_pt",
@@ -6838,6 +6850,10 @@ class PresentationEditService:
                                 PresentationEditService._apply_paragraph_bullet_decoration(
                                     paragraph, decoration, replacement_style[decoration]
                                 )
+                        if "numbering_start" in replacement_style:
+                            PresentationEditService._apply_paragraph_numbering_start(
+                                paragraph, replacement_style["numbering_start"]
+                            )
                         if "left_indent_pt" in replacement_style:
                             PresentationEditService._apply_paragraph_left_indent(
                                 paragraph,
@@ -7079,7 +7095,10 @@ class PresentationEditService:
                 "This paragraph's existing bullet style cannot be safely edited.",
             )
 
-        # Only the marker type is replaced; supported color/size/font decoration stays.
+        # Only the marker type is replaced; supported color/size/font decoration stays,
+        # and a numbering start carries over between numbered schemes.
+        previous_number = paragraph_properties.find(f"{{{DRAWING_NS}}}buAutoNum")
+        previous_start = previous_number.get("startAt") if previous_number is not None else None
         for child in list(paragraph_properties):
             if (
                 isinstance(child.tag, str)
@@ -7106,7 +7125,27 @@ class PresentationEditService:
             bullet_node.set("char", PARAGRAPH_BULLET_CHAR_BY_MODE[bullet_mode])
         elif bullet_mode in PARAGRAPH_AUTONUM_TYPE_BY_MODE:
             bullet_node.set("type", PARAGRAPH_AUTONUM_TYPE_BY_MODE[bullet_mode])
+            if previous_start is not None:
+                bullet_node.set("startAt", previous_start)
         paragraph_properties.insert(insert_index, bullet_node)
+
+    @staticmethod
+    def _apply_paragraph_numbering_start(paragraph: etree._Element, start: int) -> None:
+        paragraph_properties = paragraph.find(f"{{{DRAWING_NS}}}pPr")
+        node = (
+            paragraph_properties.find(f"{{{DRAWING_NS}}}buAutoNum")
+            if paragraph_properties is not None
+            else None
+        )
+        if node is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "Choose a numbered list style before setting where numbering starts.",
+            )
+        if start == 1:
+            node.attrib.pop("startAt", None)
+        else:
+            node.set("startAt", str(start))
 
     @staticmethod
     def _apply_paragraph_bullet_decoration(
@@ -8194,6 +8233,7 @@ class PresentationEditService:
             "bullet_mode",
             "bullet_color",
             "bullet_size_percent",
+            "numbering_start",
             "left_indent_pt",
             "first_line_indent_pt",
             "line_spacing_pt",
@@ -8250,6 +8290,13 @@ class PresentationEditService:
                         field="replacement_style.bullet_color",
                     )
                 result[name] = item.upper()
+            elif name == "numbering_start":
+                if type(item) is not int or not 1 <= item <= MAX_NUMBERING_START:
+                    raise invalid_request(
+                        "replacement_style.numbering_start must be an integer from 1 to 9999.",
+                        field="replacement_style.numbering_start",
+                    )
+                result[name] = item
             elif name == "bullet_size_percent":
                 if (
                     type(item) is not int

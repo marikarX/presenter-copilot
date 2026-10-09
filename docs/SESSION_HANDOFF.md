@@ -1,5 +1,66 @@
 # Presenter Copilot session handoff
 
+## Current continuation - committed; cross-Run comparison, list numbering and bullet markers (2026-10-09)
+
+IN PROGRESS. The previously dirty worktree is now committed on
+`codex/production-readiness` (`bc1ab9c`), and work continues as small commits
+(not pushed). Earlier handoff entries describing "no staging/commit" and
+freeze/preservation verifiers are historical; git history is now the record.
+
+Commits this session:
+
+- `55473c3` ChatGPT-plan model catalog also accepts the standard `{data:[{id}]}`
+  list shape (previously only the Codex-style `models[].slug` shape).
+- `3401a83` Cross-Run objection comparison Core: schema 23 tables
+  (`presentation_rehearsal_objection_comparisons` plus a candidate join table
+  that references original `finding_id`s and cascades with either Run or the
+  original analysis); `RehearsalObjectionComparison` prepare (fingerprinted,
+  verified candidates from two distinct ended Runs with unchanged recordings),
+  analyze (routed/audited, both recordings guarded in the storage transaction),
+  list and verified read; a `comparison` job kind that owns both Run IDs for
+  cancellation and session deletion; four protocol methods across Core,
+  desktop allowlists and examples.
+- `ff1d9f5` Comparison GUI (`RehearsalObjectionComparison.tsx`, in the
+  Rehearsal panel) and `test-rehearsal-objection-comparison.mjs` (7/7 actual
+  Electron/Core checks; model adapter is the only fixture). A rejected Start
+  clears the stale preparation (bug found in the GUI run).
+- `e1bfd65` List numbering `1)`, `a.`, `A.`, `i.`, `I.` across detection,
+  apply, text-fit markers and the GUI; fixes Copilot edit plans offering
+  `bullet_disc`, which Core rejected (schema now mirrors Core, parity-tested);
+  adds opt-in `accept-chatgpt-live.mjs` guided live acceptance.
+- `2946282` Editable bullet color (`buClr` sRGB) and size (`buSzPct` 25–400%),
+  retained across marker-type changes; PowerPoint-style lists with a plain
+  text-font `buFont` are now editable (previously read-only). GUI "Bullet
+  marker" group; `test-bullet-marker.mjs` 4/4. A draft bug that would have
+  written black bullets unasked was caught by the harness and fixed.
+
+- Next commit: editable numbering start values (`buAutoNum startAt`, 1–9999),
+  carried across numbered schemes and reset by choosing 1; imported custom
+  starts are now editable while malformed values stay read-only. GUI
+  "Numbering starts at" field; bullet harness checks roman numbering from III.
+
+Validation: full `pnpm check` green on `2946282` (1888 Core tests, desktop
+312, lint/types/format); `test-workspace.mjs` 117/117 after both the numbering
+and bullet-marker commits; existing objection review GUI 20/20 with the
+comparison panel mounted; `test-bullet-marker.mjs` 4/4 including start values.
+LM Studio is installed on this host but its daemon would not start headlessly,
+so no local-model Fast Decisions run was possible this session.
+
+Human-gated items (cannot be completed by an agent):
+
+- Sign in with ChatGPT live acceptance: run
+  `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live` with an
+  eligible account. It automates consent wait, restart persistence, model
+  listing, disclosures, one synthetic decision, catalog refresh and sign-out,
+  and writes a token-free receipt to `.local/chatgpt-live/`.
+- Fast Decisions calibration needs a licensing-safe human-labeled set.
+- Codex "Sign in with ChatGPT" lasting only for the app session is documented
+  in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
+
+Next: remaining direct-edit gaps (picture bullets, symbol-font bullets), held Run/head GUI replies,
+fidelity corpus review and human acceptance gates. Signing and clean Windows
+validation remain accepted debt.
+
 ## Current continuation - identity GUI accepted and comparison contract started (2026-10-08)
 
 IN PROGRESS. Actual GUI60052 terminal0:20 checks/errors empty at

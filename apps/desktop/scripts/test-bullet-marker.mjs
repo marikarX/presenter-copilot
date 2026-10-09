@@ -184,12 +184,19 @@ try {
   });
   await bulletStyle.selectOption("numbered_roman_upper");
   await page
+    .getByLabel("Numbering starts at (1–9999)", { exact: true })
+    .fill("3");
+  await page
     .getByRole("button", { name: "Apply paragraph format", exact: true })
     .click();
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
-  assert.equal((await style()).bullet_state, "numbered_roman_upper");
+  const numbered = await style();
+  assert.equal(numbered.bullet_state, "numbered_roman_upper");
+  assert.equal(numbered.numbering_start, 3);
   assert.equal(await bulletStyle.inputValue(), "numbered_roman_upper");
-  checks.push("GUI applies uppercase roman numbering as a native revision");
+  checks.push(
+    "GUI applies uppercase roman numbering starting at III as one native revision",
+  );
 
   const marker = page.getByRole("group", {
     name: "Bullet marker",
@@ -239,8 +246,13 @@ try {
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
   const undone = await style();
   assert.deepEqual(
-    [undone.bullet_state, undone.bullet_color, undone.bullet_size_percent],
-    ["numbered_roman_upper", null, null],
+    [
+      undone.bullet_state,
+      undone.bullet_color,
+      undone.bullet_size_percent,
+      undone.numbering_start,
+    ],
+    ["numbered_roman_upper", null, null, 3],
   );
   checks.push("Undo restores the previous marker without color or size");
   assert.deepEqual(errors, []);

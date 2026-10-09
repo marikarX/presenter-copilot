@@ -60,6 +60,7 @@ _STYLE_PROPERTIES = {
     ),
     "bullet_color": _text(7, 7),
     "bullet_size_percent": _integer(25, 400),
+    "numbering_start": _integer(1, 9999),
     "left_indent_pt": _integer(0, 144),
     "first_line_indent_pt": _integer(-144, 144),
     "line_spacing_pt": _integer(1, 144),

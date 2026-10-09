@@ -4254,9 +4254,8 @@ def test_custom_numbering_style_remains_read_only(tmp_path: Path) -> None:
                     plain_bullet = properties.find(f"{{{DRAWING_NS}}}buChar")
                     assert plain_bullet is not None
                     custom_number = etree.Element(f"{{{DRAWING_NS}}}buAutoNum")
-                    custom_number.set("type", "romanUcPeriod")
-                    # A custom start value keeps an otherwise plain scheme read-only.
-                    custom_number.set("startAt", "3")
+                    # A scheme without a supported plain marker stays read-only.
+                    custom_number.set("type", "circleNumDbPlain")
                     properties.replace(plain_bullet, custom_number)
                     content = etree.tostring(
                         root,
@@ -4350,7 +4349,7 @@ def test_unsupported_source_left_indent_stays_read_only(tmp_path: Path) -> None:
                 assert len(bullet_chars) == 1
                 paragraph_properties.remove(bullet_chars[0])
                 auto_number = etree.Element(
-                    f"{{{DRAWING_NS}}}buAutoNum", {"type": "romanUcPeriod", "startAt": "3"}
+                    f"{{{DRAWING_NS}}}buAutoNum", {"type": "circleNumDbPlain"}
                 )
                 bullet_insert_index = _paragraph_property_insert_index(
                     paragraph_properties, "buAutoNum"
