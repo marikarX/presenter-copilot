@@ -71,7 +71,23 @@ _STYLE = _object(
     {name: {"anyOf": [schema, {"type": "null"}]} for name, schema in _STYLE_PROPERTIES.items()}
 )
 _SHAPE_STYLE = _object(
-    {name: {"anyOf": [_text(7, 7), {"type": "null"}]} for name in ("fill_color", "line_color")}
+    {
+        **{
+            name: {"anyOf": [_text(7, 7), {"type": "null"}]}
+            for name in ("fill_color", "line_color")
+        },
+        "line_width_pt": {
+            "anyOf": [{"type": "number", "minimum": 0.25, "maximum": 20}, {"type": "null"}]
+        },
+        "line_dash": {
+            "anyOf": [
+                _choice(
+                    "solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"
+                ),
+                {"type": "null"},
+            ]
+        },
+    }
 )
 _DIAGRAM = _object(
     {

@@ -1421,7 +1421,7 @@ try {
   await studioPanel("Objects");
   await page
     .locator(".pw-slide-column .pw-notice")
-    .getByText(/Saved revision 12 and refreshed the shape color/)
+    .getByText(/Saved revision 12 and refreshed the shape style/)
     .waitFor();
   await studioPanel("Objects");
   assert.equal(
@@ -1446,7 +1446,7 @@ try {
   await studioPanel("Objects");
   await page
     .locator(".pw-slide-column .pw-notice")
-    .getByText(/Saved revision 13 and refreshed the shape color/)
+    .getByText(/Saved revision 13 and refreshed the shape style/)
     .waitFor();
   await studioPanel("Objects");
   assert.equal(

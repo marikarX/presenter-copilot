@@ -318,7 +318,21 @@ type ShapeStyle = {
   fill_editable: boolean;
   line_color: string | null;
   line_editable: boolean;
+  line_width_pt: number | null;
+  line_dash: string | null;
+  line_format_editable: boolean;
 };
+
+const SHAPE_LINE_DASHES: ReadonlyArray<[string, string]> = [
+  ["solid", "Solid"],
+  ["dash", "Dash"],
+  ["dot", "Dot"],
+  ["dashDot", "Dash dot"],
+  ["lgDash", "Long dash"],
+  ["lgDashDot", "Long dash dot"],
+  ["sysDash", "Square dash"],
+  ["sysDot", "Round dot"],
+];
 
 type PresentationObject = {
   object_id: string;
@@ -351,6 +365,8 @@ type PictureCropDraft = {
 type ShapeStyleDraft = {
   fill_color: string;
   line_color: string;
+  line_width_pt: string;
+  line_dash: string;
 };
 
 type NewShapeType = "rect" | "ellipse";
@@ -591,6 +607,8 @@ function draftForShapeStyle(style: ShapeStyle | null): ShapeStyleDraft {
   return {
     fill_color: style?.fill_color ?? "#000000",
     line_color: style?.line_color ?? "#000000",
+    line_width_pt: style?.line_width_pt?.toString() ?? "",
+    line_dash: style?.line_dash ?? "",
   };
 }
 
@@ -732,10 +750,19 @@ function isPresentationObject(value: unknown): value is PresentationObject {
         (typeof shapeStyle.line_color === "string" &&
           /^#[0-9A-F]{6}$/.test(shapeStyle.line_color))) &&
       typeof shapeStyle.line_editable === "boolean" &&
+      (shapeStyle.line_width_pt === null ||
+        (typeof shapeStyle.line_width_pt === "number" &&
+          shapeStyle.line_width_pt > 0 &&
+          shapeStyle.line_width_pt <= 20)) &&
+      (shapeStyle.line_dash === null ||
+        SHAPE_LINE_DASHES.some(([value]) => value === shapeStyle.line_dash)) &&
+      typeof shapeStyle.line_format_editable === "boolean" &&
       (!shapeStyle.editable ||
         (candidate.kind === "sp" &&
           shapeStyle.fingerprint !== null &&
-          (shapeStyle.fill_editable || shapeStyle.line_editable))));
+          (shapeStyle.fill_editable ||
+            shapeStyle.line_editable ||
+            shapeStyle.line_format_editable))));
   return (
     typeof candidate.object_id === "string" &&
     UUID_PATTERN.test(candidate.object_id) &&
@@ -4370,14 +4397,34 @@ export function PresentationWorkspace({
   ]);
 
   const saveShapeColorRevision = useCallback(
-    async (property: "fill_color" | "line_color") => {
+    async (property: "fill_color" | "line_color" | "outline") => {
       const source = selectedSource;
       const revision = currentRevision;
       const target = selectedObject;
       const style = target?.shape_style;
-      const color = objectStyleDraft[property];
       const editable =
-        property === "fill_color" ? style?.fill_editable : style?.line_editable;
+        property === "fill_color"
+          ? style?.fill_editable
+          : property === "line_color"
+            ? style?.line_editable
+            : style?.line_format_editable;
+      const replacement: Record<string, string | number> = {};
+      if (property === "outline") {
+        const width = Number(objectStyleDraft.line_width_pt);
+        if (
+          objectStyleDraft.line_width_pt !== "" &&
+          Number.isFinite(width) &&
+          width !== style?.line_width_pt
+        )
+          replacement.line_width_pt = width;
+        if (
+          objectStyleDraft.line_dash !== "" &&
+          objectStyleDraft.line_dash !== (style?.line_dash ?? "")
+        )
+          replacement.line_dash = objectStyleDraft.line_dash;
+      } else if (/^#[0-9A-F]{6}$/.test(objectStyleDraft[property])) {
+        replacement[property] = objectStyleDraft[property];
+      }
       if (
         !source ||
         !revision ||
@@ -4386,14 +4433,16 @@ export function PresentationWorkspace({
         !style?.editable ||
         !style.fingerprint ||
         !editable ||
-        !/^#[0-9A-F]{6}$/.test(color) ||
         loadedSourceId !== source.id ||
         loading
       ) {
         return;
       }
-      if (style[property] === color) {
-        setNotice("The selected shape color is unchanged.");
+      if (
+        Object.keys(replacement).length === 0 ||
+        (property !== "outline" && style[property] === replacement[property])
+      ) {
+        setNotice("The selected shape style is unchanged.");
         return;
       }
       setLoading(true);
@@ -4410,7 +4459,7 @@ export function PresentationWorkspace({
             slide_id: activeSlideId,
             object_id: target.object_id,
             expected_style_fingerprint: style.fingerprint,
-            replacement_style: { [property]: color },
+            replacement_style: replacement,
           },
         );
         if (
@@ -4423,10 +4472,10 @@ export function PresentationWorkspace({
           result.byte_size < 1 ||
           (result.changed && result.parent_revision_id !== revision.revision_id)
         ) {
-          throw new Error("The shape color revision could not be verified.");
+          throw new Error("The shape style revision could not be verified.");
         }
         if (!result.changed) {
-          setNotice("The selected shape color is unchanged.");
+          setNotice("The selected shape style is unchanged.");
           return;
         }
         setCurrentRevision({
@@ -4449,7 +4498,7 @@ export function PresentationWorkspace({
         await loadPresentation(selectedSlide, target.object_id);
         setNotice(
           indexedRevision
-            ? `Saved revision ${result.revision_number} and refreshed the shape color.`
+            ? `Saved revision ${result.revision_number} and refreshed the shape style.`
             : `Saved revision ${result.revision_number}. Re-index before using this presentation in rehearsal.`,
         );
       } catch (caught) {
@@ -8507,6 +8556,69 @@ export function PresentationWorkspace({
                             stays read-only.
                           </p>
                         )}
+                        {selectedObject.shape_style.line_format_editable ? (
+                          <div className="pw-shape-color-control">
+                            <label>
+                              Outline width (points, 0.25–20)
+                              <input
+                                type="number"
+                                min="0.25"
+                                max="20"
+                                step="0.25"
+                                placeholder="Keep current"
+                                aria-label="Shape outline width"
+                                value={objectStyleDraft.line_width_pt}
+                                onChange={(event) =>
+                                  setObjectStyleDraft((current) => ({
+                                    ...current,
+                                    line_width_pt: event.target.value,
+                                  }))
+                                }
+                                disabled={!loadedSourceId || loading}
+                              />
+                            </label>
+                            <label>
+                              Outline style
+                              <select
+                                aria-label="Shape outline style"
+                                value={objectStyleDraft.line_dash}
+                                onChange={(event) =>
+                                  setObjectStyleDraft((current) => ({
+                                    ...current,
+                                    line_dash: event.target.value,
+                                  }))
+                                }
+                                disabled={!loadedSourceId || loading}
+                              >
+                                <option value="">Keep current</option>
+                                {SHAPE_LINE_DASHES.map(([value, label]) => (
+                                  <option key={value} value={value}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void saveShapeColorRevision("outline")
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                ((objectStyleDraft.line_width_pt === "" ||
+                                  Number(objectStyleDraft.line_width_pt) ===
+                                    selectedObject.shape_style.line_width_pt) &&
+                                  (objectStyleDraft.line_dash === "" ||
+                                    objectStyleDraft.line_dash ===
+                                      selectedObject.shape_style.line_dash))
+                              }
+                            >
+                              Apply outline style
+                            </button>
+                          </div>
+                        ) : null}
                       </fieldset>
                     ) : null}
                     {selectedObject?.delete_editable ? (

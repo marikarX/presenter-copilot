@@ -39,6 +39,7 @@ from presenter_core.presentation.fidelity import (
     EMU_PER_POINT,
     MAX_BULLET_SIZE_PERCENT,
     MAX_NUMBERING_START,
+    MAX_SHAPE_LINE_WIDTH_PT,
     MAX_SLIDE_DIMENSION_EMU,
     MAX_SPEAKER_NOTES_CHARS,
     MAX_SPEAKER_NOTES_PARAGRAPHS,
@@ -54,6 +55,7 @@ from presenter_core.presentation.fidelity import (
     PARAGRAPH_BULLET_MODES,
     PRESENTATION_NS,
     REL_NS,
+    SHAPE_LINE_DASHES,
     SLIDE_LIMIT,
     FidelityGeometry,
     FidelityPictureCrop,
@@ -512,6 +514,14 @@ class PresentationEditService:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This shape outline uses a style the color editor cannot safely retain.",
+            )
+        if (
+            replacement_style.keys() & {"line_width_pt", "line_dash"}
+            and not style.line_format_editable
+        ):
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape outline uses a width or dash the editor cannot safely retain.",
             )
         if all(
             getattr(style, "bullet_state" if name == "bullet_mode" else name) == value
@@ -7322,7 +7332,11 @@ class PresentationEditService:
                 "The selected shape styling changed. Refresh the preview and try again.",
             )
         for property_name in replacement_style:
-            editable_field = f"{property_name.removesuffix('_color')}_editable"
+            editable_field = (
+                "line_format_editable"
+                if property_name in {"line_width_pt", "line_dash"}
+                else f"{property_name.removesuffix('_color')}_editable"
+            )
             if not getattr(obj.shape_style, editable_field):
                 raise CoreDomainError(
                     "PRESENTATION_EDIT_UNSUPPORTED",
@@ -7362,10 +7376,16 @@ class PresentationEditService:
                         "PRESENTATION_EDIT_STALE_TARGET",
                         "The selected shape styling changed. Refresh the preview and try again.",
                     )
-                for property_name, color in replacement_style.items():
-                    PresentationEditService._replace_shape_solid_color(
-                        shape, property_name=property_name, color=color
-                    )
+                for property_name, value in replacement_style.items():
+                    if property_name in {"fill_color", "line_color"}:
+                        PresentationEditService._replace_shape_solid_color(
+                            shape, property_name=property_name, color=value
+                        )
+                PresentationEditService._replace_shape_line_format(
+                    shape,
+                    width_pt=replacement_style.get("line_width_pt"),
+                    dash=replacement_style.get("line_dash"),
+                )
 
                 rewritten_slide = etree.tostring(
                     slide_root,
@@ -7534,6 +7554,50 @@ class PresentationEditService:
         PresentationEditService._insert_ordered_shape_property(
             container, solid_fill, insertion_rank=insertion_rank
         )
+
+    @staticmethod
+    def _replace_shape_line_format(
+        shape: etree._Element, *, width_pt: float | None, dash: str | None
+    ) -> None:
+        """Set outline width (ln@w) and preset dash, keeping the outline color."""
+        if width_pt is None and dash is None:
+            return
+        shape_properties = shape.find(f"{{{PRESENTATION_NS}}}spPr")
+        if shape_properties is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape does not have a supported property container.",
+            )
+        lines = shape_properties.findall(f"{{{DRAWING_NS}}}ln")
+        if len(lines) > 1:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape has multiple outline property blocks.",
+            )
+        if lines:
+            line = lines[0]
+        else:
+            line = etree.Element(f"{{{DRAWING_NS}}}ln")
+            PresentationEditService._insert_ordered_shape_property(
+                shape_properties, line, insertion_rank=3
+            )
+        if width_pt is not None:
+            line.set("w", str(round(width_pt * EMU_PER_POINT)))
+        if dash is not None:
+            for child in list(line):
+                if child.tag in {f"{{{DRAWING_NS}}}prstDash", f"{{{DRAWING_NS}}}custDash"}:
+                    line.remove(child)
+            preset = etree.Element(f"{{{DRAWING_NS}}}prstDash")
+            preset.set("val", dash)
+            fills = {
+                f"{{{DRAWING_NS}}}{name}"
+                for name in ("noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill")
+            }
+            position = 0
+            for index, child in enumerate(line):
+                if child.tag in fills:
+                    position = index + 1
+            line.insert(position, preset)
 
     @staticmethod
     def _insert_ordered_shape_property(
@@ -8381,7 +8445,7 @@ class PresentationEditService:
 
     @staticmethod
     def _shape_style_field(value: Any) -> dict[str, Any]:
-        names = {"fill_color", "line_color"}
+        names = {"fill_color", "line_color", "line_width_pt", "line_dash"}
         if not isinstance(value, dict):
             raise invalid_request("replacement_style must be an object.", field="replacement_style")
         reject_unknown_fields(value, names)
@@ -8392,6 +8456,27 @@ class PresentationEditService:
             )
         result: dict[str, Any] = {}
         for name, color in value.items():
+            if name == "line_width_pt":
+                if (
+                    isinstance(color, bool)
+                    or not isinstance(color, (int, float))
+                    or not 0.25 <= color <= MAX_SHAPE_LINE_WIDTH_PT
+                    or round(color * 4) != color * 4
+                ):
+                    raise invalid_request(
+                        "replacement_style.line_width_pt must be 0.25 to 20 in 0.25 steps.",
+                        field="replacement_style.line_width_pt",
+                    )
+                result[name] = float(color)
+                continue
+            if name == "line_dash":
+                if not isinstance(color, str) or color not in SHAPE_LINE_DASHES:
+                    raise invalid_request(
+                        "replacement_style.line_dash must be a supported dash style.",
+                        field="replacement_style.line_dash",
+                    )
+                result[name] = color
+                continue
             if not isinstance(color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
                 raise invalid_request(
                     f"replacement_style.{name} must use #RRGGBB format.",

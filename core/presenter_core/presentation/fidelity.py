@@ -213,6 +213,41 @@ class FidelityShapeStyle:
     fill_editable: bool = False
     line_color: str | None = None
     line_editable: bool = False
+    line_width_pt: float | None = None
+    line_dash: str | None = None
+    line_format_editable: bool = False
+
+
+# Preset outline dash styles exposed for editing (a:prstDash@val).
+SHAPE_LINE_DASHES = frozenset(
+    {"solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"}
+)
+EMU_PER_QUARTER_POINT = 3175
+MAX_SHAPE_LINE_WIDTH_PT = 20
+
+
+def _shape_line_format(line: etree._Element | None) -> tuple[float | None, str | None, bool]:
+    """Direct outline width (points) and preset dash, and whether both are editable."""
+    if line is None:
+        return None, None, True
+    width: float | None = None
+    raw_width = line.get("w")
+    if raw_width is not None:
+        if not re.fullmatch(r"[0-9]{1,8}", raw_width):
+            return None, None, False
+        emu = int(raw_width)
+        if emu % EMU_PER_QUARTER_POINT or emu > MAX_SHAPE_LINE_WIDTH_PT * EMU_PER_POINT:
+            return None, None, False
+        width = emu / EMU_PER_POINT
+    if line.find(f"{{{DRAWING_NS}}}custDash") is not None:
+        return width, None, False
+    dash: str | None = None
+    preset = line.find(f"{{{DRAWING_NS}}}prstDash")
+    if preset is not None:
+        dash = preset.get("val")
+        if set(preset.attrib) != {"val"} or len(preset) or dash not in SHAPE_LINE_DASHES:
+            return width, None, False
+    return width, dash, True
 
 
 @dataclass(frozen=True)
@@ -420,6 +455,9 @@ class FidelityDocument:
                             "fill_editable": obj.shape_style.fill_editable,
                             "line_color": obj.shape_style.line_color,
                             "line_editable": obj.shape_style.line_editable,
+                            "line_width_pt": obj.shape_style.line_width_pt,
+                            "line_dash": obj.shape_style.line_dash,
+                            "line_format_editable": obj.shape_style.line_format_editable,
                         }
                         if obj.shape_style is not None
                         else None
@@ -1141,13 +1179,23 @@ def _shape_style(
             line_editable, line_color = _solid_rgb_color(lines[0], shape_fill_tags)
         else:
             line_color = None
+    structure_ok = len(lines) <= 1 and (
+        not lines
+        or _ordered_property_children_supported(lines[0], line_property_order, repeatable_ranks={0})
+    )
+    line_width_pt, line_dash, line_format_editable = (
+        _shape_line_format(lines[0] if lines else None) if structure_ok else (None, None, False)
+    )
     return FidelityShapeStyle(
-        editable=fill_editable or line_editable,
+        editable=fill_editable or line_editable or line_format_editable,
         fingerprint=fingerprint,
         fill_color=fill_color,
         fill_editable=fill_editable,
         line_color=line_color,
         line_editable=line_editable,
+        line_width_pt=line_width_pt,
+        line_dash=line_dash,
+        line_format_editable=line_format_editable,
     )
 
 
