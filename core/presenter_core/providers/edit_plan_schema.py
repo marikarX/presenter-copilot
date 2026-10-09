@@ -248,6 +248,7 @@ PARAMETER_SCHEMAS = {
                     for name, value in {
                         "bold": {"type": "boolean"},
                         "italic": {"type": "boolean"},
+                        "underline": {"type": "boolean"},
                         "font_size_pt": _integer(6, 96),
                         "font_color": _text(7, 7),
                         "fill_color": _text(7, 7),

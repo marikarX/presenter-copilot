@@ -80,6 +80,9 @@ Commits this session:
 - Text highlight color (`a:highlight` solid RGB, or `none` to remove) is a
   direct-run style in the Text panel and Copilot plans, inserted in schema
   order before underline/font elements. `test-text-emphasis.mjs` 6/6.
+- Table cell formatting gains underline (on/off/keep) in the Tables dialog,
+  `format_table_cells` and Copilot plans; turning it on keeps an existing
+  double/wavy underline.
 - Slide background: a solid `#RRGGBB` color or "Use layout background" is a
   reviewed edit (`presentation.workspace.set_slide_background`, Objects panel
   and Copilot plans). Inherited, theme-style (`bgRef`) and solid RGB
@@ -296,8 +299,7 @@ Remaining human-gated items:
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: further Workspace authoring (e.g. table
-cell text emphasis parity, link targets to other slides), then the open
+Next: further Workspace authoring (e.g. link targets to other slides), then the open
 fidelity gaps (image bevel rim geometry, glyph rasterization) and the
 human-gated items above. Last full check 1981 passed; Workspace GUI 117/117;
 focused harnesses for rotation, picture adjustment, emphasis/font/highlight,

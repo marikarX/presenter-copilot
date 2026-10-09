@@ -22,6 +22,7 @@ from presenter_core.presentation.table_format import FIELDS
 STYLE = {
     "bold": False,
     "italic": True,
+    "underline": True,
     "font_size_pt": 20,
     "font_color": "#224466",
     "fill_color": "#EAF1FA",

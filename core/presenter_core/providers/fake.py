@@ -621,6 +621,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                                     "style": {
                                         "bold": None,
                                         "italic": None,
+                                        "underline": None,
                                         "font_size_pt": None,
                                         "font_color": None,
                                         "fill_color": None,

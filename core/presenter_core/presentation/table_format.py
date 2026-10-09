@@ -14,6 +14,7 @@ from presenter_core.presentation.fidelity import _NS, DRAWING_NS
 FIELDS = {
     "bold",
     "italic",
+    "underline",
     "font_size_pt",
     "font_color",
     "fill_color",
@@ -35,7 +36,7 @@ def validate_style(value: Any) -> dict[str, Any]:
     for name, v in style.items():
         if v is None:
             continue
-        if name in {"bold", "italic"} and type(v) is not bool:
+        if name in {"bold", "italic", "underline"} and type(v) is not bool:
             raise invalid_request("Text emphasis must be a boolean or null.")
         if name == "font_size_pt" and (type(v) is not int or not 6 <= v <= 96):
             raise invalid_request("Choose a font size between 6 and 96 points.")
@@ -101,6 +102,7 @@ def describe(cell: Any) -> dict[str, Any]:
     return {
         "bold": boolean("b"),
         "italic": boolean("i"),
+        "underline": None if attr("u") is None else attr("u") != "none",
         "font_size_pt": int(size) / 100
         if isinstance(size, str) and len(size) <= 10 and size.isascii() and size.isdigit()
         else None,
@@ -189,6 +191,12 @@ def _font(parent: Any, style: dict[str, Any]) -> None:
             parent.set(
                 attribute, str(int(style[name]) if name != "font_size_pt" else style[name] * 100)
             )
+    if style["underline"] is not None:
+        current = parent.get("u")
+        if not style["underline"]:
+            parent.set("u", "none")
+        elif current is None or current == "none":
+            parent.set("u", "sng")
     if style["font_color"] is not None:
         _color(parent, style["font_color"])
 
@@ -205,7 +213,7 @@ def format_cells(frame: Any, params: dict[str, Any]) -> bool:
     before = copy.deepcopy(frame)
     rows = frame.findall("a:graphic/a:graphicData/a:tbl/a:tr", _NS)
     text_change = any(
-        style[n] is not None for n in ["bold", "italic", "font_size_pt", "font_color"]
+        style[n] is not None for n in ["bold", "italic", "underline", "font_size_pt", "font_color"]
     )
     for r in range(a, b + 1):
         for col in range(c, d + 1):

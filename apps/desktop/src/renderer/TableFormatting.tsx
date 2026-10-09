@@ -24,6 +24,7 @@ type Table = {
 const emptyStyle = {
   bold: "",
   italic: "",
+  underline: "",
   font_size_pt: "",
   font_color: "",
   fill_color: "",
@@ -241,7 +242,9 @@ export function TableFormatting({
                       key,
                       value === ""
                         ? null
-                        : key === "bold" || key === "italic"
+                        : key === "bold" ||
+                            key === "italic" ||
+                            key === "underline"
                           ? value === "true"
                           : key === "font_size_pt"
                             ? Number(value)
@@ -478,9 +481,13 @@ export function TableFormatting({
                     Keep current preserves each cell’s native or inherited
                     setting.
                   </p>
-                  {(["bold", "italic"] as const).map((key) => (
+                  {(["bold", "italic", "underline"] as const).map((key) => (
                     <label key={key}>
-                      {key === "bold" ? "Bold" : "Italic"}
+                      {key === "bold"
+                        ? "Bold"
+                        : key === "italic"
+                          ? "Italic"
+                          : "Underline"}
                       <select
                         aria-label={`Table ${key}`}
                         value={style[key]}
