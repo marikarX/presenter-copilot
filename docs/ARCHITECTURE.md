@@ -1,5 +1,20 @@
 # Architecture
 
+## PDF delivery worker (2026-10-04)
+
+The privileged presentation:save-pdf IPC takes only project/document/revision IDs and
+hidden-slide policy. Core export_current_copy optionally guards the expected head and
+returns its revision ID; old PPTX export calls stay compatible. Main copies into an owned
+external temp directory and launches the resolved development/packaged sidecar with
+--native-pdf-export. This branch does not instantiate CoreService, touch account settings
+or run Office on Core's NDJSON loop. A bounded JSON job/result links source hash, native
+page inventory, geometry, output hash and hidden policy. Main flushes/atomically saves the
+PDF outside application storage. Timeout/shutdown stops only the owned worker and waits
+for its close. Native COM closes only the copied deck, never quits or changes settings on
+the potentially shared PowerPoint application. See [handoff](SESSION_HANDOFF.md) for bounded
+validation and remaining packaging/native hang/real-provider acceptance.
+
+
 This document captures durable architectural principles. The concrete developer contract for the first implementation is [`docs/MVP/ARCHITECTURE.md`](MVP/ARCHITECTURE.md).
 
 ## Goals
@@ -382,3 +397,37 @@ Standalone mobile rehearsal comes only after desktop value is validated. Full pr
 12. Best canvas/text-layout stack for sufficiently accurate PowerPoint rendering and editing.
 13. How to preserve unknown OOXML/extensions when an ancestor object is edited.
 14. Revision snapshot/delta thresholds and compatibility-corpus infrastructure for Presentation Workspace.
+
+## Focused authoring voice gesture
+
+Renderer voice editors share a hold controller for Ctrl+Shift+Space. It queues
+release/cancel through asynchronous startup and retains a capture-specific handle
+until its end action completes. Window blur, document hiding, Escape and editor
+disposal cancel unfinished gestures; Escape during decoding discards the owned
+review after stop. Context generations reject late replies before local state can
+change. No system-wide shortcut or Core/provider authority is added. Existing
+ephemeral voice_start/stop/cancel methods still validate targets and own local ASR;
+explicit transcript use and proposal/save actions remain separate. See the
+[voice editing contract](PRESENTATION_WORKSPACE/AI_EDITING.md#voice-path).
+
+## Settled chart-label snapshots
+
+The isolated preview host renders snapshots through the pinned public renderSlide API
+with the existing model, fonts and PDF options. Its per-slide chartInstances set allows
+preview-only label formatters and explicit animation-free resize/flush before capture.
+Chart geometry uniquely binds native XML metadata; sparse/combo/ambiguous/mismatched
+inputs retain renderer fallback. Data, caches, axes, tooltips, packages and Core writers
+remain untouched. SlideHandle disposal owns chart cleanup. This is focused content
+fidelity acceptance, with broad native layout comparison still open. See
+[the current handoff](SESSION_HANDOFF.md) for evidence and limitations.
+
+## Reviewed axis appearance
+
+set_chart_axis joins the existing atomic appearance transaction allowlist and strict
+provider schema. Axis inventory supplies category/value settings and title
+editability; Core binds fresh fingerprints and captures staged previous settings.
+The chart-only clone writer preserves workbooks, shared source chart parts, IDs and
+cross-axis references. Canonical XML checks permit only selected managed axis fields.
+The direct dialog owns preview/save/discard and revision refresh; preview ECharts
+options read native axis metadata without changing source caches. Advanced scales and
+broad native-layout fidelity remain open. See [handoff](SESSION_HANDOFF.md).

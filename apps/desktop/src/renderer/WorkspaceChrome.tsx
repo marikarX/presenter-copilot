@@ -17,6 +17,7 @@ interface Props {
   runActive: boolean;
   liveActive: boolean;
   teachVoiceActive: boolean;
+  workspaceVoiceActive: boolean;
   onCreate: () => void;
   onOpen: (project: ProjectSummary) => void;
   onTour: () => void;
@@ -33,6 +34,7 @@ export function WorkspaceChrome({
   runActive,
   liveActive,
   teachVoiceActive,
+  workspaceVoiceActive,
   onCreate,
   onOpen,
   onTour,
@@ -41,7 +43,8 @@ export function WorkspaceChrome({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [search, setSearch] = useState("");
   const content = useRef<HTMLDivElement>(null);
-  const recording = runActive || liveActive || teachVoiceActive;
+  const recording =
+    runActive || liveActive || teachVoiceActive || workspaceVoiceActive;
   const matches = projects.filter((item) =>
     item.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -151,6 +154,7 @@ export function WorkspaceChrome({
                           runActive,
                           liveActive,
                           teachVoiceActive,
+                          workspaceVoiceActive,
                         )
                       }
                       onClick={() => onNavigate(entry.id)}
@@ -238,20 +242,28 @@ export function WorkspaceChrome({
             <span>
               {teachVoiceActive
                 ? "Teach microphone capture"
-                : runActive
-                  ? "Rehearsal"
-                  : "Live Assist"}{" "}
-              is active. Finish the session before switching workspaces.
+                : workspaceVoiceActive
+                  ? "Workspace voice instruction review"
+                  : runActive
+                    ? "Rehearsal"
+                    : "Live Assist"}{" "}
+              is active. Finish it before switching workspaces.
             </span>
             <button
               className="text-button"
               onClick={() =>
                 onNavigate(
-                  teachVoiceActive ? "teach" : runActive ? "run" : "live",
+                  workspaceVoiceActive
+                    ? "presentation-workspace"
+                    : teachVoiceActive
+                      ? "teach"
+                      : runActive
+                        ? "run"
+                        : "live",
                 )
               }
             >
-              Return to session
+              Return to it
             </button>
           </div>
         ) : null}

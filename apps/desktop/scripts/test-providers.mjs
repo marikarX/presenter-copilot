@@ -22,6 +22,7 @@ for (const key of Object.keys(env)) {
   if (
     key.startsWith("PRESENTER_") ||
     key.startsWith("OPENAI_") ||
+    key === "OPENROUTER_API_KEY" ||
     key === "ELECTRON_RUN_AS_NODE"
   )
     delete env[key];
@@ -87,6 +88,80 @@ try {
   await page
     .getByRole("button", { name: "Setup & settings", exact: true })
     .click();
+  const decisionPanel = page.getByRole("region", {
+    name: "Fast Decisions",
+    exact: true,
+  });
+  const decisionProvider = decisionPanel.getByRole("combobox", {
+    name: /decision provider/i,
+  });
+  await decisionProvider.waitFor();
+  assert.equal(await decisionProvider.inputValue(), "disabled");
+  const decisionOptions = await decisionProvider.evaluate((element) =>
+    Array.from(element.options, (option) => option.textContent?.trim() ?? ""),
+  );
+  assert.deepEqual(decisionOptions, [
+    "Disabled",
+    "Local model · strict JSON Schema",
+    "OpenAI Responses · Fast mode",
+    "OpenAI Responses · Ultrafast (GPT-6 Astra)",
+    "OpenAI Decisions · Beta (GPT-6 Luna)",
+    "Jev · OpenRouter System One",
+    "Ollama · Jev-compatible System One",
+    "ChatGPT plan usage · Preview",
+  ]);
+  await decisionProvider.selectOption("openai_ultrafast");
+  await decisionPanel
+    .getByText(/Uses GPT-6 Astra with OpenAI Responses Ultrafast/)
+    .waitFor();
+  await decisionProvider.selectOption("disabled");
+  await decisionProvider.selectOption("openai_decisions");
+  await decisionPanel
+    .getByText(
+      /Uses GPT-6 Luna through the native OpenAI Decisions beta endpoint/,
+    )
+    .waitFor();
+  await decisionProvider.selectOption("ollama_systemone");
+  const ollamaModel = decisionPanel.getByLabel("Ollama decision model");
+  await ollamaModel.waitFor();
+  assert.equal(await ollamaModel.inputValue(), "tev1:4b");
+  const ollamaModelOptions = await ollamaModel.evaluate((element) =>
+    Array.from(element.options, (option) => option.value),
+  );
+  assert.deepEqual(ollamaModelOptions, [
+    "nimble:9b",
+    "nimble:9b-q4_K_M",
+    "nimble:latest",
+    "tev1:4b",
+    "tev1:4b-q4_K_M",
+    "tev1:latest",
+    "tev1:0.8b",
+  ]);
+  await decisionPanel.getByText(/ollama pull tev1:4b/).waitFor();
+  await ollamaModel.selectOption("nimble:latest");
+  await decisionPanel.getByText(/ollama pull nimble:latest/).waitFor();
+  await decisionPanel
+    .getByText(/does not launch Ollama or download models/i)
+    .waitFor();
+  await decisionProvider.selectOption("disabled");
+  await decisionProvider.selectOption("openai_chatgpt_plan");
+  await decisionPanel
+    .getByText(/separate from Codex — ChatGPT sign-in/)
+    .waitFor();
+  await decisionPanel
+    .getByRole("button", { name: "Continue with ChatGPT", exact: true })
+    .waitFor();
+  await decisionPanel
+    .getByRole("button", { name: "Manage ChatGPT usage", exact: true })
+    .waitFor();
+  assert.equal(
+    await decisionPanel
+      .getByLabel("ChatGPT model", { exact: true })
+      .isDisabled(),
+    true,
+    "ChatGPT plan inference stays unavailable until account authorization and model discovery",
+  );
+  await decisionProvider.selectOption("disabled");
   const panel = page.getByRole("region", {
     name: "Reasoning Providers",
     exact: true,
@@ -159,11 +234,23 @@ try {
   assert.equal(calls[0].authorization, "Bearer synthetic-local-credential");
   const exposed = await page.evaluate(async () => ({
     providers: await window.presenterCopilot.core.request("provider.list"),
+    planAuth: await window.presenterCopilot.core.request(
+      "provider.chatgpt_plan.status",
+    ),
     node: typeof window.require,
     text: document.body.innerText,
   }));
   assert.equal(exposed.node, "undefined");
   assert.ok(!JSON.stringify(exposed).includes("synthetic-local-credential"));
+  assert.equal(exposed.planAuth.ok, true);
+  assert.deepEqual(Object.keys(exposed.planAuth.result).sort(), [
+    "accounts",
+    "active_account_id",
+    "credential_store_available",
+    "error_code",
+    "state",
+  ]);
+  assert.equal(exposed.planAuth.result.state, "signed_out");
   await panel.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "reasoning-providers.png") });
   await page.reload();
@@ -191,6 +278,26 @@ try {
     endpoint,
   );
   assert.equal(calls.length, 1, "Reload performs no background inference");
+  await decisionProvider.selectOption("openai_decisions");
+  assert.equal(
+    await decisionPanel
+      .getByRole("button", { name: "Save decision provider", exact: true })
+      .isDisabled(),
+    true,
+    "Native Decisions cannot be selected without an API key",
+  );
+  await decisionPanel
+    .getByText("OpenAI Decisions · Beta", { exact: true })
+    .waitFor();
+  assert.equal(
+    calls.length,
+    1,
+    "Native decision selection invokes no inference",
+  );
+  await decisionPanel.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(output, "native-decisions-settings.png"),
+  });
   console.log(
     "Provider UI: configuration, synthetic inference, persistence, and credential boundary passed.",
   );

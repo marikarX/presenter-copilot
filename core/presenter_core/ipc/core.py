@@ -18,7 +18,14 @@ from presenter_core.asr.segmenter import VADConfig
 from presenter_core.asr.service import ASRService
 from presenter_core.audience.service import AudienceModelService
 from presenter_core.challenge.service import ChallengeService
-from presenter_core.credentials import CredentialStore
+from presenter_core.credentials import (
+    CredentialStore,
+    InMemoryCredentialStore,
+    OpenRouterCredentialStore,
+    WindowsCredentialStore,
+)
+from presenter_core.decisions.models import DecisionProvider
+from presenter_core.decisions.service import DecisionWorkflowService
 from presenter_core.diagnostics import DiagnosticService
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.ingestion.service import IngestionService
@@ -27,7 +34,25 @@ from presenter_core.live.service import AssistService
 from presenter_core.live.settings import HudSettingsService
 from presenter_core.model_service import ModelService
 from presenter_core.presentation.adapters import PresentationAdapter
+from presenter_core.presentation.claims import PresentationClaimService
+from presenter_core.presentation.creation import PresentationCreationService
+from presenter_core.presentation.edit_planning import PresentationEditPlanningService
+from presenter_core.presentation.edit_plans import PresentationEditPlanService
+from presenter_core.presentation.editing import PresentationEditService
+from presenter_core.presentation.planning import PresentationPlanningService
+from presenter_core.presentation.rehearsal import PresentationRehearsalService
+from presenter_core.presentation.rehearsal_analysis_jobs import RehearsalAnalysisJobs
+from presenter_core.presentation.rehearsal_objection_analysis import RehearsalObjectionAnalysis
+from presenter_core.presentation.rehearsal_semantic_analysis import RehearsalSemanticAnalysis
+from presenter_core.presentation.revisions import (
+    PresentationRevisionService,
+    record_original_revision,
+)
+from presenter_core.presentation.rewrite import PresentationRewriteService
+from presenter_core.presentation.semantics import PresentationSemanticService
 from presenter_core.presentation.service import SlideStateService
+from presenter_core.presentation.voice import PresentationWorkspaceVoiceService
+from presenter_core.presentation.workspace_source import PresentationWorkspaceSourceService
 from presenter_core.project.service import ProjectService
 from presenter_core.providers.context import ProviderContextBuilder
 from presenter_core.providers.execution import ProviderExecutionService
@@ -78,6 +103,9 @@ class CoreService:
         vad_config: VADConfig | None = None,
         asr_worker_join_timeout_seconds: float | None = None,
         credential_store: CredentialStore | None = None,
+        decision_provider: DecisionProvider | None = None,
+        decision_credential_store: CredentialStore | None = None,
+        chatgpt_plan_store: Any | None = None,
     ) -> None:
         self._clock = clock
         self._started_at = clock()
@@ -87,6 +115,29 @@ class CoreService:
         self._event_sink = event_sink
         self._storage = StorageManager(data_root)
         self._logger = SafeLogger(self._storage.paths.root)
+        self._presentation_workspace_sources = PresentationWorkspaceSourceService(self._storage)
+        self._presentation_workspace_voice = PresentationWorkspaceVoiceService(
+            self._presentation_workspace_sources
+        )
+        self._presentation_semantics = PresentationSemanticService(
+            self._storage, self._presentation_workspace_sources
+        )
+        from presenter_core.presentation.checkpoints import PresentationCheckpointService
+
+        self._presentation_checkpoints = PresentationCheckpointService(self._storage)
+        self._presentation_revisions = PresentationRevisionService(self._storage)
+        self._presentation_edits = PresentationEditService(self._storage)
+        from presenter_core.presentation.project_assets import ProjectPictureAssetService
+
+        self._project_picture_assets = ProjectPictureAssetService(
+            self._storage, self._presentation_edits
+        )
+        self._presentation_edit_plans = PresentationEditPlanService(
+            self._storage, self._presentation_edits, self._presentation_workspace_sources
+        )
+        self._presentation_rehearsal = PresentationRehearsalService(
+            self._storage, self._presentation_edits
+        )
         self._audience = AudienceModelService(self._storage)
         self._transcript = TranscriptService(
             self._storage,
@@ -98,7 +149,10 @@ class CoreService:
             transcript_reconciler=self._transcript.reconcile_speaker_maps,
             source_delete_hook=self._before_source_delete,
             source_reindex_hook=self._after_source_reindex,
+            before_source_snapshot_delete=self._before_source_snapshot_delete,
+            presentation_revision_recorder=record_original_revision,
         )
+        self._presentation_creation = PresentationCreationService(self._storage, self._ingestion)
         self._retrieval = LexicalRetrievalService(self._storage)
         embedding_runtime = embedding_adapter or FastEmbedAdapter(
             cache_dir=embedding_model_cache_dir(data_root)
@@ -115,6 +169,7 @@ class CoreService:
             app_cleanup=session_app_cleanup,
             active_run_cleanup=self._cleanup_active_session_for_delete,
             active_run_owner=self._active_asr_owner,
+            before_delete=self._before_session_delete,
         )
         self._presentation = SlideStateService(
             self._storage,
@@ -146,6 +201,7 @@ class CoreService:
             slide_snapshot=self._presentation.current_slide,
             event_sink=self._emit_service_event,
             teach_finalizer=self._finalize_teach_voice,
+            workspace_session_validator=self._presentation_workspace_voice.validate_asr_session,
             vad_config=vad_config,
             **(
                 {"worker_join_timeout_seconds": asr_worker_join_timeout_seconds}
@@ -153,17 +209,33 @@ class CoreService:
                 else {}
             ),
         )
+        self._presentation_workspace_voice.attach_asr(self._asr)
         self._knowledge = KnowledgeService(
             self._storage,
             after_delete=self._synchronize_semantic_index,
             after_mapping_delete=self._hybrid_retrieval.invalidate_project_mappings,
             before_delete=self._before_knowledge_delete,
         )
+        effective_credential_store = credential_store or WindowsCredentialStore()
+        effective_decision_credential_store = decision_credential_store or (
+            InMemoryCredentialStore()
+            if credential_store is not None
+            else OpenRouterCredentialStore()
+        )
         self._providers = ProviderService(
             self._storage,
             reasoning_provider,
             event_sink=self._emit_service_event,
-            credential_store=credential_store,
+            credential_store=effective_credential_store,
+            decision_credential_store=effective_decision_credential_store,
+            chatgpt_plan_store=chatgpt_plan_store,
+        )
+        self._decisions = DecisionWorkflowService(
+            self._storage,
+            self._presentation_workspace_sources,
+            self._providers,
+            effective_decision_credential_store,
+            injected_provider=decision_provider,
         )
         self._context_builder = ProviderContextBuilder(
             self._storage,
@@ -174,6 +246,32 @@ class CoreService:
             self._storage,
             self._providers,
             event_sink=self._emit_service_event,
+        )
+        self._rehearsal_analysis_jobs = RehearsalAnalysisJobs(
+            RehearsalSemanticAnalysis(
+                self._presentation_semantics, self._providers, self._provider_execution
+            ),
+            objections=RehearsalObjectionAnalysis(
+                self._presentation_semantics, self._providers, self._provider_execution
+            ),
+        )
+        self._presentation_rewrites = PresentationRewriteService(
+            self._storage,
+            self._presentation_workspace_sources,
+            self._providers,
+            self._provider_execution,
+            self._presentation_rehearsal,
+        )
+        self._presentation_planning = PresentationPlanningService(
+            self._storage, self._providers, self._context_builder, self._provider_execution
+        )
+        self._presentation_edit_planning = PresentationEditPlanningService(
+            self._storage,
+            self._presentation_edits,
+            self._presentation_edit_plans,
+            self._providers,
+            self._context_builder,
+            self._provider_execution,
         )
         self._teach = TeachService(
             self._storage,
@@ -279,6 +377,11 @@ class CoreService:
                 "retrieval.lexical",
                 "reasoning.fake",
                 "provider.openai.responses",
+                "decision.openrouter.jev",
+                "decision.ollama.systemone",
+                "decision.openai.responses-fast",
+                "decision.openai.chatgpt-plan",
+                "decision.local.structured-output",
                 "audio.sounddevice",
                 "asr.faster-whisper",
                 "asr.deterministic-fake",
@@ -302,9 +405,11 @@ class CoreService:
         if self._closed:
             return True
         try:
+            self._rehearsal_analysis_jobs.drain(closing=True)
             self._run.stop_active_runs(status="aborted")
             self._assist.stop_active_sessions(status="aborted")
             self._cancel_active_teach_capture()
+            self._presentation_workspace_voice.cancel_all()
             self._teach.purge_all()
         except CoreDomainError as error:
             # Leave every service and database open.  The sidecar may exit
@@ -319,7 +424,10 @@ class CoreService:
                 retryable=True,
             )
             return False
+        self._presentation_edit_plans.close()
+        self._presentation_workspace_sources.close()
         self._presentation.close()
+        self._decisions.close()
         self._providers.close()
         self._hybrid_retrieval.close()
         self._storage.close()
@@ -412,10 +520,16 @@ class CoreService:
                 details=error.details,
             )
         except Exception as error:  # pragma: no cover - final request boundary guard
-            del error
+            cause = (
+                "MEMORY_ALLOCATION_FAILED"
+                if isinstance(error, MemoryError)
+                else "UNEXPECTED_IO_ERROR"
+                if isinstance(error, OSError)
+                else "UNEXPECTED_EXCEPTION"
+            )
             self._logger.event(
                 "request.failed",
-                {"operation": method, "error_code": "INTERNAL_ERROR"},
+                {"operation": method, "error_code": "INTERNAL_ERROR", "cause_code": cause},
             )
             return make_error(
                 request_id,
@@ -461,6 +575,7 @@ class CoreService:
             project_id = params.get("project_id")
             if isinstance(project_id, str):
                 self._storage.reconcile_project_runtime(project_id)
+                self._presentation_edit_plans.reconcile_project(project_id)
             return make_response(request_id, result=self._projects.open(params))
         if method == "project.list":
             return make_response(request_id, result=self._projects.list(params))
@@ -479,10 +594,482 @@ class CoreService:
             result = self._ingestion.import_source(params)
             self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_from_outline":
+            result = self._presentation_creation.create_from_outline(params)
+            self._hybrid_retrieval.invalidate_project_mappings(result["document"]["project_id"])
+            return make_response(request_id, result=result)
         if method == "source.list":
             return make_response(request_id, result=self._ingestion.list_sources(params))
         if method == "source.preview":
             return make_response(request_id, result=self._ingestion.preview_source(params))
+        if method == "presentation.workspace.select_for_rehearsal":
+            return make_response(
+                request_id, result=self._presentation_rehearsal.select_for_rehearsal(params)
+            )
+        if method == "presentation.workspace.list_rehearsal_findings":
+            return make_response(
+                request_id, result=self._presentation_rehearsal.list_findings(params)
+            )
+        if method == "presentation.workspace.recurring_objections":
+            return make_response(
+                request_id, result=self._presentation_rehearsal.recurring_objections(params)
+            )
+        if method == "presentation.workspace.rehearsal_coverage":
+            return make_response(request_id, result=self._presentation_rehearsal.coverage(params))
+        if method == "presentation.workspace.compare_rehearsals":
+            return make_response(
+                request_id, result=self._presentation_rehearsal.compare_runs(params)
+            )
+        if method == "presentation.workspace.reject_rehearsal_finding":
+            return make_response(
+                request_id, result=self._presentation_rehearsal.reject_finding(params)
+            )
+        if method == "presentation.workspace.apply_rehearsal_edit":
+            return make_response(request_id, result=self._presentation_rehearsal.apply_edit(params))
+        if method == "presentation.workspace.open_source":
+            return make_response(
+                request_id, result=self._presentation_workspace_sources.open_source(params)
+            )
+        if method == "presentation.workspace.read_source":
+            return make_response(
+                request_id, result=self._presentation_workspace_sources.read_source(params)
+            )
+        if method == "presentation.workspace.close_source":
+            return make_response(
+                request_id, result=self._presentation_workspace_sources.close_source(params)
+            )
+        if method == "presentation.workspace.list_checkpoints":
+            return make_response(request_id, result=self._presentation_checkpoints.list(params))
+        if method == "presentation.workspace.save_checkpoint":
+            return make_response(request_id, result=self._presentation_checkpoints.save(params))
+        if method == "presentation.workspace.clear_checkpoint":
+            return make_response(request_id, result=self._presentation_checkpoints.clear(params))
+        if method == "presentation.workspace.list_revisions":
+            return make_response(
+                request_id, result=self._presentation_revisions.list_revisions(params)
+            )
+        if method == "presentation.workspace.list_text_targets":
+            return make_response(
+                request_id, result=self._presentation_workspace_sources.list_text_targets(params)
+            )
+        if method == "presentation.workspace.voice_start":
+            return make_response(
+                request_id, result=self._presentation_workspace_voice.start(params)
+            )
+        if method == "presentation.workspace.voice_stop":
+            return make_response(request_id, result=self._presentation_workspace_voice.stop(params))
+        if method == "presentation.workspace.voice_cancel":
+            return make_response(
+                request_id, result=self._presentation_workspace_voice.cancel(params)
+            )
+        if method == "presentation.workspace.triage_claim_evidence":
+            return make_response(request_id, result=self._decisions.triage_claim_evidence(params))
+        if method == "presentation.workspace.classify_slide":
+            return make_response(request_id, result=self._decisions.classify_slide(params))
+        if method == "presentation.workspace.list_outline_evidence_candidates":
+            from presenter_core.presentation.outline_evidence import OutlineEvidenceService
+
+            return make_response(
+                request_id,
+                result=OutlineEvidenceService(self._presentation_semantics).list_candidates(params),
+            )
+        if method in {
+            "presentation.workspace.list_rehearsal_review_sessions",
+            "presentation.workspace.list_rehearsal_review_messages",
+            "presentation.workspace.list_rehearsal_review_slides",
+            "presentation.workspace.list_rehearsal_analyses",
+            "presentation.workspace.list_rehearsal_objections_analyses",
+            "presentation.workspace.get_rehearsal_analysis",
+        }:
+            from presenter_core.presentation.rehearsal_review_inventory import (
+                RehearsalReviewInventory,
+            )
+
+            inventory = RehearsalReviewInventory(self._presentation_semantics)
+            handler = {
+                "presentation.workspace.list_rehearsal_review_sessions": inventory.sessions,
+                "presentation.workspace.list_rehearsal_review_messages": inventory.messages,
+                "presentation.workspace.list_rehearsal_review_slides": inventory.slides,
+                "presentation.workspace.list_rehearsal_analyses": inventory.analyses,
+                "presentation.workspace.list_rehearsal_objections_analyses": (
+                    inventory.objection_analyses
+                ),
+                "presentation.workspace.get_rehearsal_analysis": inventory.detail,
+            }[method]
+            return make_response(request_id, result=handler(params))
+        if method in {
+            "presentation.workspace.start_rehearsal_analysis",
+            "presentation.workspace.poll_rehearsal_analysis",
+            "presentation.workspace.cancel_rehearsal_analysis",
+        }:
+            jobs = self._rehearsal_analysis_jobs
+            handler = {
+                "presentation.workspace.start_rehearsal_analysis": jobs.start,
+                "presentation.workspace.poll_rehearsal_analysis": jobs.poll,
+                "presentation.workspace.cancel_rehearsal_analysis": jobs.cancel,
+            }[method]
+            return make_response(request_id, result=handler(params))
+        if method == "presentation.workspace.prepare_rehearsal_objections_review":
+            from presenter_core.presentation.rehearsal_objection_context import (
+                RehearsalObjectionContext,
+            )
+
+            return make_response(
+                request_id,
+                result=RehearsalObjectionContext(self._presentation_semantics).prepare(params),
+            )
+        if method == "presentation.workspace.get_rehearsal_objections_analysis":
+            from presenter_core.presentation.rehearsal_objection_adoption import (
+                RehearsalObjectionAdoption,
+            )
+
+            return make_response(
+                request_id,
+                result=RehearsalObjectionAdoption(self._presentation_semantics).detail(params),
+            )
+        if method == "presentation.workspace.start_rehearsal_objections_analysis":
+            return make_response(
+                request_id, result=self._rehearsal_analysis_jobs.start_objections(params)
+            )
+        if method == "presentation.workspace.analyze_rehearsal_coverage":
+            from presenter_core.presentation.rehearsal_semantic_analysis import (
+                RehearsalSemanticAnalysis,
+            )
+
+            return make_response(
+                request_id,
+                result=RehearsalSemanticAnalysis(
+                    self._presentation_semantics,
+                    self._providers,
+                    self._provider_execution,
+                ).analyze(params),
+            )
+        if method == "presentation.workspace.prepare_rehearsal_coverage_review":
+            from presenter_core.presentation.rehearsal_semantic_context import (
+                RehearsalSemanticContext,
+            )
+
+            return make_response(
+                request_id,
+                result=RehearsalSemanticContext(self._presentation_semantics).prepare(params),
+            )
+        if method in {
+            "presentation.workspace." + name
+            for name in ("list_claims", "save_claim", "remove_claim", "search_claim_evidence")
+        }:
+            service = PresentationClaimService(self._presentation_semantics)
+            name = method.rsplit(".", 1)[1]
+            handler = (
+                service.search_evidence
+                if name == "search_claim_evidence"
+                else getattr(service, name)
+            )
+            return make_response(request_id, result=handler(params))
+        if method == "presentation.workspace.extract_claims":
+            from presenter_core.presentation.claim_extraction import (
+                PresentationClaimExtractionService,
+            )
+
+            return make_response(
+                request_id,
+                result=PresentationClaimExtractionService(
+                    self._presentation_semantics, self._providers, self._provider_execution
+                ).extract_claims(params),
+            )
+        if method == "presentation.workspace.propose_narrative":
+            from presenter_core.presentation.narrative_planning import (
+                PresentationNarrativePlanningService,
+            )
+
+            return make_response(
+                request_id,
+                result=PresentationNarrativePlanningService(
+                    self._presentation_semantics,
+                    self._providers,
+                    self._context_builder,
+                    self._provider_execution,
+                ).propose_narrative(params),
+            )
+        if method == "presentation.workspace.prepare_claim_scan":
+            from presenter_core.presentation.claim_scan import PresentationClaimScanService
+
+            return make_response(
+                request_id,
+                result=PresentationClaimScanService(
+                    self._presentation_semantics
+                ).prepare_claim_scan(params),
+            )
+        if method == "presentation.workspace.review_deck_semantics":
+            from presenter_core.presentation.deck_review import PresentationDeckReviewService
+
+            return make_response(
+                request_id,
+                result=PresentationDeckReviewService(
+                    self._presentation_semantics
+                ).review_deck_semantics(params),
+            )
+        if method in {
+            "presentation.workspace.get_narrative",
+            "presentation.workspace.save_narrative",
+        }:
+            from presenter_core.presentation.narrative import PresentationNarrativeService
+
+            narrative_service = PresentationNarrativeService(self._presentation_semantics)
+            return make_response(
+                request_id, result=getattr(narrative_service, method.rsplit(".", 1)[1])(params)
+            )
+        if method in {
+            "presentation.workspace.get_slide_takeaway",
+            "presentation.workspace.save_slide_takeaway",
+        }:
+            from presenter_core.presentation.takeaways import PresentationTakeawayService
+
+            return make_response(
+                request_id,
+                result=getattr(
+                    PresentationTakeawayService(self._presentation_semantics),
+                    method.rsplit(".", 1)[1],
+                )(params),
+            )
+        if method == "presentation.workspace.list_slide_purposes":
+            return make_response(
+                request_id, result=self._presentation_semantics.list_slide_purposes(params)
+            )
+        if method == "presentation.workspace.save_slide_purpose":
+            return make_response(
+                request_id, result=self._presentation_semantics.save_slide_purpose(params)
+            )
+        if method == "presentation.workspace.get_outline_session":
+            return make_response(request_id, result=self._presentation_planning.drafts.get(params))
+        if method == "presentation.workspace.save_outline_session":
+            return make_response(request_id, result=self._presentation_planning.drafts.save(params))
+        if method == "presentation.workspace.clear_outline_session":
+            return make_response(
+                request_id, result=self._presentation_planning.drafts.clear(params)
+            )
+        if method == "presentation.workspace.propose_outline":
+            return make_response(
+                request_id,
+                result=self._presentation_planning.propose_outline(params),
+            )
+        if method == "presentation.workspace.propose_text_rewrite":
+            return make_response(
+                request_id,
+                result=self._presentation_rewrites.propose_text_rewrite(params),
+            )
+        if method == "presentation.workspace.prepare_edit_plan":
+            return make_response(request_id, result=self._presentation_edit_plans.prepare(params))
+        if method == "presentation.workspace.propose_edit_plan":
+            return make_response(
+                request_id, result=self._presentation_edit_planning.propose(params)
+            )
+        if method == "presentation.workspace.open_edit_plan_preview":
+            return make_response(
+                request_id, result=self._presentation_edit_plans.open_preview(params)
+            )
+        if method == "presentation.workspace.apply_edit_plan":
+            result = self._presentation_edit_plans.apply(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.reject_edit_plan":
+            return make_response(request_id, result=self._presentation_edit_plans.reject(params))
+        if method == "presentation.workspace.replace_text_shape":
+            result = self._presentation_edits.replace_text_shape(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.replace_single_run_text":
+            result = self._presentation_edits.replace_single_run_text(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.format_single_run_text":
+            result = self._presentation_edits.format_single_run_text(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.format_text_shape":
+            result = self._presentation_edits.format_text_shape(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.format_shape_style":
+            result = self._presentation_edits.format_shape_style(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.replace_speaker_notes":
+            result = self._presentation_edits.replace_speaker_notes(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.transform_object":
+            result = self._presentation_edits.transform_object(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.crop_picture":
+            result = self._presentation_edits.crop_picture(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.replace_picture_image":
+            result = self._presentation_edits.replace_picture_image(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.reorder_slides":
+            result = self._presentation_edits.reorder_slides(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.list_native_layouts":
+            from presenter_core.presentation.layouts import PresentationLayoutService
+
+            return make_response(
+                request_id,
+                result=PresentationLayoutService(
+                    self._presentation_workspace_sources
+                ).list_native_layouts(params),
+            )
+        if method == "presentation.workspace.apply_slide_layout":
+            result = self._presentation_edits.apply_slide_layout(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_slide":
+            result = self._presentation_edits.create_slide(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.duplicate_slide":
+            result = self._presentation_edits.duplicate_slide(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_text_box":
+            result = self._presentation_edits.create_text_box(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_picture":
+            result = self._presentation_edits.create_picture(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_chart":
+            result = self._presentation_edits.create_chart(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.list_charts":
+            from presenter_core.presentation.chart_editing import PresentationChartService
+
+            return make_response(
+                request_id,
+                result=PresentationChartService(self._presentation_workspace_sources).list_charts(
+                    params
+                ),
+            )
+        if method == "presentation.workspace.list_shape_fills":
+            from presenter_core.presentation.shape_fills import list_shape_fills
+
+            return make_response(
+                request_id, result=list_shape_fills(self._presentation_edits, params)
+            )
+        if method == "presentation.workspace.replace_chart_data":
+            result = self._presentation_edits.replace_chart_data(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.list_diagrams":
+            from presenter_core.presentation.diagrams import PresentationDiagramService
+
+            return make_response(
+                request_id,
+                result=PresentationDiagramService(
+                    self._presentation_workspace_sources
+                ).list_diagrams(params),
+            )
+        if method in {
+            "presentation.workspace.create_diagram",
+            "presentation.workspace.replace_diagram",
+            "presentation.workspace.delete_diagram",
+        }:
+            result = getattr(self._presentation_edits, method.rsplit(".", 1)[-1])(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.list_text_fit_targets":
+            from presenter_core.presentation.text_fit_editing import PresentationTextFitService
+
+            return make_response(
+                request_id,
+                result=PresentationTextFitService(
+                    self._presentation_workspace_sources
+                ).list_targets(params),
+            )
+        if method == "presentation.workspace.list_tables":
+            from presenter_core.presentation.tables import PresentationTableService
+
+            return make_response(
+                request_id,
+                result=PresentationTableService(self._presentation_workspace_sources).list_tables(
+                    params
+                ),
+            )
+        if method in {
+            "presentation.workspace.create_table",
+            "presentation.workspace.replace_table_cells",
+        }:
+            operation = method.rsplit(".", 1)[-1]
+            result = getattr(self._presentation_edits, operation)(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.create_shape":
+            result = self._presentation_edits.create_shape(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.delete_slide":
+            result = self._presentation_edits.delete_slide(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.import_project_picture":
+            return make_response(
+                request_id, result=self._project_picture_assets.import_picture(params)
+            )
+        if method == "presentation.workspace.list_project_pictures":
+            return make_response(
+                request_id, result=self._project_picture_assets.list_pictures(params)
+            )
+        if method == "presentation.workspace.read_project_picture":
+            return make_response(
+                request_id, result=self._project_picture_assets.read_picture(params)
+            )
+        if method == "presentation.workspace.delete_project_picture":
+            return make_response(
+                request_id, result=self._project_picture_assets.delete_picture(params)
+            )
+        if method == "presentation.workspace.list_picture_assets":
+            return make_response(
+                request_id, result=self._presentation_edits.list_picture_assets(params)
+            )
+        if method == "presentation.workspace.read_picture_asset":
+            return make_response(
+                request_id, result=self._presentation_edits.read_picture_asset(params)
+            )
+        if method == "presentation.workspace.change_object_layer":
+            result = self._presentation_edits.change_object_layer(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.delete_object":
+            result = self._presentation_edits.delete_object(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.duplicate_object":
+            result = self._presentation_edits.duplicate_object(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.restore_revision":
+            result = self._presentation_edits.restore_revision(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.step_revision":
+            result = self._presentation_edits.step_revision(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
+        if method == "presentation.workspace.export_original_copy":
+            return make_response(
+                request_id,
+                result=self._presentation_workspace_sources.export_original_copy(params),
+            )
+        if method == "presentation.workspace.export_current_copy":
+            return make_response(
+                request_id,
+                result=self._presentation_workspace_sources.export_current_copy(params),
+            )
         if method == "source.delete":
             result = self._ingestion.delete_source(params)
             self._hybrid_retrieval.invalidate_project_mappings(result["project_id"])
@@ -721,11 +1308,49 @@ class CoreService:
             return make_response(
                 request_id, result=self._providers.codex_auth(method.rsplit(".", 1)[1], params)
             )
+        if method in {
+            "provider.chatgpt_plan.sign_in",
+            "provider.chatgpt_plan.status",
+            "provider.chatgpt_plan.select",
+            "provider.chatgpt_plan.cancel",
+            "provider.chatgpt_plan.sign_out",
+        }:
+            return make_response(
+                request_id,
+                result=self._providers.chatgpt_plan_auth(method.rsplit(".", 1)[1], params),
+            )
+        if method == "provider.chatgpt_plan.models":
+            reject_unknown_fields(params, {"refresh"})
+            refresh = params.get("refresh", False)
+            if not isinstance(refresh, bool):
+                raise CoreDomainError(
+                    "INVALID_REQUEST",
+                    "refresh must be a boolean.",
+                    details={"field": "refresh"},
+                )
+            return make_response(
+                request_id,
+                result={"models": self._providers.chatgpt_plan_models(force_refresh=refresh)},
+            )
         if method == "provider.list":
             return make_response(request_id, result=self._providers.list(params))
         if method == "provider.configure":
             result = self._providers.configure(params)
             return make_response(request_id, result=result)
+        if method == "provider.decision.status":
+            return make_response(request_id, result=self._decisions.status(params))
+        if method == "provider.decision.configure":
+            return make_response(request_id, result=self._decisions.configure(params))
+        if method == "provider.decision.credentials.status":
+            return make_response(request_id, result=self._decisions.credentials_status(params))
+        if method == "provider.decision.credentials.save_detected":
+            return make_response(
+                request_id, result=self._decisions.save_detected_credential(params)
+            )
+        if method == "provider.decision.credentials.remove":
+            return make_response(
+                request_id, result=self._decisions.remove_stored_credential(params)
+            )
         if method == "provider.test":
             return make_response(request_id, result=self._providers.test(params))
         if method == "provider.status":
@@ -839,6 +1464,11 @@ class CoreService:
         # callback only after composition is complete.
         return self._asr.active_owner()
 
+    def _before_session_delete(self, project_id: str, session_id: str) -> None:
+        self._rehearsal_analysis_jobs.drain(
+            project_id=project_id, session_id=session_id, purge=True
+        )
+
     def _cleanup_active_session_for_delete(self, project_id: str, session_id: str) -> None:
         with self._storage.project_database(project_id) as connection:
             row = connection.execute(
@@ -870,6 +1500,10 @@ class CoreService:
 
     def _before_project_delete(self, project_id: str) -> None:
         """Cross-service deletion barrier executed before vault removal."""
+        self._rehearsal_analysis_jobs.drain(project_id=project_id, purge=True)
+        self._presentation_workspace_voice.cancel_for_project(project_id)
+        self._presentation_edit_plans.close_project(project_id)
+        self._presentation_workspace_sources.close_project(project_id)
         self._run.stop_project_runs({"project_id": project_id})
         self._assist.stop_project_sessions({"project_id": project_id})
         self._cancel_active_teach_capture(project_id)
@@ -880,9 +1514,11 @@ class CoreService:
 
     def _stop_active_for_model_change(self) -> None:
         """Model cache deletion never occurs underneath a process owner."""
+        self._rehearsal_analysis_jobs.drain()
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
         self._cancel_active_teach_capture()
+        self._presentation_workspace_voice.cancel_all()
         self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
@@ -906,9 +1542,13 @@ class CoreService:
         # Probe the secure store before stopping owners or staging any local
         # state.  An unavailable store must leave the entire reset untouched.
         credential_plan = self._providers.prepare_reset_credential_cleanup()
+        self._rehearsal_analysis_jobs.drain(purge=True)
+        self._presentation_edit_plans.close()
+        self._presentation_workspace_sources.close()
         self._run.stop_active_runs(status="aborted")
         self._assist.stop_active_sessions(status="aborted")
         self._cancel_active_teach_capture()
+        self._presentation_workspace_voice.cancel_all()
         self._teach.purge_all()
         self._assist.purge_all()
         self._presentation.purge_all()
@@ -940,6 +1580,30 @@ class CoreService:
         self._audience.before_source_delete(connection, document_id)
         self._challenge.before_source_delete(connection, document_id)
         self._assist.cues.before_source_delete(connection, document_id)
+        connection.execute(
+            """
+            UPDATE sessions
+            SET presentation_revision_id = NULL
+            WHERE presentation_revision_id IN (
+                SELECT id FROM presentation_revisions WHERE presentation_id = ?
+            )
+            """,
+            (document_id,),
+        )
+        connection.execute(
+            "UPDATE project SET current_presentation_id = NULL WHERE current_presentation_id = ?",
+            (document_id,),
+        )
+
+    def _before_source_snapshot_delete(self, project_id: str, document_id: str) -> None:
+        self._presentation_revisions.assert_source_deletable(project_id, document_id)
+        self._rehearsal_analysis_jobs.drain(
+            project_id=project_id, document_id=document_id, purge=True
+        )
+        self._presentation_workspace_voice.cancel_for_source(project_id, document_id)
+        self._presentation_edit_plans.close_source(project_id, document_id)
+        self._presentation_workspace_sources.close_source_readers(project_id, document_id)
+        self._presentation_revisions.before_source_delete(project_id, document_id)
 
     def _after_source_reindex(
         self, connection: Any, document_id: str, previous_unit_ids: set[str]

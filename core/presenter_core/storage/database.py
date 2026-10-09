@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 7
+PROJECT_SCHEMA_VERSION = 22
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -931,6 +931,398 @@ def _migrate_project_v7(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (7,))
 
 
+def _migrate_project_v8(connection: sqlite3.Connection) -> None:
+    """Add immutable presentation lineage and revision metadata."""
+    from presenter_core.revision_identity import original_presentation_revision_id
+
+    connection.execute(
+        """
+        CREATE TABLE presentations (
+            id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE presentation_revisions (
+            id TEXT PRIMARY KEY,
+            presentation_id TEXT NOT NULL
+                REFERENCES presentations(id) ON DELETE CASCADE,
+            parent_revision_id TEXT NULL,
+            revision_number INTEGER NOT NULL CHECK (revision_number >= 1),
+            revision_kind TEXT NOT NULL CHECK (revision_kind IN ('original', 'edited')),
+            local_snapshot_path TEXT NOT NULL,
+            sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+            byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+            created_at TEXT NOT NULL,
+            UNIQUE (id, presentation_id),
+            UNIQUE (presentation_id, revision_number),
+            FOREIGN KEY (parent_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE presentation_revision_heads (
+            presentation_id TEXT PRIMARY KEY
+                REFERENCES presentations(id) ON DELETE CASCADE,
+            revision_id TEXT NOT NULL,
+            FOREIGN KEY (revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX presentation_revisions_lineage_idx "
+        "ON presentation_revisions(presentation_id, revision_number DESC)"
+    )
+
+    documents = connection.execute(
+        """
+        SELECT id, local_snapshot_path, sha256, byte_size, imported_at
+        FROM documents
+        WHERE kind = 'presentation'
+            AND local_snapshot_path IS NOT NULL
+            AND byte_size > 0
+            AND length(sha256) = 64
+        ORDER BY imported_at, id
+        """
+    ).fetchall()
+    for document in documents:
+        presentation_id = str(document[0])
+        digest = str(document[2])
+        revision_id = original_presentation_revision_id(presentation_id, digest)
+        created_at = str(document[4])
+        connection.execute(
+            "INSERT INTO presentations (id, created_at) VALUES (?, ?)",
+            (presentation_id, created_at),
+        )
+        connection.execute(
+            """
+            INSERT INTO presentation_revisions (
+                id, presentation_id, parent_revision_id, revision_number,
+                revision_kind, local_snapshot_path, sha256, byte_size, created_at
+            ) VALUES (?, ?, NULL, 1, 'original', ?, ?, ?, ?)
+            """,
+            (
+                revision_id,
+                presentation_id,
+                str(document[1]),
+                digest,
+                int(document[3]),
+                created_at,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO presentation_revision_heads (presentation_id, revision_id) VALUES (?, ?)",
+            (presentation_id, revision_id),
+        )
+    connection.execute("UPDATE project SET schema_version = ?", (8,))
+
+
+def _migrate_project_v9(connection: sqlite3.Connection) -> None:
+    """Bind rehearsal and live sessions to the immutable presentation revision used."""
+    connection.execute(
+        """
+        ALTER TABLE sessions
+        ADD COLUMN presentation_revision_id TEXT NULL
+            REFERENCES presentation_revisions(id)
+        """
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (9,))
+
+
+def _migrate_project_v10(connection: sqlite3.Connection) -> None:
+    """Scope parsed presentation units to the immutable revision they describe."""
+    connection.execute(
+        """
+        ALTER TABLE source_units
+        ADD COLUMN presentation_revision_id TEXT NULL
+            REFERENCES presentation_revisions(id) ON DELETE CASCADE
+        """
+    )
+    connection.execute(
+        "CREATE INDEX source_units_presentation_revision_idx "
+        "ON source_units(document_id, presentation_revision_id, ordinal, id)"
+    )
+    connection.execute(
+        """
+        UPDATE source_units
+        SET presentation_revision_id = (
+            SELECT h.revision_id
+            FROM presentation_revision_heads AS h
+            WHERE h.presentation_id = source_units.document_id
+        )
+        WHERE document_id IN (SELECT id FROM documents WHERE kind = 'presentation')
+        """
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (10,))
+
+
+def _migrate_project_v11(connection: sqlite3.Connection) -> None:
+    """Store user-confirmed slide purposes on exact immutable revisions."""
+    connection.execute(
+        """
+        CREATE TABLE presentation_slide_purposes (
+            presentation_id TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            slide_id TEXT NOT NULL,
+            purpose TEXT NOT NULL CHECK (purpose IN (
+                'opening', 'problem', 'recommendation', 'evidence', 'plan',
+                'risk', 'transition', 'summary', 'appendix', 'unclear'
+            )),
+            provenance TEXT NOT NULL CHECK (provenance = 'user_confirmed'),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (presentation_id, revision_id, slide_id),
+            FOREIGN KEY (revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+                ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (11,))
+
+
+def _migrate_project_v12(connection: sqlite3.Connection) -> None:
+    """Keep reviewed rehearsal findings linked to their resulting deck edits."""
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_reviews (
+            finding_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            source_revision_id TEXT NOT NULL,
+            baseline_revision_id TEXT NOT NULL,
+            applied_revision_id TEXT NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN ('applied', 'rejected')),
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (source_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id),
+            FOREIGN KEY (baseline_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id),
+            FOREIGN KEY (applied_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (12,))
+
+
+def _migrate_project_v13(connection: sqlite3.Connection) -> None:
+    """Record content-free provenance for one reviewed multi-operation revision."""
+    connection.execute("""
+        CREATE TABLE presentation_edit_transactions (
+            revision_id TEXT PRIMARY KEY,
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            baseline_revision_id TEXT NOT NULL,
+            operation_metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id) ON DELETE CASCADE,
+            FOREIGN KEY (baseline_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (13,))
+
+
+def _migrate_project_v14(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE project_picture_assets (
+            asset_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            sha256 TEXT NOT NULL UNIQUE,
+            mime_type TEXT NOT NULL,
+            byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 1 AND 4194304),
+            image_bytes BLOB NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (14,))
+
+
+def _migrate_project_v15(connection: sqlite3.Connection) -> None:
+    connection.execute("""
+        CREATE TABLE presentation_claims (
+            revision_id TEXT NOT NULL,
+            presentation_id TEXT NOT NULL,
+            slide_id TEXT NOT NULL,
+            claim_id TEXT NOT NULL,
+            record_json TEXT NOT NULL,
+            deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0, 1)),
+            PRIMARY KEY(revision_id, claim_id),
+            FOREIGN KEY(revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id) ON DELETE CASCADE
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (15,))
+
+
+def _migrate_project_v16(connection: sqlite3.Connection) -> None:
+    """User-reviewed deck intent, scoped to immutable revisions and saved atomically."""
+    connection.execute("""
+        CREATE TABLE presentation_narratives (
+            presentation_id TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            record_token TEXT NOT NULL UNIQUE,
+            fields_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(presentation_id, revision_id),
+            FOREIGN KEY(revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id) ON DELETE CASCADE
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (16,))
+
+
+def _migrate_project_v17(connection: sqlite3.Connection) -> None:
+    """Reviewed takeaways remain revision-local; blanks explicitly stop inheritance."""
+    connection.execute("""
+        CREATE TABLE presentation_slide_takeaways (
+            presentation_id TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            slide_id TEXT NOT NULL,
+            record_token TEXT NOT NULL UNIQUE,
+            takeaway TEXT NOT NULL CHECK(length(takeaway) <= 1000),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(presentation_id, revision_id, slide_id),
+            FOREIGN KEY(revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id) ON DELETE CASCADE
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (17,))
+
+
+def _migrate_project_v18(connection: sqlite3.Connection) -> None:
+    """Keep immutable planning provenance separate from explicitly saved drafts."""
+    connection.execute("""
+        CREATE TABLE presentation_outline_proposals (
+            provider_run_id TEXT PRIMARY KEY REFERENCES provider_runs(id) ON DELETE CASCADE,
+            proposal_json TEXT NOT NULL,
+            request_json TEXT NOT NULL
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE presentation_outline_sessions (
+            project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+            record_token TEXT NOT NULL,
+            payload_json TEXT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (18,))
+
+
+def _migrate_project_v19(connection: sqlite3.Connection) -> None:
+    """Checkpoint labels annotate immutable revisions without changing the deck."""
+    connection.execute("""
+        CREATE TABLE presentation_revision_checkpoints (
+            revision_id TEXT PRIMARY KEY,
+            presentation_id TEXT NOT NULL,
+            record_token TEXT NOT NULL,
+            name TEXT NULL,
+            note TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id) ON DELETE CASCADE
+        )
+    """)
+    connection.execute("UPDATE project SET schema_version = ?", (19,))
+
+
+def _migrate_project_v20(connection: sqlite3.Connection) -> None:
+    """Add explicit objection markers while preserving every historical marker."""
+    connection.execute("""
+        CREATE TABLE run_markers_v20 (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            marker_type TEXT NOT NULL CHECK
+                (marker_type IN ('question', 'weak_point', 'note', 'objection')),
+            timestamp_ms INTEGER NOT NULL CHECK (timestamp_ms >= 0),
+            slide_ordinal INTEGER NULL CHECK (slide_ordinal IS NULL OR slide_ordinal >= 1),
+            note TEXT NULL CHECK (note IS NULL OR length(note) <= 1_000),
+            created_at TEXT NOT NULL
+        )
+    """)
+    connection.execute("INSERT INTO run_markers_v20 SELECT * FROM run_markers ORDER BY rowid")
+    connection.execute("DROP TABLE run_markers")
+    connection.execute("ALTER TABLE run_markers_v20 RENAME TO run_markers")
+    connection.execute(
+        "CREATE INDEX run_markers_session_idx ON run_markers(session_id, timestamp_ms, id)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (20,))
+
+
+def _migrate_project_v21(connection: sqlite3.Connection) -> None:
+    """Keep immutable, window-scoped semantic hints separate from debriefs and reviews."""
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_analyses (
+            provider_run_id TEXT PRIMARY KEY REFERENCES provider_runs(id) ON DELETE CASCADE,
+            finding_id TEXT NOT NULL UNIQUE CHECK (length(finding_id) = 64),
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            source_revision_id TEXT NOT NULL,
+            baseline_revision_id TEXT NOT NULL,
+            context_sha256 TEXT NOT NULL CHECK (length(context_sha256) = 64),
+            window_index INTEGER NOT NULL CHECK (window_index >= 0 AND window_index <= 10000),
+            snapshot_json TEXT NOT NULL CHECK (length(snapshot_json) BETWEEN 1 AND 65536),
+            snapshot_sha256 TEXT NOT NULL CHECK (length(snapshot_sha256) = 64),
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (source_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id),
+            FOREIGN KEY (baseline_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX rehearsal_analyses_session_idx ON presentation_rehearsal_analyses "
+        "(presentation_id, session_id, created_at DESC, provider_run_id DESC)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (21,))
+
+
+def _migrate_project_v22(connection: sqlite3.Connection) -> None:
+    """Retain empty objection analyses and independently reviewable candidate identities."""
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_objection_analyses (
+            provider_run_id TEXT PRIMARY KEY REFERENCES provider_runs(id) ON DELETE CASCADE,
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            source_revision_id TEXT NOT NULL,
+            baseline_revision_id TEXT NOT NULL,
+            context_sha256 TEXT NOT NULL CHECK (length(context_sha256) = 64),
+            recording_sha256 TEXT NOT NULL CHECK (length(recording_sha256) = 64),
+            window_index INTEGER NOT NULL CHECK (window_index BETWEEN 0 AND 10000),
+            privacy_mode TEXT NOT NULL CHECK (
+                privacy_mode IN ('local_only', 'selected_context_cloud', 'full_context_cloud')
+            ),
+            snapshot_json TEXT NOT NULL CHECK (length(snapshot_json) BETWEEN 1 AND 131072),
+            snapshot_sha256 TEXT NOT NULL CHECK (length(snapshot_sha256) = 64),
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (source_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id),
+            FOREIGN KEY (baseline_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_objection_findings (
+            finding_id TEXT PRIMARY KEY CHECK (length(finding_id) = 64),
+            provider_run_id TEXT NOT NULL
+                REFERENCES presentation_rehearsal_objection_analyses(provider_run_id)
+                ON DELETE CASCADE,
+            candidate_index INTEGER NOT NULL CHECK (candidate_index BETWEEN 0 AND 3),
+            UNIQUE (provider_run_id, candidate_index)
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX rehearsal_objection_history_idx ON presentation_rehearsal_objection_analyses "
+        "(presentation_id, session_id, created_at DESC, provider_run_id DESC)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (22,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -963,6 +1355,21 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (5, _migrate_project_v5),
             (6, _migrate_project_v6),
             (7, _migrate_project_v7),
+            (8, _migrate_project_v8),
+            (9, _migrate_project_v9),
+            (10, _migrate_project_v10),
+            (11, _migrate_project_v11),
+            (12, _migrate_project_v12),
+            (13, _migrate_project_v13),
+            (14, _migrate_project_v14),
+            (15, _migrate_project_v15),
+            (16, _migrate_project_v16),
+            (17, _migrate_project_v17),
+            (18, _migrate_project_v18),
+            (19, _migrate_project_v19),
+            (20, _migrate_project_v20),
+            (21, _migrate_project_v21),
+            (22, _migrate_project_v22),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

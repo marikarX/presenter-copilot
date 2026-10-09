@@ -2,17 +2,34 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from presenter_core.errors import CoreDomainError
 from presenter_core.ipc.core import CoreService
-from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter, FastEmbedAdapter
+from presenter_core.retrieval.embeddings import (
+    DeterministicEmbeddingAdapter,
+    FastEmbedAdapter,
+    fingerprint_model_artifact,
+)
 from presenter_core.retrieval.index import NumpyEmbeddingIndex
 from presenter_core.storage.database import PROJECT_SCHEMA_VERSION, connect_project_database
 
 FIXTURE_ROOT = Path(__file__).parents[2] / "samples" / "synthetic-deck"
+
+
+def _symlink_or_skip(
+    link_path: Path,
+    target: Path,
+    *,
+    target_is_directory: bool = False,
+) -> None:
+    try:
+        link_path.symlink_to(target, target_is_directory=target_is_directory)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"This filesystem cannot create test symlinks ({type(error).__name__}).")
 
 
 def call(core: CoreService, request_id: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -138,9 +155,9 @@ def test_m1_project_database_migrates_to_m2_and_preserves_content(tmp_path: Path
 
     migrated = connect_project_database(database_path)
     try:
-        assert PROJECT_SCHEMA_VERSION == 7
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 7
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 7
+        assert PROJECT_SCHEMA_VERSION == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
         assert migrated.execute("SELECT text FROM chunks").fetchone()[0] == "preserved"
         assert migrated.execute("SELECT COUNT(*) FROM embedding_generations").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM embedding_vectors").fetchone()[0] == 0
@@ -775,6 +792,84 @@ def test_fastembed_missing_cache_is_checked_local_only(
     assert observed["local_files_only"] is True
     assert health.status == "unavailable"
     assert health.error_code == "EMBEDDING_MODEL_UNAVAILABLE"
+
+
+def test_model_fingerprint_accepts_only_internal_regular_file_symlinks(tmp_path: Path) -> None:
+    cache_root = tmp_path / "model-cache"
+    model_directory = cache_root / "models--example" / "snapshots" / "revision"
+    blob_directory = cache_root / "models--example" / "blobs"
+    model_directory.mkdir(parents=True)
+    blob_directory.mkdir()
+    (model_directory / "config.json").write_text("{}", encoding="utf-8")
+    blob = blob_directory / "model.onnx"
+    blob.write_bytes(b"pinned model bytes")
+    _symlink_or_skip(model_directory / "model.onnx", Path("..") / ".." / "blobs" / blob.name)
+
+    copied_cache = tmp_path / "copied-cache"
+    copied_model = copied_cache / "models--example" / "snapshots" / "revision"
+    copied_model.mkdir(parents=True)
+    (copied_model / "config.json").write_text("{}", encoding="utf-8")
+    (copied_model / "model.onnx").write_bytes(blob.read_bytes())
+
+    assert fingerprint_model_artifact(model_directory, cache_root) == fingerprint_model_artifact(
+        copied_model, copied_cache
+    )
+
+    outside_file = tmp_path / "outside.onnx"
+    outside_file.write_bytes(b"outside model bytes")
+    (model_directory / "outside.onnx").symlink_to(outside_file)
+    with pytest.raises(CoreDomainError) as outside_link:
+        fingerprint_model_artifact(model_directory, cache_root)
+    assert outside_link.value.code == "EMBEDDING_MODEL_INVALID"
+
+
+def test_model_fingerprint_rejects_directory_links(tmp_path: Path) -> None:
+    cache_root = tmp_path / "model-cache"
+    model_directory = cache_root / "model"
+    linked_directory = cache_root / "shared-blobs"
+    model_directory.mkdir(parents=True)
+    linked_directory.mkdir()
+    (linked_directory / "model.onnx").write_bytes(b"model bytes")
+    _symlink_or_skip(model_directory / "shared-blobs", linked_directory, target_is_directory=True)
+
+    with pytest.raises(CoreDomainError) as directory_link:
+        fingerprint_model_artifact(model_directory, cache_root)
+    assert directory_link.value.code == "EMBEDDING_MODEL_INVALID"
+
+
+def test_fastembed_explicit_prepare_recovers_after_local_cache_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fastembed
+
+    calls: list[bool] = []
+
+    class FakeTextEmbedding:
+        def __init__(self, **kwargs: Any) -> None:
+            local_files_only = bool(kwargs["local_files_only"])
+            calls.append(local_files_only)
+            model_directory = Path(kwargs["cache_dir"]) / "fake-model"
+            if not model_directory.exists():
+                if local_files_only:
+                    raise ValueError("model is not installed")
+                model_directory.mkdir()
+                (model_directory / "model.onnx").write_bytes(b"model bytes")
+            self.model = SimpleNamespace(_model_dir=str(model_directory))
+            self.embedding_size = 3
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", FakeTextEmbedding)
+    adapter = FastEmbedAdapter(cache_dir=tmp_path / "model-cache", local_files_only=True)
+    try:
+        initial = adapter.health()
+        assert initial.status == "unavailable"
+
+        prepared = adapter.prepare_explicit()
+
+        assert prepared.status == "ready"
+        assert prepared.model_loaded is True
+        assert calls == [True, False, True]
+    finally:
+        adapter.close()
 
 
 def test_embedding_matrix_paths_stay_inside_project_vault(tmp_path: Path) -> None:

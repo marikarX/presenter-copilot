@@ -47,13 +47,22 @@ git diff --check
 ```
 
 `pnpm build:sidecar` creates the one-folder frozen Python sidecar used by
-`pnpm package:win`; the resulting installer is unsigned and per-user. The
-packaged application must launch the bundled sidecar without system Python,
+`pnpm package:win`. That routine command always creates an unsigned per-user
+installer for CI and local smoke testing. For a production candidate, replace
+`pnpm package:win` with `pnpm package:win:release`; it enables signing and electron-builder's
+`forceCodeSigning` gate, and fails if signing cannot complete. Provide
+`WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` only through a protected environment;
+never commit certificate material or passwords. The release process must
+still inspect the signed executable and installer and confirm the publisher
+identity. The packaged application must launch the
+bundled sidecar without system Python,
 complete hello/health/shutdown, and leave no sidecar process. The installer
-smoke command is read-only and reports `manual_required` until a disposable
-Windows profile or VM has actually installed, started, uninstalled, and
-reinstalled the artifact. Ordinary uninstall must not silently remove user
-data; Reset Local Data is the explicit in-app data-removal operation.
+smoke command is read-only on developer machines and the self-hosted runner.
+Hosted Windows CI opts into a disposable install, launch, uninstall,
+retained-data check, and reinstall cycle under `RUNNER_TEMP`. Ordinary uninstall
+must not silently remove user data; Reset Local Data is the explicit in-app
+data-removal operation. Physical-device and real user-profile checks remain in
+the clean-machine checklist.
 
 Keep Hosted Windows CI and Trusted Local CI as separate exact-SHA evidence.
 They do not substitute for a clean-machine install, real CPU/RTX model

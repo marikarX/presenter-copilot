@@ -10,6 +10,7 @@ class RetrievalFilters:
     project_id: str
     document_ids: tuple[str, ...] = ()
     source_types: tuple[str, ...] = ()
+    presentation_revision_id: str | None = None
     usage: str = "all"
     allow_private: bool = True
     slide_start: int | None = None

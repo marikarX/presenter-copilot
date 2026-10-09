@@ -13,6 +13,13 @@ export const projectViews = [
       "Bring your presentation and its supporting evidence together.",
   },
   {
+    id: "presentation-workspace",
+    label: "Workspace",
+    icon: "slides",
+    description:
+      "Preview, edit, restore, and export revisions of an imported deck.",
+  },
+  {
     id: "audience",
     label: "Audience",
     icon: "people",
@@ -59,13 +66,13 @@ export function canNavigate(
   runActive: boolean,
   liveActive: boolean,
   teachVoiceActive = false,
+  workspaceVoiceActive = false,
 ): boolean {
-  return (
-    (!runActive && !liveActive && !teachVoiceActive) ||
-    (runActive && view === "run") ||
-    (liveActive && view === "live") ||
-    (teachVoiceActive && view === "teach")
-  );
+  if (workspaceVoiceActive) return view === "presentation-workspace";
+  if (teachVoiceActive) return view === "teach";
+  if (liveActive) return view === "live";
+  if (runActive) return view === "run";
+  return true;
 }
 
 export const walkthroughKey = "presenter-copilot.walkthrough.v1";

@@ -1486,6 +1486,40 @@ textarea {
   margin-top: 14px;
 }
 
+.decision-provider-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(70, 75, 90, 0.14);
+}
+
+.decision-provider-panel h3,
+.decision-provider-panel p {
+  margin: 0;
+}
+
+.decision-provider-panel p {
+  color: #626a78;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.decision-provider-panel > label {
+  display: grid;
+  gap: 7px;
+  color: #626a78;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.decision-provider-panel > div {
+  display: grid;
+  gap: 8px;
+}
+
 .provider-history-list {
   display: grid;
   gap: 9px;

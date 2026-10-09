@@ -28,9 +28,12 @@ from .lexical import (
     MAX_RESULTS,
     SOURCE_TYPE_MIME,
     LexicalCandidate,
+    _append_presentation_revision_clause,
     _append_source_type_filter,
     _record_from_row,
     bounded_lexical_candidates,
+    parse_presentation_revision_id,
+    validate_presentation_revision_project,
     validate_query,
 )
 from .models import ChunkRecord, RetrievalFilters
@@ -275,6 +278,10 @@ class HybridRetrievalService:
                     JOIN source_units AS su ON su.id = c.source_unit_id
                     JOIN documents AS d ON d.id = su.document_id
                     WHERE d.project_id = ? AND d.parse_status = 'ready'
+                      AND (d.kind <> 'presentation' OR su.presentation_revision_id = (
+                          SELECT h.revision_id FROM presentation_revision_heads AS h
+                          WHERE h.presentation_id = d.id
+                      ))
                     UNION ALL
                     SELECT k.id AS entity_id, 'knowledge_item' AS entity_type,
                            k.text AS entity_text, 'user_knowledge' AS source_class
@@ -482,6 +489,7 @@ class HybridRetrievalService:
                 "limit",
                 "document_ids",
                 "source_types",
+                "presentation_revision_id",
                 "current_slide",
                 "slide_window",
                 "usage",
@@ -497,6 +505,9 @@ class HybridRetrievalService:
         started = monotonic()
 
         with self._storage.project_database(project_id) as connection:
+            validate_presentation_revision_project(
+                connection, project_id, filters.presentation_revision_id
+            )
             lexical_candidates = self._lexical_candidates(
                 connection,
                 filters,
@@ -998,6 +1009,10 @@ class HybridRetrievalService:
             JOIN source_units AS su ON su.id = c.source_unit_id
             JOIN documents AS d ON d.id = su.document_id
             WHERE d.project_id = ? AND d.parse_status = 'ready'
+              AND (d.kind <> 'presentation' OR su.presentation_revision_id = (
+                  SELECT h.revision_id FROM presentation_revision_heads AS h
+                  WHERE h.presentation_id = d.id
+              ))
             """,
             (project_id,),
         ).fetchone()
@@ -1023,6 +1038,10 @@ class HybridRetrievalService:
                       WHERE c.id = ev.entity_id
                         AND d.project_id = ?
                         AND d.parse_status = 'ready'
+                        AND (d.kind <> 'presentation' OR su.presentation_revision_id = (
+                            SELECT h.revision_id FROM presentation_revision_heads AS h
+                            WHERE h.presentation_id = d.id
+                        ))
                   )
                   OR ev.entity_type = 'knowledge_item' AND EXISTS (
                       SELECT 1
@@ -1532,6 +1551,9 @@ def _parse_filters(
     allow_private = params.get("allow_private", True)
     if not isinstance(allow_private, bool):
         raise invalid_request("allow_private must be a boolean.", field="allow_private")
+    presentation_revision_id = parse_presentation_revision_id(
+        params.get("presentation_revision_id")
+    )
     slide_start_value = params.get("slide_start")
     slide_end_value = params.get("slide_end")
     if (slide_start_value is None) != (slide_end_value is None):
@@ -1556,6 +1578,7 @@ def _parse_filters(
             project_id=project_id,
             document_ids=tuple(document_ids),
             source_types=tuple(source_types),
+            presentation_revision_id=presentation_revision_id,
             usage=usage,
             allow_private=allow_private,
             slide_start=slide_start,
@@ -1579,6 +1602,13 @@ def _append_filter_clauses(
         parameters.extend(filters.document_ids)
     if filters.source_types:
         _append_source_type_filter(clauses, parameters, filters.source_types, table_alias)
+    _append_presentation_revision_clause(
+        clauses,
+        parameters,
+        filters,
+        document_alias=table_alias,
+        source_unit_alias="su",
+    )
     if filters.slide_start is not None and filters.slide_end is not None:
         clauses.append(
             f"({table_alias}.kind <> 'presentation' OR "

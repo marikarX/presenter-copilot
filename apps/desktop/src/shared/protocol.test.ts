@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVE_TYPED_DECISION_PROVIDER_IDS,
+  isActiveTypedDecisionProviderId,
   isCoreMethod,
   isProjectSummary,
   isReadyProjectSummary,
@@ -15,6 +17,24 @@ describe("renderer core authority", () => {
     expect(isCoreMethod("hud.settings.update")).toBe(true);
     expect(isRendererCoreMethod("hud.settings.get")).toBe(false);
     expect(isRendererCoreMethod("hud.settings.update")).toBe(false);
+  });
+});
+
+describe("typed decision provider boundary", () => {
+  it("recognizes every configured decision provider, including recent adapters", () => {
+    expect(ACTIVE_TYPED_DECISION_PROVIDER_IDS).toEqual([
+      "local_choice",
+      "openai_fast",
+      "openai_ultrafast",
+      "openai_decisions",
+      "openrouter_jev",
+      "ollama_systemone",
+      "openai_chatgpt_plan",
+    ]);
+    expect(isActiveTypedDecisionProviderId("ollama_systemone")).toBe(true);
+    expect(isActiveTypedDecisionProviderId("openai_chatgpt_plan")).toBe(true);
+    expect(isActiveTypedDecisionProviderId("codex_chatgpt")).toBe(false);
+    expect(isActiveTypedDecisionProviderId("disabled")).toBe(false);
   });
 });
 

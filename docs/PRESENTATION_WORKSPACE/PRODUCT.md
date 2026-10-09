@@ -127,7 +127,7 @@ Initial workspace editing should prioritize:
 
 - text editing;
 - speaker notes;
-- image replacement/crop/fit;
+- image insertion, replacement, and crop/fit;
 - object move/resize/delete/duplicate;
 - slide add/delete/duplicate/reorder;
 - common font/alignment/color/fill/stroke changes;

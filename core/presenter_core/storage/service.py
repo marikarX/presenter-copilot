@@ -572,10 +572,12 @@ class StorageManager:
             )
         allowed_fields = {
             "stored_credential_present",
+            "stored_chatgpt_plan_credential_present",
             "credential_cleanup_established",
             "environment_credential_detected",
             "environment_credential_retained",
             "credentials_removed",
+            "chatgpt_plan_remote_revocation_confirmed",
         }
         return {key: result[key] for key in allowed_fields if key in result}
 

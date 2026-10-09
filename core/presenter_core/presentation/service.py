@@ -80,7 +80,7 @@ class SlideStateService:
                     "PRESENTATION_STATE_UNAVAILABLE", "Presentation state is shut down."
                 )
 
-        info = self._presentation_info(project_id)
+        info = self._presentation_info(project_id, session_id)
         detection = self._powerpoint.detect(info)
         use_powerpoint = bool(detection.get("available")) and detection.get("mode") == "powerpoint"
         mode = "powerpoint" if use_powerpoint else "manual"
@@ -129,7 +129,7 @@ class SlideStateService:
         if active is None:
             return self.start_run(project_id, session_id)
 
-        info = self._presentation_info(project_id)
+        info = self._presentation_info(project_id, session_id)
         detection = self._powerpoint.detect(info)
         if detection.get("available") and detection.get("mode") == "powerpoint":
             current = self._valid_slide(
@@ -195,7 +195,7 @@ class SlideStateService:
             if active is not None:
                 return self._status_locked(active)
         self._validate_session_scope(project_id, session_id)
-        info = self._presentation_info(project_id)
+        info = self._presentation_info(project_id, session_id)
         latest = self._latest_slide(project_id, session_id)
         return {
             "project_id": project_id,
@@ -214,7 +214,7 @@ class SlideStateService:
             active = self._runs.get((project_id, session_id))
             if active is not None:
                 return active.current_slide
-        info = self._presentation_info(project_id)
+        info = self._presentation_info(project_id, session_id)
         return self._valid_slide(
             self._latest_slide(project_id, session_id), info.slide_count if info else None
         )
@@ -446,8 +446,26 @@ class SlideStateService:
             if row is None:
                 raise CoreDomainError("SESSION_NOT_FOUND", "The session was not found.")
 
-    def _presentation_info(self, project_id: str) -> PresentationInfo | None:
+    def _presentation_info(self, project_id: str, session_id: str) -> PresentationInfo | None:
         with self._storage.project_database(project_id) as connection:
+            bound = connection.execute(
+                "SELECT presentation_revision_id FROM sessions WHERE id = ? AND project_id = ?",
+                (session_id, project_id),
+            ).fetchone()
+            if bound is not None and bound["presentation_revision_id"] is not None:
+                row = connection.execute(
+                    "SELECT d.id, d.original_name, COUNT(DISTINCT su.ordinal) AS slide_count "
+                    "FROM presentation_revisions r JOIN documents d ON d.id = r.presentation_id "
+                    "LEFT JOIN source_units su ON su.document_id = d.id "
+                    "AND su.presentation_revision_id = r.id AND su.unit_type = 'slide' "
+                    "WHERE r.id = ? AND d.project_id = ? GROUP BY d.id, d.original_name",
+                    (bound["presentation_revision_id"], project_id),
+                ).fetchone()
+                if row is None or int(row["slide_count"]) < 1:
+                    return None
+                return PresentationInfo(
+                    str(row["id"]), str(row["original_name"]), int(row["slide_count"])
+                )
             row = connection.execute(
                 """
                 SELECT d.id, d.original_name, COUNT(DISTINCT su.ordinal) AS slide_count

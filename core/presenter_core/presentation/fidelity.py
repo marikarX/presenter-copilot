@@ -1,0 +1,1694 @@
+"""Bounded OOXML inventory for imported presentations.
+
+This module establishes document-lineage identities and a deliberately modest
+fidelity inventory. Revision content is identified separately by its source
+hash. It does not rewrite PPTX parts or claim that inventory alone makes a
+deck safe to edit or export.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import posixpath
+import re
+import uuid
+import zipfile
+import zlib
+from dataclasses import dataclass, replace
+from pathlib import PurePosixPath
+from typing import Any, BinaryIO, cast
+
+from lxml import etree  # type: ignore[import-untyped]
+
+from presenter_core.errors import CoreDomainError
+from presenter_core.ingestion.security import (
+    MAX_ARCHIVE_ENTRIES,
+    MAX_ARCHIVE_EXPANDED_BYTES,
+    MAX_EXTRACTED_TEXT_CHARS,
+    MAX_SOURCE_BYTES,
+)
+
+PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+MARKUP_COMPATIBILITY_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+SLIDE_REL_TYPE = f"{REL_NS}/slide"
+NOTES_SLIDE_REL_TYPE = f"{REL_NS}/notesSlide"
+XML_PART_LIMIT = 8 * 1024 * 1024
+SLIDE_LIMIT = 5_000
+OBJECT_LIMIT = 100_000
+MAX_DECISION_OBJECT_TEXT_CHARS = 8_000
+MAX_SPEAKER_NOTES_CHARS = 12_000
+MAX_SPEAKER_NOTES_PARAGRAPHS = 128
+MAX_SLIDE_DIMENSION_EMU = 100_000_000
+EMU_PER_POINT = 12_700
+MAX_TEXT_LEFT_INDENT_PT = 144
+MAX_TEXT_LEFT_INDENT_EMU = EMU_PER_POINT * MAX_TEXT_LEFT_INDENT_PT
+MAX_TEXT_FIRST_LINE_INDENT_PT = 144
+MAX_TEXT_FIRST_LINE_INDENT_EMU = EMU_PER_POINT * MAX_TEXT_FIRST_LINE_INDENT_PT
+MAX_TEXT_PARAGRAPH_SPACING_PT = 144
+MAX_TEXT_PARAGRAPH_SPACING_HUNDREDTHS = MAX_TEXT_PARAGRAPH_SPACING_PT * 100
+MAX_TEXT_LINE_SPACING_PT = 144
+MAX_TEXT_LINE_SPACING_HUNDREDTHS = MAX_TEXT_LINE_SPACING_PT * 100
+MAX_TEXT_FORMAT_PARAGRAPHS = 128
+_PARAGRAPH_PROPERTY_ORDER = {
+    name: index
+    for index, name in enumerate(
+        (
+            "lnSpc",
+            "spcBef",
+            "spcAft",
+            "buClrTx",
+            "buClr",
+            "buSzTx",
+            "buSzPct",
+            "buSzPts",
+            "buFontTx",
+            "buFont",
+            "buNone",
+            "buAutoNum",
+            "buChar",
+            "buBlip",
+            "tabLst",
+            "defRPr",
+            "extLst",
+        )
+    )
+}
+_PARAGRAPH_BULLET_PROPERTY_NAMES = frozenset(
+    {
+        "buClrTx",
+        "buClr",
+        "buSzTx",
+        "buSzPct",
+        "buSzPts",
+        "buFontTx",
+        "buFont",
+        "buNone",
+        "buAutoNum",
+        "buChar",
+        "buBlip",
+    }
+)
+PARAGRAPH_BULLET_CHAR_BY_MODE = {
+    "bullet": "•",
+    "bullet_hollow": "◦",
+    "bullet_square": "▪",
+    "bullet_dash": "–",
+}
+_PARAGRAPH_BULLET_MODE_BY_CHAR = {
+    character: mode for mode, character in PARAGRAPH_BULLET_CHAR_BY_MODE.items()
+}
+PARAGRAPH_BULLET_MODES = frozenset({"none", "numbered", *PARAGRAPH_BULLET_CHAR_BY_MODE})
+_XML_DECLARATION_PATTERN = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
+_IDENTITY_NAMESPACE = uuid.UUID("f3c3c788-716e-4c4c-9081-ff23a23c896f")
+_NS = {"p": PRESENTATION_NS, "a": DRAWING_NS, "r": REL_NS, "rel": PACKAGE_REL_NS}
+_OBJECT_KINDS = {"sp", "pic", "graphicFrame", "cxnSp", "grpSp"}
+_OBJECT_KIND_REPORT_KEYS = {
+    "sp": "shapes",
+    "pic": "pictures",
+    "graphicFrame": "graphic_frames",
+    "cxnSp": "connectors",
+    "grpSp": "groups",
+}
+_SUPPORTED_MARKUP_COMPATIBILITY_NAMESPACES = frozenset({PRESENTATION_NS, DRAWING_NS, REL_NS})
+
+
+@dataclass(frozen=True)
+class FidelityGeometry:
+    """Slide-space dimensions in English Metric Units."""
+
+    x_emu: int
+    y_emu: int
+    width_emu: int
+    height_emu: int
+
+
+@dataclass(frozen=True)
+class FidelityPictureCrop:
+    """Simple source-rectangle crop values in OOXML thousandths of a percent."""
+
+    left: int = 0
+    right: int = 0
+    top: int = 0
+    bottom: int = 0
+
+
+@dataclass(frozen=True)
+class FidelityTextStyle:
+    """Direct run and paragraph formatting supported by the constrained formatter."""
+
+    editable: bool
+    fingerprint: str | None = None
+    bold: bool | None = None
+    italic: bool | None = None
+    font_size_pt: float | None = None
+    font_color: str | None = None
+    color_editable: bool = False
+    alignment: str | None = None
+    alignment_editable: bool = False
+    bullet_state: str | None = None
+    bullet_editable: bool = False
+    left_indent_pt: int | None = None
+    left_indent_editable: bool = False
+    first_line_indent_pt: int | None = None
+    first_line_indent_editable: bool = False
+    line_spacing_pt: int | None = None
+    line_spacing_editable: bool = False
+    space_before_pt: int | None = None
+    space_before_editable: bool = False
+    space_after_pt: int | None = None
+    space_after_editable: bool = False
+
+
+@dataclass(frozen=True)
+class FidelityShapeStyle:
+    """Direct solid fill and outline colors for a simple top-level shape."""
+
+    editable: bool
+    fingerprint: str | None = None
+    fill_color: str | None = None
+    fill_editable: bool = False
+    line_color: str | None = None
+    line_editable: bool = False
+
+
+@dataclass(frozen=True)
+class FidelityObject:
+    """One OOXML drawing object with a stable identity inside its source."""
+
+    object_id: str
+    ooxml_id: str
+    name: str
+    kind: str
+    text: str
+    text_edit_candidate: bool
+    single_run_text_edit_candidate: bool
+    uniform_run_text_edit_candidate: bool
+    text_format_edit_candidate: bool
+    geometry: FidelityGeometry | None = None
+    geometry_editable: bool = False
+    delete_editable: bool = False
+    group_editable: bool = False
+    group_reason: str | None = None
+    text_style: FidelityTextStyle | None = None
+    picture_crop: FidelityPictureCrop | None = None
+    shape_style: FidelityShapeStyle | None = None
+    semantic_source_kind: str | None = None
+
+
+@dataclass(frozen=True)
+class FidelitySlide:
+    """Slide ordering and stable objects derived from the immutable import."""
+
+    slide_id: str
+    ooxml_slide_id: str
+    ordinal: int
+    part_name: str
+    objects: tuple[FidelityObject, ...]
+    speaker_notes: str | None = None
+    speaker_notes_editable: bool = False
+
+
+@dataclass(frozen=True)
+class FidelityDocument:
+    """A structural view of one verified original PPTX snapshot."""
+
+    source_sha256: str
+    slides: tuple[FidelitySlide, ...]
+    slide_width_emu: int
+    slide_height_emu: int
+
+    @property
+    def text_edit_candidate_count(self) -> int:
+        return sum(obj.text_edit_candidate for slide in self.slides for obj in slide.objects)
+
+    @property
+    def object_count(self) -> int:
+        return sum(len(slide.objects) for slide in self.slides)
+
+    @property
+    def object_kind_counts(self) -> dict[str, int]:
+        counts = {key: 0 for key in _OBJECT_KIND_REPORT_KEYS.values()}
+        for slide in self.slides:
+            for obj in slide.objects:
+                counts[_OBJECT_KIND_REPORT_KEYS[obj.kind]] += 1
+        return counts
+
+    @property
+    def nontext_or_unmodeled_count(self) -> int:
+        return self.object_count - self.text_edit_candidate_count
+
+    def summary(self) -> dict[str, object]:
+        """Return metadata only; slide content and package paths stay in Core."""
+        return {
+            "status": "inventory_only",
+            "slide_count": len(self.slides),
+            "object_count": self.object_count,
+            "object_kinds": self.object_kind_counts,
+            "text_edit_candidates": self.text_edit_candidate_count,
+            "nontext_or_unmodeled_objects": self.nontext_or_unmodeled_count,
+            "slides": [
+                {
+                    "slide_id": slide.slide_id,
+                    "ordinal": slide.ordinal,
+                    "object_count": len(slide.objects),
+                }
+                for slide in self.slides
+            ],
+        }
+
+    def text_targets(self, ordinal: int, *, limit: int = 100) -> dict[str, object]:
+        """Return bounded stable targets for one slide without exposing its XML path."""
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 1:
+            raise ValueError("slide ordinal must be positive")
+        slide = next((item for item in self.slides if item.ordinal == ordinal), None)
+        if slide is None:
+            raise ValueError("slide ordinal is unavailable")
+        targets = [obj for obj in slide.objects if obj.text_edit_candidate]
+        objects = slide.objects[:limit]
+        semantic = [
+            obj
+            for obj in slide.objects
+            if obj.semantic_source_kind is not None
+            and obj.text.strip()
+            and _is_safe_decision_text(obj.text)
+        ]
+        return {
+            "slide_id": slide.slide_id,
+            "ordinal": slide.ordinal,
+            "slide_width_emu": self.slide_width_emu,
+            "slide_height_emu": self.slide_height_emu,
+            "has_more": len(targets) > limit,
+            "objects_have_more": len(slide.objects) > limit,
+            "semantic_has_more": len(semantic) > limit,
+            "semantic_excluded_objects": len(slide.objects) - len(semantic),
+            "semantic_targets": [
+                {
+                    "object_id": obj.object_id,
+                    "ooxml_shape_id": obj.ooxml_id,
+                    "name": obj.name,
+                    "source_kind": obj.semantic_source_kind,
+                    "decision_text": obj.text,
+                }
+                for obj in semantic[:limit]
+            ],
+            "speaker_notes": {
+                "current_text": (
+                    slide.speaker_notes[:MAX_SPEAKER_NOTES_CHARS]
+                    if slide.speaker_notes is not None
+                    else None
+                ),
+                "text_truncated": (
+                    slide.speaker_notes is not None
+                    and len(slide.speaker_notes) > MAX_SPEAKER_NOTES_CHARS
+                ),
+                "editable": (
+                    slide.speaker_notes_editable
+                    and slide.speaker_notes is not None
+                    and len(slide.speaker_notes) <= MAX_SPEAKER_NOTES_CHARS
+                ),
+            },
+            "targets": [
+                {
+                    "object_id": obj.object_id,
+                    "ooxml_shape_id": obj.ooxml_id,
+                    "single_run_editable": obj.single_run_text_edit_candidate,
+                    "uniform_run_editable": obj.uniform_run_text_edit_candidate,
+                    "text_format_editable": obj.text_format_edit_candidate,
+                    "current_text": (
+                        obj.text
+                        if obj.single_run_text_edit_candidate
+                        or obj.uniform_run_text_edit_candidate
+                        or obj.text_format_edit_candidate
+                        else None
+                    ),
+                    "text_style": (
+                        {
+                            "editable": obj.text_style.editable,
+                            "fingerprint": obj.text_style.fingerprint,
+                            "bold": obj.text_style.bold,
+                            "italic": obj.text_style.italic,
+                            "font_size_pt": obj.text_style.font_size_pt,
+                            "font_color": obj.text_style.font_color,
+                            "color_editable": obj.text_style.color_editable,
+                            "alignment": obj.text_style.alignment,
+                            "alignment_editable": obj.text_style.alignment_editable,
+                            "bullet_state": obj.text_style.bullet_state,
+                            "bullet_editable": obj.text_style.bullet_editable,
+                            "left_indent_pt": obj.text_style.left_indent_pt,
+                            "left_indent_editable": obj.text_style.left_indent_editable,
+                            "first_line_indent_pt": obj.text_style.first_line_indent_pt,
+                            "first_line_indent_editable": obj.text_style.first_line_indent_editable,
+                            "line_spacing_pt": obj.text_style.line_spacing_pt,
+                            "line_spacing_editable": obj.text_style.line_spacing_editable,
+                            "space_before_pt": obj.text_style.space_before_pt,
+                            "space_before_editable": obj.text_style.space_before_editable,
+                            "space_after_pt": obj.text_style.space_after_pt,
+                            "space_after_editable": obj.text_style.space_after_editable,
+                        }
+                        if obj.text_style is not None
+                        else None
+                    ),
+                    "decision_text": obj.text if _is_safe_decision_text(obj.text) else None,
+                }
+                for obj in targets[:limit]
+            ],
+            "objects": [
+                {
+                    "object_id": obj.object_id,
+                    "ooxml_shape_id": obj.ooxml_id,
+                    "name": obj.name,
+                    "kind": obj.kind,
+                    "geometry_editable": obj.geometry_editable,
+                    "delete_editable": obj.delete_editable,
+                    "group_editable": obj.group_editable,
+                    "group_reason": obj.group_reason,
+                    "shape_style": (
+                        {
+                            "editable": obj.shape_style.editable,
+                            "fingerprint": obj.shape_style.fingerprint,
+                            "fill_color": obj.shape_style.fill_color,
+                            "fill_editable": obj.shape_style.fill_editable,
+                            "line_color": obj.shape_style.line_color,
+                            "line_editable": obj.shape_style.line_editable,
+                        }
+                        if obj.shape_style is not None
+                        else None
+                    ),
+                    "picture_crop": (
+                        {
+                            "left_percent": obj.picture_crop.left / 1_000,
+                            "right_percent": obj.picture_crop.right / 1_000,
+                            "top_percent": obj.picture_crop.top / 1_000,
+                            "bottom_percent": obj.picture_crop.bottom / 1_000,
+                        }
+                        if obj.picture_crop is not None
+                        else None
+                    ),
+                    "geometry": (
+                        {
+                            "x_emu": obj.geometry.x_emu,
+                            "y_emu": obj.geometry.y_emu,
+                            "width_emu": obj.geometry.width_emu,
+                            "height_emu": obj.geometry.height_emu,
+                        }
+                        if obj.geometry is not None
+                        else None
+                    ),
+                }
+                for obj in objects
+            ],
+        }
+
+
+def inspect_pptx_snapshot(
+    handle: BinaryIO,
+    *,
+    document_id: str,
+    expected_sha256: str,
+    byte_size: int,
+) -> FidelityDocument:
+    """Inventory a previously verified open handle without modifying the file."""
+    if (
+        not isinstance(document_id, str)
+        or not document_id
+        or len(document_id) > 80
+        or not isinstance(expected_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+        or isinstance(byte_size, bool)
+        or not isinstance(byte_size, int)
+        or not 0 < byte_size <= MAX_SOURCE_BYTES
+    ):
+        raise CoreDomainError(
+            "PRESENTATION_FIDELITY_SOURCE_INVALID",
+            "The stored presentation metadata is invalid.",
+        )
+
+    try:
+        handle.seek(0)
+        digest = hashlib.sha256()
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise CoreDomainError(
+                "SOURCE_SNAPSHOT_CHANGED",
+                "The stored presentation no longer matches its imported record.",
+            )
+        handle.seek(0)
+        with zipfile.ZipFile(handle, "r") as archive:
+            infos = archive.infolist()
+            if len(infos) > MAX_ARCHIVE_ENTRIES:
+                raise _invalid_package()
+            expanded_size = sum(max(0, info.file_size) for info in infos)
+            if expanded_size > MAX_ARCHIVE_EXPANDED_BYTES:
+                raise _invalid_package()
+            members = {info.filename: info for info in infos}
+            presentation_info = members.get("ppt/presentation.xml")
+            rels_info = members.get("ppt/_rels/presentation.xml.rels")
+            if presentation_info is None or rels_info is None:
+                raise _invalid_package()
+            presentation_root = _parse_xml_part(archive, presentation_info)
+            relationships_root = _parse_xml_part(archive, rels_info)
+            slide_sizes = presentation_root.xpath("./p:sldSz", namespaces=_NS)
+            if len(slide_sizes) != 1:
+                raise _invalid_package()
+            try:
+                slide_width_emu = int(slide_sizes[0].get("cx", ""))
+                slide_height_emu = int(slide_sizes[0].get("cy", ""))
+            except ValueError as error:
+                raise _invalid_package() from error
+            if not (
+                0 < slide_width_emu <= MAX_SLIDE_DIMENSION_EMU
+                and 0 < slide_height_emu <= MAX_SLIDE_DIMENSION_EMU
+            ):
+                raise _invalid_package()
+            relationships = _relationships(relationships_root)
+            slide_ids = presentation_root.xpath("./p:sldIdLst/p:sldId", namespaces=_NS)
+            if not slide_ids or len(slide_ids) > SLIDE_LIMIT:
+                raise _invalid_package()
+
+            slides: list[FidelitySlide] = []
+            seen_slide_ids: set[str] = set()
+            total_objects = 0
+            total_text_chars = 0
+            for ordinal, slide_ref in enumerate(slide_ids, start=1):
+                ooxml_slide_id = slide_ref.get("id")
+                relationship_id = slide_ref.get(f"{{{REL_NS}}}id")
+                if not ooxml_slide_id or ooxml_slide_id in seen_slide_ids or not relationship_id:
+                    raise _invalid_package()
+                seen_slide_ids.add(ooxml_slide_id)
+                relationship = relationships.get(relationship_id)
+                if relationship is None:
+                    raise _invalid_package()
+                relationship_type, target, target_mode = relationship
+                if relationship_type != SLIDE_REL_TYPE or target_mode.casefold() != "internal":
+                    raise _invalid_package()
+                part_name = _resolve_internal_part("ppt", target)
+                slide_info = members.get(part_name)
+                if slide_info is None:
+                    raise _invalid_package()
+                slide_root = _parse_xml_part(archive, slide_info)
+                from presenter_core.presentation.charts import chart_texts
+                from presenter_core.presentation.group_geometry import grouping_picture_ids
+
+                objects = _objects_for_slide(
+                    slide_root,
+                    document_id=document_id,
+                    ooxml_slide_id=ooxml_slide_id,
+                    slide_width_emu=slide_width_emu,
+                    slide_height_emu=slide_height_emu,
+                    chart_text=chart_texts(archive, members, slide_root, part_name),
+                    group_picture_ids=grouping_picture_ids(archive, members, slide_root, part_name),
+                )
+                speaker_notes, notes_editable = _speaker_notes_for_slide(
+                    archive,
+                    members,
+                    slide_part_name=part_name,
+                )
+                total_objects += len(objects)
+                total_text_chars += sum(len(obj.text) for obj in objects) + len(speaker_notes or "")
+                if total_objects > OBJECT_LIMIT or total_text_chars > MAX_EXTRACTED_TEXT_CHARS:
+                    raise CoreDomainError(
+                        "PRESENTATION_FIDELITY_RESOURCE_LIMIT",
+                        "The presentation contains more editable content than the workspace limit.",
+                    )
+                slide_identity = _stable_id(f"{document_id}\0identity-v1\0slide\0{ooxml_slide_id}")
+                slides.append(
+                    FidelitySlide(
+                        slide_id=slide_identity,
+                        ooxml_slide_id=ooxml_slide_id,
+                        ordinal=ordinal,
+                        part_name=part_name,
+                        objects=objects,
+                        speaker_notes=speaker_notes,
+                        speaker_notes_editable=notes_editable,
+                    )
+                )
+            result = FidelityDocument(
+                source_sha256=expected_sha256,
+                slides=tuple(slides),
+                slide_width_emu=slide_width_emu,
+                slide_height_emu=slide_height_emu,
+            )
+            handle.seek(0)
+            verified_digest = hashlib.sha256()
+            while chunk := handle.read(1024 * 1024):
+                verified_digest.update(chunk)
+            if verified_digest.hexdigest() != expected_sha256:
+                raise CoreDomainError(
+                    "SOURCE_SNAPSHOT_CHANGED",
+                    "The stored presentation no longer matches its imported record.",
+                )
+            handle.seek(0)
+            return result
+    except CoreDomainError:
+        raise
+    except (
+        OSError,
+        EOFError,
+        ValueError,
+        KeyError,
+        RuntimeError,
+        zlib.error,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+    ) as error:
+        raise _invalid_package() from error
+
+
+def _parse_xml_part(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> etree._Element:
+    if info.file_size <= 0 or info.file_size > XML_PART_LIMIT:
+        raise _invalid_package()
+    payload = archive.read(info)
+    if _XML_DECLARATION_PATTERN.search(payload):
+        raise _invalid_package()
+    try:
+        parser = etree.XMLParser(
+            resolve_entities=False,
+            load_dtd=False,
+            no_network=True,
+            huge_tree=False,
+            remove_comments=False,
+            recover=False,
+        )
+        root = etree.fromstring(payload, parser)
+    except (etree.XMLSyntaxError, ValueError) as error:
+        raise _invalid_package() from error
+    if root.getroottree().docinfo.doctype:
+        raise _invalid_package()
+    return root
+
+
+def _relationships(root: etree._Element) -> dict[str, tuple[str, str, str]]:
+    result: dict[str, tuple[str, str, str]] = {}
+    for relationship in root.xpath("./rel:Relationship", namespaces=_NS):
+        relationship_id = relationship.get("Id")
+        relationship_type = relationship.get("Type")
+        target = relationship.get("Target")
+        target_mode = relationship.get("TargetMode", "Internal")
+        if not relationship_id or not relationship_type or not target or relationship_id in result:
+            raise _invalid_package()
+        result[relationship_id] = (relationship_type, target, target_mode)
+    return result
+
+
+def _resolve_internal_part(base_directory: str, target: str) -> str:
+    if (
+        not target
+        or len(target) > 512
+        or "\\" in target
+        or "%" in target
+        or "?" in target
+        or "#" in target
+        or ":" in target
+        or any(ord(character) < 32 for character in target)
+    ):
+        raise _invalid_package()
+    candidate = (
+        target.lstrip("/") if target.startswith("/") else posixpath.join(base_directory, target)
+    )
+    normalized = posixpath.normpath(candidate)
+    path = PurePosixPath(normalized)
+    if (
+        path.is_absolute()
+        or normalized in {"", "."}
+        or normalized == ".."
+        or normalized.startswith("../")
+    ):
+        raise _invalid_package()
+    return normalized
+
+
+def _speaker_notes_for_slide(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    *,
+    slide_part_name: str,
+) -> tuple[str | None, bool]:
+    """Read a slide's body-placeholder notes and classify plain-text editability."""
+    slide_path = PurePosixPath(slide_part_name)
+    rels_part = f"{slide_path.parent.as_posix()}/_rels/{slide_path.name}.rels"
+    rels_info = members.get(rels_part)
+    if rels_info is None:
+        return None, False
+    rels_root = _parse_xml_part(archive, rels_info)
+    relationships = _relationships(rels_root)
+    notes_relationships = [
+        relation for relation in relationships.values() if relation[0] == NOTES_SLIDE_REL_TYPE
+    ]
+    if not notes_relationships:
+        return None, False
+    if len(notes_relationships) != 1:
+        raise _invalid_package()
+    _, target, target_mode = notes_relationships[0]
+    if target_mode.casefold() != "internal":
+        return None, False
+    notes_part = _resolve_internal_part(slide_path.parent.as_posix(), target)
+    notes_info = members.get(notes_part)
+    if notes_info is None:
+        raise _invalid_package()
+    notes_root = _parse_xml_part(archive, notes_info)
+    if notes_root.tag != f"{{{PRESENTATION_NS}}}notes":
+        raise _invalid_package()
+    placeholders = notes_root.xpath(
+        "./p:cSld/p:spTree/p:sp[p:nvSpPr/p:nvPr/p:ph[@type='body']]",
+        namespaces=_NS,
+    )
+    if not placeholders:
+        return None, False
+    if len(placeholders) != 1:
+        raise _invalid_package()
+    text_bodies = placeholders[0].xpath("./p:txBody", namespaces=_NS)
+    if len(text_bodies) != 1:
+        return None, False
+    paragraphs = text_bodies[0].xpath("./a:p", namespaces=_NS)
+    if not paragraphs or len(paragraphs) > MAX_SPEAKER_NOTES_PARAGRAPHS:
+        return None, False
+    text = "\n".join(_paragraph_text(paragraph) for paragraph in paragraphs)
+    return text, _notes_body_is_plain_editable(paragraphs)
+
+
+def _paragraph_text(paragraph: etree._Element) -> str:
+    return "".join(part.text or "" for part in paragraph.xpath(".//a:t", namespaces=_NS))
+
+
+def _notes_body_is_plain_editable(paragraphs: list[etree._Element]) -> bool:
+    """Only declare notes editable when paragraph and run formatting is uniform."""
+    signatures: set[tuple[bytes, bytes, bytes]] = set()
+    for paragraph in paragraphs:
+        if paragraph.xpath(".//a:br | .//a:fld", namespaces=_NS):
+            return False
+        if any(
+            child.tag
+            not in {
+                f"{{{DRAWING_NS}}}pPr",
+                f"{{{DRAWING_NS}}}r",
+                f"{{{DRAWING_NS}}}endParaRPr",
+            }
+            for child in paragraph
+        ):
+            return False
+        runs = paragraph.xpath("./a:r", namespaces=_NS)
+        if len(runs) > 1:
+            return False
+        run_properties: etree._Element | None = None
+        if runs:
+            text_nodes = runs[0].xpath("./a:t", namespaces=_NS)
+            if len(text_nodes) != 1 or any(
+                child.tag not in {f"{{{DRAWING_NS}}}rPr", f"{{{DRAWING_NS}}}t"} for child in runs[0]
+            ):
+                return False
+            run_properties_list = runs[0].xpath("./a:rPr", namespaces=_NS)
+            if len(run_properties_list) > 1:
+                return False
+            run_properties = run_properties_list[0] if run_properties_list else None
+            if run_properties is not None and run_properties.xpath(
+                ".//a:hlinkClick | .//a:hlinkMouseOver", namespaces=_NS
+            ):
+                return False
+        paragraph_properties = paragraph.find(f"{{{DRAWING_NS}}}pPr")
+        end_properties = paragraph.find(f"{{{DRAWING_NS}}}endParaRPr")
+        signatures.add(
+            (
+                _xml_signature(paragraph_properties),
+                _xml_signature(run_properties),
+                _xml_signature(end_properties),
+            )
+        )
+    return len(signatures) == 1
+
+
+def _xml_signature(element: etree._Element | None) -> bytes:
+    return etree.tostring(element, method="c14n") if element is not None else b""
+
+
+def _objects_for_slide(
+    root: etree._Element,
+    *,
+    document_id: str,
+    ooxml_slide_id: str,
+    slide_width_emu: int,
+    slide_height_emu: int,
+    chart_text: dict[str, str] | None = None,
+    group_picture_ids: set[str] | None = None,
+) -> tuple[FidelityObject, ...]:
+    shape_tree = root.find(f".//{{{PRESENTATION_NS}}}spTree")
+    if shape_tree is None:
+        raise _invalid_package()
+    result: list[FidelityObject] = []
+    seen_ooxml_ids: set[str] = set()
+    for candidate, alternate_content in _iter_slide_objects(shape_tree):
+        kind = etree.QName(candidate).localname
+        nonvisual = candidate.xpath(
+            "./p:nvSpPr/p:cNvPr | ./p:nvPicPr/p:cNvPr | "
+            "./p:nvGraphicFramePr/p:cNvPr | ./p:nvCxnSpPr/p:cNvPr | "
+            "./p:nvGrpSpPr/p:cNvPr",
+            namespaces=_NS,
+        )
+        if len(nonvisual) != 1:
+            raise _invalid_package()
+        ooxml_id = nonvisual[0].get("id")
+        if not ooxml_id or ooxml_id in seen_ooxml_ids:
+            raise _invalid_package()
+        seen_ooxml_ids.add(ooxml_id)
+        name = nonvisual[0].get("name") or f"{kind} {ooxml_id}"
+        paragraphs = candidate.xpath("./p:txBody/a:p", namespaces=_NS)
+        text = "\n".join(
+            "".join(part.text or "" for part in paragraph.xpath(".//a:t", namespaces=_NS))
+            for paragraph in paragraphs
+        )
+        semantic_kind = None
+        if kind == "graphicFrame" and not alternate_content:
+            text = (chart_text or {}).get(ooxml_id, "")
+            if text:
+                semantic_kind = "native_chart_cache"
+            from presenter_core.presentation.tables import inspect_table
+
+            table = inspect_table(candidate)
+            if table and table["editable"]:
+                text = "\n".join("\t".join(row) for row in table["cells"])
+                semantic_kind = "native_table_cells"
+        has_text_body = bool(candidate.xpath("./p:txBody", namespaces=_NS))
+        text_edit_candidate = kind == "sp" and has_text_body
+        single_run_text_edit_candidate = _is_single_run_text_shape(candidate, kind) and (
+            len(text) <= 2_000
+            and not any(
+                (ord(character) < 32 and character != "\t") or 0xD800 <= ord(character) <= 0xDFFF
+                for character in text
+            )
+        )
+        text_style = _text_style_for_shape(candidate, kind)
+        uniform_run_text_edit_candidate = _is_uniform_run_text_shape(candidate, kind) and (
+            len(text) <= 2_000
+            and text_style.editable
+            and not any(
+                (ord(character) < 32 and character != "\t") or 0xD800 <= ord(character) <= 0xDFFF
+                for character in text
+            )
+        )
+        text_format_edit_candidate = _is_formatable_text_shape(candidate, kind) and (
+            len(text) <= 2_000
+            and text_style.editable
+            and not any(
+                (ord(character) < 32 and character not in "\t\n")
+                or 0xD800 <= ord(character) <= 0xDFFF
+                for character in text
+            )
+        )
+        shape_style = _shape_style(candidate, kind, shape_tree=shape_tree)
+        if alternate_content:
+            text_style = replace(
+                text_style,
+                editable=False,
+                color_editable=False,
+                alignment_editable=False,
+            )
+            if shape_style is not None:
+                shape_style = replace(
+                    shape_style,
+                    editable=False,
+                    fill_editable=False,
+                    line_editable=False,
+                )
+        from presenter_core.presentation.group_geometry import group_reason, read_geometry
+
+        grouping_reason = group_reason(candidate, root, group_picture_ids or set())
+        geometry, geometry_editable = _geometry_for_object(
+            candidate,
+            kind=kind,
+            shape_tree=shape_tree,
+            slide_width_emu=slide_width_emu,
+            slide_height_emu=slide_height_emu,
+        )
+        if kind == "grpSp":
+            geometry, _ = read_geometry(candidate)
+            geometry_editable = bool(
+                candidate.getparent() is shape_tree
+                and grouping_reason is None
+                and geometry
+                and geometry.x_emu >= 0
+                and geometry.y_emu >= 0
+                and geometry.x_emu + geometry.width_emu <= slide_width_emu
+                and geometry.y_emu + geometry.height_emu <= slide_height_emu
+            )
+        if not geometry_editable and grouping_reason is None:
+            grouping_reason = (
+                "This object does not have supported geometry within the slide bounds."
+            )
+        if candidate.getparent() is not shape_tree:
+            grouping_reason = "Select the containing group to change its membership."
+        delete_editable = _delete_geometry_candidate(
+            root,
+            candidate,
+            kind=kind,
+            ooxml_id=ooxml_id,
+            geometry_editable=geometry_editable,
+        )
+        if kind == "grpSp":
+            # Group eligibility recursively checks every descendant's native dependencies.
+            delete_editable = geometry_editable and grouping_reason is None
+        object_id = _stable_id(
+            f"{document_id}\0identity-v1\0slide\0{ooxml_slide_id}\0object\0{ooxml_id}"
+        )
+        result.append(
+            FidelityObject(
+                object_id=object_id,
+                ooxml_id=ooxml_id,
+                name=name[:256],
+                kind=kind,
+                text=text,
+                text_edit_candidate=text_edit_candidate and not alternate_content,
+                single_run_text_edit_candidate=(
+                    single_run_text_edit_candidate and not alternate_content
+                ),
+                uniform_run_text_edit_candidate=(
+                    uniform_run_text_edit_candidate and not alternate_content
+                ),
+                text_format_edit_candidate=text_format_edit_candidate and not alternate_content,
+                geometry=geometry,
+                geometry_editable=geometry_editable and not alternate_content,
+                delete_editable=delete_editable and not alternate_content,
+                group_editable=geometry_editable
+                and grouping_reason is None
+                and not alternate_content,
+                group_reason=grouping_reason
+                if not alternate_content
+                else "Alternate-content objects are read-only.",
+                text_style=text_style,
+                picture_crop=None if alternate_content else _picture_crop(candidate, kind),
+                shape_style=shape_style,
+                semantic_source_kind="native_text"
+                if text_edit_candidate and not alternate_content
+                else semantic_kind,
+            )
+        )
+    return tuple(result)
+
+
+def _iter_slide_objects(
+    shape_tree: etree._Element,
+) -> tuple[tuple[etree._Element, bool], ...]:
+    """Walk effective slide-tree shapes without entering opaque object payloads.
+
+    Markup-compatibility alternatives represent one logical drawing object. The
+    inventory selects the first Choice whose required namespaces it supports,
+    otherwise the Fallback, and marks that representation read-only because
+    edit writers preserve the unselected branch without rewriting it.
+    """
+    result: list[tuple[etree._Element, bool]] = []
+    pending: list[tuple[etree._Element, bool]] = [(child, False) for child in reversed(shape_tree)]
+    while pending:
+        node, alternate_content = pending.pop()
+        qualified_name = etree.QName(node)
+        if qualified_name.namespace == MARKUP_COMPATIBILITY_NS:
+            if qualified_name.localname != "AlternateContent":
+                raise _invalid_package()
+            branch = _selected_alternate_content_branch(node)
+            if branch is None:
+                raise _invalid_package()
+            pending.extend((child, True) for child in reversed(branch))
+            continue
+        if qualified_name.namespace != PRESENTATION_NS:
+            continue
+        if qualified_name.localname in _OBJECT_KINDS:
+            result.append((node, alternate_content))
+            if qualified_name.localname == "grpSp":
+                pending.extend((child, alternate_content) for child in reversed(node))
+    return tuple(result)
+
+
+def _selected_alternate_content_branch(
+    alternate_content: etree._Element,
+) -> etree._Element | None:
+    choices: list[etree._Element] = []
+    fallback: etree._Element | None = None
+    fallback_seen = False
+    for child in alternate_content:
+        qualified_name = etree.QName(child)
+        if qualified_name.namespace != MARKUP_COMPATIBILITY_NS:
+            raise _invalid_package()
+        if qualified_name.localname == "Choice":
+            if fallback_seen:
+                raise _invalid_package()
+            choices.append(child)
+        elif qualified_name.localname == "Fallback":
+            if fallback is not None:
+                raise _invalid_package()
+            fallback = child
+            fallback_seen = True
+        else:
+            raise _invalid_package()
+    if not choices:
+        raise _invalid_package()
+
+    for choice in choices:
+        required_prefixes = choice.get("Requires", "").split()
+        if not required_prefixes:
+            raise _invalid_package()
+        required_namespaces = [choice.nsmap.get(prefix) for prefix in required_prefixes]
+        if any(namespace is None for namespace in required_namespaces):
+            raise _invalid_package()
+        if all(
+            namespace in _SUPPORTED_MARKUP_COMPATIBILITY_NAMESPACES
+            for namespace in required_namespaces
+        ):
+            return choice
+    return fallback
+
+
+def _picture_crop(candidate: etree._Element, kind: str) -> FidelityPictureCrop | None:
+    """Describe only a simple embedded picture fill that supports source cropping."""
+    if kind != "pic":
+        return None
+    fills = candidate.xpath("./p:blipFill", namespaces=_NS)
+    if len(fills) != 1:
+        return None
+    fill = fills[0]
+    blips = fill.xpath("./a:blip", namespaces=_NS)
+    source_rectangles = fill.xpath("./a:srcRect", namespaces=_NS)
+    stretches = fill.xpath("./a:stretch", namespaces=_NS)
+    if (
+        len(blips) != 1
+        or len(source_rectangles) > 1
+        or len(stretches) != 1
+        or [child.tag for child in fill]
+        != [
+            f"{{{DRAWING_NS}}}blip",
+            *([f"{{{DRAWING_NS}}}srcRect"] if source_rectangles else []),
+            f"{{{DRAWING_NS}}}stretch",
+        ]
+        or len(stretches[0]) != 1
+        or stretches[0][0].tag != f"{{{DRAWING_NS}}}fillRect"
+    ):
+        return None
+    blip = blips[0]
+    if (
+        not blip.get(f"{{{REL_NS}}}embed")
+        or blip.get(f"{{{REL_NS}}}link") is not None
+        or blip.xpath("./a:extLst", namespaces=_NS)
+    ):
+        return None
+
+    values: dict[str, int] = {"l": 0, "r": 0, "t": 0, "b": 0}
+    if source_rectangles:
+        rectangle = source_rectangles[0]
+        if set(rectangle.attrib) - values.keys():
+            return None
+        try:
+            values.update({name: int(rectangle.get(name, "0")) for name in values})
+        except ValueError:
+            return None
+    left, right, top, bottom = (
+        values["l"],
+        values["r"],
+        values["t"],
+        values["b"],
+    )
+    if (
+        any(value < 0 or value >= 100_000 for value in values.values())
+        or left + right >= 100_000
+        or top + bottom >= 100_000
+    ):
+        return None
+    return FidelityPictureCrop(left=left, right=right, top=top, bottom=bottom)
+
+
+def _shape_style(
+    candidate: etree._Element,
+    kind: str,
+    *,
+    shape_tree: etree._Element,
+) -> FidelityShapeStyle:
+    """Expose only direct RGB colors that can be replaced without flattening effects."""
+    if (
+        kind != "sp"
+        or candidate.getparent() is not shape_tree
+        or candidate.xpath("./p:nvSpPr/p:nvPr/p:ph", namespaces=_NS)
+    ):
+        return FidelityShapeStyle(editable=False)
+    properties = candidate.xpath("./p:spPr", namespaces=_NS)
+    if len(properties) != 1:
+        return FidelityShapeStyle(editable=False)
+    shape_properties = properties[0]
+    shape_property_order = {
+        "xfrm": 0,
+        "prstGeom": 1,
+        "custGeom": 1,
+        "noFill": 2,
+        "solidFill": 2,
+        "gradFill": 2,
+        "blipFill": 2,
+        "pattFill": 2,
+        "grpFill": 2,
+        "ln": 3,
+        "effectLst": 4,
+        "scene3d": 5,
+        "sp3d": 6,
+        "extLst": 7,
+    }
+    fingerprint = hashlib.sha256(etree.tostring(shape_properties, method="c14n")).hexdigest()
+    if not _ordered_property_children_supported(
+        shape_properties, shape_property_order, repeatable_ranks={2}
+    ):
+        return FidelityShapeStyle(editable=False, fingerprint=fingerprint)
+    shape_fill_tags = {
+        f"{{{DRAWING_NS}}}noFill",
+        f"{{{DRAWING_NS}}}solidFill",
+        f"{{{DRAWING_NS}}}gradFill",
+        f"{{{DRAWING_NS}}}blipFill",
+        f"{{{DRAWING_NS}}}pattFill",
+        f"{{{DRAWING_NS}}}grpFill",
+    }
+    fill_editable, fill_color = _solid_rgb_color(shape_properties, shape_fill_tags)
+    lines = shape_properties.findall(f"{{{DRAWING_NS}}}ln")
+    if len(lines) > 1:
+        line_editable, line_color = False, None
+    elif not lines:
+        line_editable, line_color = True, None
+    else:
+        line_property_order = {
+            "noFill": 0,
+            "solidFill": 0,
+            "gradFill": 0,
+            "blipFill": 0,
+            "pattFill": 0,
+            "grpFill": 0,
+            "prstDash": 1,
+            "custDash": 2,
+            "round": 3,
+            "bevel": 4,
+            "miter": 5,
+            "headEnd": 6,
+            "tailEnd": 7,
+            "extLst": 8,
+        }
+        line_editable = _ordered_property_children_supported(
+            lines[0], line_property_order, repeatable_ranks={0}
+        )
+        if line_editable:
+            line_editable, line_color = _solid_rgb_color(lines[0], shape_fill_tags)
+        else:
+            line_color = None
+    return FidelityShapeStyle(
+        editable=fill_editable or line_editable,
+        fingerprint=fingerprint,
+        fill_color=fill_color,
+        fill_editable=fill_editable,
+        line_color=line_color,
+        line_editable=line_editable,
+    )
+
+
+def _ordered_property_children_supported(
+    parent: etree._Element,
+    order: dict[str, int],
+    *,
+    repeatable_ranks: set[int],
+) -> bool:
+    ranks: list[int] = []
+    seen: set[int] = set()
+    for child in parent:
+        rank = order.get(etree.QName(child).localname)
+        if rank is None or (rank in seen and rank not in repeatable_ranks):
+            return False
+        ranks.append(rank)
+        seen.add(rank)
+    return ranks == sorted(ranks)
+
+
+def _solid_rgb_color(container: etree._Element, fill_tags: set[str]) -> tuple[bool, str | None]:
+    """Accept an absent fill, noFill, or one unmodified solid RGB/theme color."""
+    fills = [child for child in container if child.tag in fill_tags]
+    if not fills:
+        return True, None
+    if len(fills) != 1:
+        return False, None
+    fill = fills[0]
+    if fill.tag == f"{{{DRAWING_NS}}}noFill":
+        return not len(fill) and not fill.attrib, None
+    if fill.tag != f"{{{DRAWING_NS}}}solidFill" or fill.attrib or len(fill) != 1:
+        return False, None
+    color = fill[0]
+    if (
+        color.tag
+        not in {
+            f"{{{DRAWING_NS}}}srgbClr",
+            f"{{{DRAWING_NS}}}schemeClr",
+        }
+        or set(color.attrib) != {"val"}
+        or len(color)
+    ):
+        return False, None
+    if color.tag == f"{{{DRAWING_NS}}}srgbClr":
+        value = color.get("val", "")
+        if re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+            return True, f"#{value.upper()}"
+        return False, None
+    return True, None
+
+
+def _geometry_for_object(
+    candidate: etree._Element,
+    *,
+    kind: str,
+    shape_tree: etree._Element,
+    slide_width_emu: int,
+    slide_height_emu: int,
+) -> tuple[FidelityGeometry | None, bool]:
+    if kind not in {"sp", "pic", "graphicFrame"}:
+        return None, False
+    transforms = candidate.xpath(
+        "./p:xfrm" if kind == "graphicFrame" else "./p:spPr/a:xfrm", namespaces=_NS
+    )
+    if len(transforms) != 1:
+        return None, False
+    transform = transforms[0]
+    offsets = transform.xpath("./a:off", namespaces=_NS)
+    extents = transform.xpath("./a:ext", namespaces=_NS)
+    if len(offsets) != 1 or len(extents) != 1:
+        return None, False
+    try:
+        geometry = FidelityGeometry(
+            x_emu=int(offsets[0].get("x", "")),
+            y_emu=int(offsets[0].get("y", "")),
+            width_emu=int(extents[0].get("cx", "")),
+            height_emu=int(extents[0].get("cy", "")),
+        )
+    except ValueError:
+        return None, False
+
+    rotation = transform.get("rot")
+    try:
+        rotation_is_zero = rotation is None or int(rotation) == 0
+    except ValueError:
+        rotation_is_zero = False
+    no_flip = all(transform.get(name) in {None, "0", "false"} for name in ("flipH", "flipV"))
+    direct_child = candidate.getparent() is shape_tree
+    simple_transform = [child.tag for child in transform] == [
+        f"{{{DRAWING_NS}}}off",
+        f"{{{DRAWING_NS}}}ext",
+    ]
+    in_slide_bounds = (
+        geometry.x_emu >= 0
+        and geometry.y_emu >= 0
+        and geometry.width_emu > 0
+        and geometry.height_emu > 0
+        and geometry.x_emu + geometry.width_emu <= slide_width_emu
+        and geometry.y_emu + geometry.height_emu <= slide_height_emu
+    )
+    return (
+        geometry,
+        direct_child
+        and simple_transform
+        and rotation_is_zero
+        and no_flip
+        and in_slide_bounds
+        and (kind != "graphicFrame" or _graphic_frame_geometry_supported(candidate, geometry)),
+    )
+
+
+def _graphic_frame_geometry_supported(
+    candidate: etree._Element, geometry: FidelityGeometry
+) -> bool:
+    if candidate.xpath(".//p:ph | .//p:extLst | .//a:extLst", namespaces=_NS):
+        return False
+    data = candidate.findall("a:graphic/a:graphicData", _NS)
+    if len(data) != 1 or len(data[0]) != 1:
+        return False
+    chart_ns = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+    if data[0].get("uri") == chart_ns:
+        chart = data[0][0]
+        return (
+            chart.tag == f"{{{chart_ns}}}chart"
+            and set(chart.attrib) == {f"{{{REL_NS}}}id"}
+            and bool(chart.get(f"{{{REL_NS}}}id"))
+            and not len(chart)
+        )
+    if (
+        data[0].get("uri") != "http://schemas.openxmlformats.org/drawingml/2006/table"
+        or data[0][0].tag != f"{{{DRAWING_NS}}}tbl"
+    ):
+        return False
+    table = data[0][0]
+    columns = table.findall("a:tblGrid/a:gridCol", _NS)
+    rows = table.findall("a:tr", _NS)
+    if not 1 <= len(columns) <= 128 or not 1 <= len(rows) <= 256:
+        return False
+    try:
+        widths = [int(column.get("w", "")) for column in columns]
+        heights = [int(row.get("h", "")) for row in rows]
+    except ValueError:
+        return False
+    return (
+        all(value > 0 for value in widths + heights)
+        and sum(widths) == geometry.width_emu
+        and sum(heights) == geometry.height_emu
+    )
+
+
+def _delete_geometry_candidate(
+    root: etree._Element,
+    candidate: etree._Element,
+    *,
+    kind: str,
+    ooxml_id: str,
+    geometry_editable: bool,
+) -> bool:
+    """Exclude placeholders and objects referenced by connectors or animations."""
+    if not geometry_editable or kind not in {"sp", "pic", "graphicFrame"}:
+        return False
+    if candidate.xpath(
+        "./p:nvSpPr/p:nvPr/p:ph | ./p:nvPicPr/p:nvPr/p:ph | ./p:nvGraphicFramePr/p:nvPr/p:ph",
+        namespaces=_NS,
+    ):
+        return False
+    connector_targets = root.xpath(
+        "./p:cSld/p:spTree//p:cxnSp/p:nvCxnSpPr/p:cNvCxnSpPr/"
+        "a:stCxn/@id | ./p:cSld/p:spTree//p:cxnSp/p:nvCxnSpPr/p:cNvCxnSpPr/"
+        "a:endCxn/@id",
+        namespaces=_NS,
+    )
+    animation_targets = root.xpath("./p:timing//@spid", namespaces=_NS)
+    return ooxml_id not in connector_targets and ooxml_id not in animation_targets
+
+
+def _is_single_run_text_shape(candidate: etree._Element, kind: str) -> bool:
+    """Return true only for the deliberately narrow first text-write target."""
+    paragraphs = _formatable_text_paragraphs(candidate, kind)
+    runs = _formatable_text_runs(candidate, kind)
+    return paragraphs is not None and len(paragraphs) == 1 and runs is not None and len(runs) == 1
+
+
+def _is_uniform_run_text_shape(candidate: etree._Element, kind: str) -> bool:
+    """Return true only when every direct run has identical complete run properties."""
+    paragraphs = _formatable_text_paragraphs(candidate, kind)
+    runs = _formatable_text_runs(candidate, kind)
+    if paragraphs is None or len(paragraphs) != 1 or runs is None or len(runs) < 2:
+        return False
+    if any(
+        run.attrib or run.xpath(".//a:hlinkClick | .//a:hlinkMouseOver", namespaces=_NS)
+        for run in runs
+    ):
+        return False
+    signatures = {_xml_signature(run.find(f"{{{DRAWING_NS}}}rPr")) for run in runs}
+    return len(signatures) == 1
+
+
+def _is_formatable_text_shape(candidate: etree._Element, kind: str) -> bool:
+    """Return true for plain text whose direct runs and paragraphs can be styled safely."""
+    return _formatable_text_runs(candidate, kind) is not None
+
+
+def _formatable_text_runs(candidate: etree._Element, kind: str) -> list[etree._Element] | None:
+    """Return direct text runs only for simple, independently formatted paragraphs."""
+    paragraphs = _formatable_text_paragraphs(candidate, kind)
+    if paragraphs is None:
+        return None
+    return [run for paragraph in paragraphs for run in paragraph.xpath("./a:r", namespaces=_NS)]
+
+
+def _formatable_text_paragraphs(
+    candidate: etree._Element,
+    kind: str,
+) -> list[etree._Element] | None:
+    """Return paragraphs whose direct runs can be styled without rewriting structure."""
+    if kind != "sp":
+        return None
+    text_bodies = candidate.xpath("./p:txBody", namespaces=_NS)
+    if len(text_bodies) != 1:
+        return None
+    paragraphs = text_bodies[0].xpath("./a:p", namespaces=_NS)
+    if not paragraphs or len(paragraphs) > MAX_TEXT_FORMAT_PARAGRAPHS:
+        return None
+    allowed_paragraph_children = {
+        f"{{{DRAWING_NS}}}pPr",
+        f"{{{DRAWING_NS}}}r",
+        f"{{{DRAWING_NS}}}endParaRPr",
+    }
+    paragraph_property = f"{{{DRAWING_NS}}}pPr"
+    end_paragraph_property = f"{{{DRAWING_NS}}}endParaRPr"
+    for paragraph in paragraphs:
+        runs = paragraph.xpath("./a:r", namespaces=_NS)
+        if (
+            not runs
+            or paragraph.xpath(".//a:fld | .//a:br", namespaces=_NS)
+            or any(child.tag not in allowed_paragraph_children for child in paragraph)
+            or sum(child.tag == paragraph_property for child in paragraph) > 1
+            or sum(child.tag == end_paragraph_property for child in paragraph) > 1
+            or any(child.tag == paragraph_property for child in paragraph[1:])
+            or any(child.tag == end_paragraph_property for child in paragraph[:-1])
+        ):
+            return None
+        for run in runs:
+            child_tags = [child.tag for child in run]
+            allowed_run_children = [
+                [f"{{{DRAWING_NS}}}t"],
+                [f"{{{DRAWING_NS}}}rPr", f"{{{DRAWING_NS}}}t"],
+            ]
+            if child_tags not in allowed_run_children:
+                return None
+            text_nodes = run.xpath("./a:t", namespaces=_NS)
+            if len(text_nodes) != 1:
+                return None
+    return cast(list[etree._Element], paragraphs)
+
+
+def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextStyle:
+    """Describe direct formatting shared by safe text runs and paragraphs."""
+    paragraphs = _formatable_text_paragraphs(candidate, kind)
+    runs = _formatable_text_runs(candidate, kind)
+    if paragraphs is None or runs is None:
+        return FidelityTextStyle(editable=False)
+    styles = [_text_style_for_run(run) for run in runs]
+    if any(not style.editable for style in styles):
+        return FidelityTextStyle(editable=False)
+
+    fingerprints = [style.fingerprint for style in styles]
+    if any(fingerprint is None for fingerprint in fingerprints):
+        return FidelityTextStyle(editable=False)
+    paragraph_properties = [paragraph.find(f"{{{DRAWING_NS}}}pPr") for paragraph in paragraphs]
+    paragraph_bytes = [
+        etree.tostring(properties, method="c14n") if properties is not None else b""
+        for properties in paragraph_properties
+    ]
+    fingerprint_parts = paragraph_bytes + [
+        fingerprint.encode("ascii") for fingerprint in fingerprints if fingerprint is not None
+    ]
+    combined = b"".join(len(part).to_bytes(8, "big") + part for part in fingerprint_parts)
+    fingerprint = hashlib.sha256(combined).hexdigest()
+
+    alignment_codes = {"l": "left", "ctr": "center", "r": "right", "just": "justify"}
+    alignment_values = [
+        alignment_codes.get(properties.get("algn")) if properties is not None else None
+        for properties in paragraph_properties
+    ]
+    alignment = _uniform_style_value(alignment_values)
+    bullet_state_values = [
+        _paragraph_bullet_mode_for_shape(properties) for properties in paragraph_properties
+    ]
+    bullet_state = _uniform_style_value([state for state, _editable in bullet_state_values])
+    bullet_editable = all(editable for _state, editable in bullet_state_values)
+
+    left_indent_values: list[int | None] = []
+    left_indent_editable = True
+    for properties in paragraph_properties:
+        raw_left_indent = properties.get("marL") if properties is not None else None
+        left_indent: int | None = None
+        if raw_left_indent is not None:
+            if not re.fullmatch(r"[0-9]{1,7}", raw_left_indent):
+                left_indent_editable = False
+            else:
+                left_indent_emu = int(raw_left_indent)
+                if (
+                    left_indent_emu > MAX_TEXT_LEFT_INDENT_EMU
+                    or left_indent_emu % EMU_PER_POINT != 0
+                ):
+                    left_indent_editable = False
+                else:
+                    left_indent = left_indent_emu // EMU_PER_POINT
+        left_indent_values.append(left_indent)
+    left_indent_pt = _uniform_style_value(left_indent_values)
+
+    first_line_indent_values: list[int | None] = []
+    first_line_indent_editable = True
+    for properties in paragraph_properties:
+        raw_first_line_indent = properties.get("indent") if properties is not None else None
+        first_line_indent: int | None = None
+        if raw_first_line_indent is not None:
+            if not re.fullmatch(r"-?[0-9]{1,8}", raw_first_line_indent):
+                first_line_indent_editable = False
+            else:
+                first_line_indent_emu = int(raw_first_line_indent)
+                if (
+                    abs(first_line_indent_emu) > MAX_TEXT_FIRST_LINE_INDENT_EMU
+                    or first_line_indent_emu % EMU_PER_POINT != 0
+                ):
+                    first_line_indent_editable = False
+                else:
+                    first_line_indent = first_line_indent_emu // EMU_PER_POINT
+        first_line_indent_values.append(first_line_indent)
+    first_line_indent_pt = _uniform_style_value(first_line_indent_values)
+
+    line_spacing_values = [
+        _paragraph_spacing_for_shape(properties, "lnSpc") for properties in paragraph_properties
+    ]
+    line_spacing_pt = _uniform_style_value([value for value, _editable in line_spacing_values])
+    line_spacing_editable = all(editable for _value, editable in line_spacing_values)
+    space_before_values = [
+        _paragraph_spacing_for_shape(properties, "spcBef") for properties in paragraph_properties
+    ]
+    space_before_pt = _uniform_style_value([value for value, _editable in space_before_values])
+    space_before_editable = all(editable for _value, editable in space_before_values)
+    space_after_values = [
+        _paragraph_spacing_for_shape(properties, "spcAft") for properties in paragraph_properties
+    ]
+    space_after_pt = _uniform_style_value([value for value, _editable in space_after_values])
+    space_after_editable = all(editable for _value, editable in space_after_values)
+
+    def uniform(name: str) -> Any:
+        return _uniform_style_value([getattr(style, name) for style in styles])
+
+    return FidelityTextStyle(
+        editable=True,
+        fingerprint=fingerprint,
+        bold=uniform("bold"),
+        italic=uniform("italic"),
+        font_size_pt=uniform("font_size_pt"),
+        font_color=uniform("font_color"),
+        color_editable=all(style.color_editable for style in styles),
+        alignment=alignment,
+        alignment_editable=True,
+        bullet_state=bullet_state,
+        bullet_editable=bullet_editable,
+        left_indent_pt=left_indent_pt,
+        left_indent_editable=left_indent_editable,
+        first_line_indent_pt=first_line_indent_pt,
+        first_line_indent_editable=first_line_indent_editable,
+        line_spacing_pt=line_spacing_pt,
+        line_spacing_editable=line_spacing_editable,
+        space_before_pt=space_before_pt,
+        space_before_editable=space_before_editable,
+        space_after_pt=space_after_pt,
+        space_after_editable=space_after_editable,
+    )
+
+
+def _uniform_style_value(values: list[Any]) -> Any:
+    """Return one repeated direct style value, or None for mixed values."""
+    if not values:
+        return None
+    return values[0] if all(value == values[0] for value in values[1:]) else None
+
+
+def _paragraph_spacing_for_shape(
+    paragraph_properties: etree._Element | None, property_name: str
+) -> tuple[int | None, bool]:
+    """Read bounded point-based line or paragraph spacing without guessing unsupported forms."""
+    if property_name not in {"lnSpc", "spcBef", "spcAft"}:
+        return None, False
+    spacing_tag = f"{{{DRAWING_NS}}}{property_name}"
+    elements = paragraph_properties.findall(spacing_tag) if paragraph_properties is not None else []
+    if not elements:
+        return None, _paragraph_property_insert_index(
+            paragraph_properties, property_name
+        ) is not None
+    if len(elements) != 1:
+        return None, False
+
+    spacing = elements[0]
+    points_nodes = list(spacing)
+    if spacing.attrib or len(points_nodes) != 1:
+        return None, False
+    points_node = points_nodes[0]
+    if (
+        points_node.tag != f"{{{DRAWING_NS}}}spcPts"
+        or set(points_node.attrib) != {"val"}
+        or len(points_node)
+        or (spacing.text and spacing.text.strip())
+        or (points_node.text and points_node.text.strip())
+    ):
+        return None, False
+
+    raw_value = points_node.get("val", "")
+    if not re.fullmatch(r"[0-9]{1,8}", raw_value):
+        return None, False
+    hundredths = int(raw_value)
+    max_hundredths = (
+        MAX_TEXT_LINE_SPACING_HUNDREDTHS
+        if property_name == "lnSpc"
+        else MAX_TEXT_PARAGRAPH_SPACING_HUNDREDTHS
+    )
+    if (
+        hundredths > max_hundredths
+        or hundredths % 100 != 0
+        or (property_name == "lnSpc" and hundredths < 100)
+    ):
+        return None, False
+    return hundredths // 100, True
+
+
+def _paragraph_property_insert_index(
+    paragraph_properties: etree._Element | None, property_name: str
+) -> int | None:
+    """Return a schema-ordered insertion point only for a fully recognized pPr sequence."""
+    target_order = _PARAGRAPH_PROPERTY_ORDER.get(property_name)
+    if target_order is None:
+        return None
+    if paragraph_properties is None:
+        return 0
+
+    previous_order = -1
+    insertion_index = len(paragraph_properties)
+    children = list(paragraph_properties)
+    for index, child in enumerate(children):
+        if not isinstance(child.tag, str) or not child.tag.startswith(f"{{{DRAWING_NS}}}"):
+            return None
+        order = _PARAGRAPH_PROPERTY_ORDER.get(child.tag.removeprefix(f"{{{DRAWING_NS}}}"))
+        if order is None or order <= previous_order:
+            return None
+        if order > target_order and insertion_index == len(children):
+            insertion_index = index
+        previous_order = order
+    return insertion_index
+
+
+def _paragraph_bullet_mode_for_shape(
+    paragraph_properties: etree._Element | None,
+) -> tuple[str | None, bool]:
+    """Expose only plain bullet/list markers or safely insertable states."""
+    bullet_nodes = (
+        [
+            child
+            for child in paragraph_properties
+            if isinstance(child.tag, str)
+            and child.tag.startswith(f"{{{DRAWING_NS}}}")
+            and child.tag.removeprefix(f"{{{DRAWING_NS}}}") in _PARAGRAPH_BULLET_PROPERTY_NAMES
+        ]
+        if paragraph_properties is not None
+        else []
+    )
+    if not bullet_nodes:
+        return None, _paragraph_property_insert_index(paragraph_properties, "buChar") is not None
+    if len(bullet_nodes) != 1:
+        return None, False
+
+    bullet_node = bullet_nodes[0]
+    if (
+        bullet_node.tag == f"{{{DRAWING_NS}}}buChar"
+        and set(bullet_node.attrib) == {"char"}
+        and not len(bullet_node)
+        and not (bullet_node.text and bullet_node.text.strip())
+    ):
+        mode = _PARAGRAPH_BULLET_MODE_BY_CHAR.get(bullet_node.get("char", ""))
+        return (mode, True) if mode is not None else (None, False)
+    if (
+        bullet_node.tag == f"{{{DRAWING_NS}}}buNone"
+        and not bullet_node.attrib
+        and not len(bullet_node)
+        and not (bullet_node.text and bullet_node.text.strip())
+    ):
+        return "none", True
+    if (
+        bullet_node.tag == f"{{{DRAWING_NS}}}buAutoNum"
+        and bullet_node.attrib == {"type": "arabicPeriod"}
+        and not len(bullet_node)
+        and not (bullet_node.text and bullet_node.text.strip())
+    ):
+        return "numbered", True
+    return None, False
+
+
+def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
+    """Describe one direct run without resolving theme or inherited formatting."""
+    properties = run.find(f"{{{DRAWING_NS}}}rPr")
+    if properties is None:
+        properties_bytes = b""
+        attributes: dict[str, str] = {}
+        children: list[etree._Element] = []
+    else:
+        properties_bytes = etree.tostring(properties, method="c14n")
+        attributes = properties.attrib
+        children = list(properties)
+    fingerprint = hashlib.sha256(properties_bytes).hexdigest()
+
+    bold = _text_boolean_attribute(attributes.get("b"))
+    italic = _text_boolean_attribute(attributes.get("i"))
+    raw_size = attributes.get("sz")
+    font_size_pt: float | None = None
+    if raw_size is not None:
+        try:
+            parsed_size = int(raw_size)
+        except ValueError:
+            return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+        if not 1 <= parsed_size <= 400_000:
+            return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+        font_size_pt = parsed_size / 100
+
+    if ("b" in attributes and bold is None) or ("i" in attributes and italic is None):
+        return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+
+    fill_tags = {
+        f"{{{DRAWING_NS}}}noFill",
+        f"{{{DRAWING_NS}}}solidFill",
+        f"{{{DRAWING_NS}}}gradFill",
+        f"{{{DRAWING_NS}}}blipFill",
+        f"{{{DRAWING_NS}}}pattFill",
+        f"{{{DRAWING_NS}}}grpFill",
+    }
+    fills = [child for child in children if child.tag in fill_tags]
+    color_editable = len(fills) <= 1
+    font_color: str | None = None
+    if len(fills) == 1 and fills[0].tag == f"{{{DRAWING_NS}}}solidFill":
+        colors = list(fills[0])
+        if len(colors) == 1 and colors[0].tag == f"{{{DRAWING_NS}}}srgbClr":
+            value = colors[0].get("val", "")
+            if re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+                if not any(
+                    etree.QName(child).localname
+                    in {"alpha", "alphaMod", "alphaOff", "lumMod", "lumOff", "tint", "shade"}
+                    for child in colors[0]
+                ):
+                    font_color = f"#{value.upper()}"
+
+    return FidelityTextStyle(
+        editable=True,
+        fingerprint=fingerprint,
+        bold=bold,
+        italic=italic,
+        font_size_pt=font_size_pt,
+        font_color=font_color,
+        color_editable=color_editable,
+    )
+
+
+def _text_boolean_attribute(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    if value in {"1", "true"}:
+        return True
+    if value in {"0", "false"}:
+        return False
+    return None
+
+
+def _is_safe_decision_text(value: str) -> bool:
+    return len(value) <= MAX_DECISION_OBJECT_TEXT_CHARS and not any(
+        (ord(character) < 32 and character not in "\t\n\r") or 0xD800 <= ord(character) <= 0xDFFF
+        for character in value
+    )
+
+
+def _stable_id(value: str) -> str:
+    return str(uuid.uuid5(_IDENTITY_NAMESPACE, value))
+
+
+def _invalid_package() -> CoreDomainError:
+    return CoreDomainError(
+        "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
+        "This presentation contains an unsupported or invalid package structure.",
+    )

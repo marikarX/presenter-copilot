@@ -72,6 +72,7 @@ class _AssistState:
     question: str
     question_origin: str
     trigger: str
+    presentation_revision_id: str | None = None
     cancelled: threading.Event = field(default_factory=threading.Event)
     worker: threading.Thread | None = None
 
@@ -697,7 +698,7 @@ class AssistService:
         reject_unknown_fields(params, {"project_id", "session_id", "question", "text", "trigger"})
         project_id = self._project_id(params.get("project_id"))
         session_id = self._session_id(params.get("session_id"))
-        self._sessions.validate_active_live_assist(project_id, session_id)
+        session = self._sessions.validate_active_live_assist(project_id, session_id)
         if "question" in params and "text" in params:
             raise invalid_request(
                 "Provide question once; text is only a compatibility alias.", field="question"
@@ -744,6 +745,11 @@ class AssistService:
                 question=question,
                 question_origin=origin,
                 trigger=str(trigger),
+                presentation_revision_id=(
+                    str(session["presentation_revision_id"])
+                    if session.get("presentation_revision_id") is not None
+                    else None
+                ),
             )
             worker = threading.Thread(
                 target=self._run,
@@ -1004,6 +1010,11 @@ class AssistService:
                     "usage": "live",
                     "allow_private": True,
                     **(
+                        {"presentation_revision_id": state.presentation_revision_id}
+                        if state.presentation_revision_id is not None
+                        else {}
+                    ),
+                    **(
                         {"current_slide": current_slide, "slide_window": 1}
                         if current_slide is not None
                         else {}
@@ -1108,6 +1119,7 @@ class AssistService:
                 allow_private=True,
                 include_private_in_provider=not provider.leaves_machine,
                 retrieval_usage="live",
+                presentation_revision_id=state.presentation_revision_id,
                 additional_grounding_evidence=safe_for_provider,
             )
             self._ensure_current(state)
@@ -1215,6 +1227,11 @@ class AssistService:
                             "limit": MAX_CUE_EVIDENCE,
                             "usage": "live",
                             "allow_private": True,
+                            **(
+                                {"presentation_revision_id": state.presentation_revision_id}
+                                if state.presentation_revision_id is not None
+                                else {}
+                            ),
                         }
                     ).get("hits", [])
                     fallback_evidence = [

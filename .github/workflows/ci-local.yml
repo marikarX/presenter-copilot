@@ -60,11 +60,17 @@ jobs:
       - name: Install JavaScript dependencies from lockfile
         run: pnpm install --frozen-lockfile
 
+      - name: Audit all locked JavaScript dependencies
+        run: pnpm audit
+
       - name: Ensure Electron development runtime
         run: pnpm --filter @presenter-copilot/desktop exec electron --version
 
       - name: Install Python dependencies from lockfile
         run: uv sync --project core --locked
+
+      - name: Audit all locked Python dependencies
+        run: uv audit --project core --locked
 
       - name: Run formatting, lint, typecheck, and tests
         run: pnpm check
@@ -90,7 +96,7 @@ jobs:
       - name: Run packaged sidecar smoke
         run: pnpm test:packaged
 
-      - name: Check clean-machine installer gate
+      - name: Report clean-machine installer gate without installing on self-hosted runner
         run: pnpm test:install-smoke
 
       - name: Check whitespace errors

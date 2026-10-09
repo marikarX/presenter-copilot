@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import pytest
 
 from presenter_core.asr.adapters import DeterministicFakeASRAdapter
 from presenter_core.asr.audio import ASR_FRAME_SAMPLES, DeterministicFakeAudioInput
@@ -197,6 +198,39 @@ def test_blocked_final_keeps_run_and_deletions_nonterminal_until_retry(
         assert call(core, "project.delete", {"project_id": project_id})["deleted"] is True
     finally:
         adapter.release_final.set()
+        core.close()
+
+
+def test_core_shutdown_wakes_idle_ingestion_without_waiting_for_audio_poll(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+    audio = DeterministicFakeAudioInput()
+    adapter = DeterministicFakeASRAdapter()
+    core = make_core(tmp_path / "data", audio, adapter, events)
+    waiting = threading.Event()
+    try:
+        start_run(core)
+        active = core._asr._active  # type: ignore[attr-defined]
+        assert active is not None
+        original_get = active.frames.get
+
+        def wait_for_frame(*, timeout: float) -> Any:
+            waiting.set()
+            # Exceed the 50 ms cleanup budget: stop must actively wake this
+            # empty queue rather than relying on a polling timeout.
+            return original_get(timeout=2.0)
+
+        monkeypatch.setattr(active.frames, "get", wait_for_frame)
+        assert waiting.wait(2.0)
+        assert core.close() is True
+        # Capture stop and service shutdown each release the reusable adapter.
+        assert adapter.close_count == 2
+        assert not any(event == "asr.final" for event, _ in events)
+        assert active.frames_processed == 0
+        assert active.ingestion_done.is_set()
+        assert active.decoder_done.is_set()
+    finally:
         core.close()
 
 

@@ -54,8 +54,9 @@ shutdown smoke.
 
 ## Packaging/manual gates
 
-- [x] The installer is unsigned by design, per-user, and allows an explicit
-      directory.
+- [x] The initial 0.1.0 MVP installer was unsigned, per-user, and allowed an
+      explicit directory. Current production candidates use the forced-signing
+      `package:win:release` path.
 - [x] Uninstall removes the application but retains user data.
 - [x] Reinstall can reopen retained user data without Python, uv, repository,
       or developer environment paths.

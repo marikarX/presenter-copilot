@@ -4,8 +4,10 @@ This procedure requires a disposable Windows VM or a fresh standard-user
 profile. It is intentionally manual because the repository scripts must not
 mutate a developer machine.
 
-1. Record the installer filename, SHA-256, and source commit SHA.
-2. Run the unsigned per-user installer and choose an explicit install folder.
+1. Record the installer filename, SHA-256, and source commit SHA. For a
+   production candidate, verify Authenticode and the expected publisher before
+   installation; local lifecycle-smoke artifacts may be unsigned.
+2. Run the per-user installer and choose an explicit install folder.
 3. Confirm no Python, uv, repository, `PYTHONPATH`, or developer-mode override
    is required to launch the application.
 4. Create a local project and verify the core health/status path.

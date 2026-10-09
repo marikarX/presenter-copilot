@@ -33,6 +33,7 @@ from presenter_core.providers.models import (
 from presenter_core.providers.openai import OpenAIReasoningProvider
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
 from presenter_core.storage.database import (
+    PROJECT_SCHEMA_VERSION,
     _migrate_project_v1,
     _migrate_project_v2,
     _migrate_project_v3,
@@ -1046,8 +1047,8 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
         connection.commit()
     migrated = connect_project_database(project_path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 7
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 7
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
         assert (
             migrated.execute(
                 "SELECT id FROM audience_profiles WHERE id = ?", (profile_id,)
@@ -1129,7 +1130,7 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
     no_op = connect_project_database(project_path)
     no_op.close()
     with sqlite3.connect(project_path) as future:
-        future.execute("PRAGMA user_version = 8")
+        future.execute(f"PRAGMA user_version = {PROJECT_SCHEMA_VERSION + 1}")
         future.commit()
     try:
         connect_project_database(project_path)
@@ -1138,7 +1139,7 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("future project schema was accepted")
     with sqlite3.connect(project_path) as unchanged:
-        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert unchanged.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION + 1
 
 
 class InventedEvidenceProvider(DeterministicFakeReasoningProvider):

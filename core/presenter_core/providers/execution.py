@@ -26,6 +26,7 @@ from .context import (
     APPLICATION_POLICY,
     MAX_CURRENT_USER_INPUT_CHARS,
     MAX_DOCUMENT_EVIDENCE,
+    MAX_PRESENTATION_OUTLINE_CONTEXT_CHARS,
     MAX_SPEAKER_EVIDENCE,
     MAX_TOTAL_CONTEXT_CHARS,
     MAX_TRUSTED_CONTENT_OVERHEAD_CHARS,
@@ -88,6 +89,9 @@ _FORBIDDEN_PAYLOAD_KEYS = frozenset(
 _MANIFEST_LIST_FIELDS = (
     "classes_sent",
     "source_ids",
+    "presentation_revision_ids",
+    "rehearsal_session_ids",
+    "rehearsal_finding_ids",
     "knowledge_item_ids",
     "speaker_evidence_ids",
     "audience_profile_ids",
@@ -593,12 +597,13 @@ class ProviderExecutionService:
                 "PROVIDER_REQUEST_FAILED",
                 "The reasoning task instruction is not core-owned.",
             )
-        if (
-            len(serialized_input)
-            + len(APPLICATION_POLICY)
-            + len(request.task_instruction or "")
-            + MAX_TRUSTED_CONTENT_OVERHEAD_CHARS
-            > MAX_TOTAL_CONTEXT_CHARS
+        if len(serialized_input) + len(APPLICATION_POLICY) + len(
+            request.task_instruction or ""
+        ) + MAX_TRUSTED_CONTENT_OVERHEAD_CHARS > (
+            MAX_PRESENTATION_OUTLINE_CONTEXT_CHARS
+            if request.task_type
+            in {"presentation_outline", "presentation_edit_plan", "presentation_narrative_review"}
+            else MAX_TOTAL_CONTEXT_CHARS
         ):
             raise ProviderError(
                 "PROVIDER_REQUEST_FAILED",
@@ -891,7 +896,17 @@ class ProviderExecutionService:
         for key in ("prior_question_count", "bounded_context_chars"):
             item = value.get(key)
             if isinstance(item, int) and item >= 0:
-                safe[key] = min(item, MAX_TOTAL_CONTEXT_CHARS)
+                context_limit = (
+                    MAX_PRESENTATION_OUTLINE_CONTEXT_CHARS
+                    if value.get("task_type")
+                    in {
+                        "presentation_outline",
+                        "presentation_edit_plan",
+                        "presentation_narrative_review",
+                    }
+                    else MAX_TOTAL_CONTEXT_CHARS
+                )
+                safe[key] = min(item, context_limit)
         return safe
 
     @staticmethod

@@ -80,6 +80,7 @@ pnpm test:e2e:release
 pnpm benchmark:release
 pnpm build:sidecar
 pnpm package:win
+pnpm package:win:release
 pnpm test:packaged
 pnpm test:install-smoke
 ```
@@ -92,15 +93,26 @@ download the embedding model, require provider credentials, or make provider
 calls; real-model and real-provider acceptance are manual developer checks.
 `pnpm build` compiles main/preload and the React renderer. `pnpm build:sidecar`
 freezes the Python core into a one-folder Windows executable, and
-`pnpm package:win` places it under Electron resources and builds the unsigned
-per-user NSIS installer. Packaged smoke uses a disposable data root and does
-not rely on system Python or development `PYTHONPATH` overrides.
+`pnpm package:win` places it under Electron resources and builds an unsigned
+per-user NSIS installer. Use `pnpm package:win:release` for a release
+candidate; it enables signing and its forced signing gate fails if Authenticode
+signing does not succeed. Supply `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`
+only from a protected release environment, never from source control. Packaged
+smoke uses a disposable data root and does not rely on system Python or
+development `PYTHONPATH` overrides.
 
-`pnpm test:install-smoke` is intentionally read-only: it reports whether the
-installer artifact exists and exits with `manual_required` when a real install
-has not been performed. Use [`MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](MVP/M9_CLEAN_MACHINE_CHECKLIST.md)
-for the clean Windows profile/VM gate; the repository scripts never uninstall
-or delete data on the developer machine.
+On Windows hosts where the configured temporary volume has limited free space,
+set `TEMP` and `TMP` to a directory on a volume with enough room before running
+tests or packaging. Pytest, Electron, and NSIS use these temporary paths; the
+project scripts do not clear other temporary files automatically.
+
+`pnpm test:install-smoke` stays read-only on developer machines and the
+self-hosted runner. On the GitHub-hosted Windows job, the workflow explicitly
+opts in to an isolated install, launch, uninstall, data-retention, and reinstall
+cycle under `RUNNER_TEMP`. The script refuses to mutate any other host and
+removes only its verified temporary root. Use
+[`MVP/M9_CLEAN_MACHINE_CHECKLIST.md`](MVP/M9_CLEAN_MACHINE_CHECKLIST.md) for
+physical-device and user-profile checks that hosted automation cannot prove.
 
 The M2 developer-only model and retrieval commands are:
 

@@ -211,7 +211,7 @@ def test_m6_run_e2e_persists_final_only_timeline_debrief_and_restarts(tmp_path: 
         {"project_id": project_id, "session_id": session_id, "status": "completed"},
     )
     assert stopped["session"]["status"] == "completed"
-    assert stopped["debrief"]["algorithm_version"] == "m6-deterministic-v1"
+    assert stopped["debrief"]["algorithm_version"] == "m6-deterministic-v2"
     assert adapter.close_count >= 1
     assert audio.started is False
 
@@ -545,8 +545,8 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             ]
     assert connection is not None
     migrated = connect_project_database(path)
-    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 7
-    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 7
+    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 22
+    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
     tables = {
         row[0]
         for row in migrated.execute(
@@ -561,6 +561,22 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
         "run_debriefs",
         "cues",
         "cue_evidence",
+        "presentations",
+        "presentation_revisions",
+        "presentation_revision_heads",
+        "presentation_slide_purposes",
+        "presentation_rehearsal_reviews",
+        "presentation_edit_transactions",
+        "project_picture_assets",
+        "presentation_claims",
+        "presentation_narratives",
+        "presentation_slide_takeaways",
+        "presentation_outline_proposals",
+        "presentation_outline_sessions",
+        "presentation_revision_checkpoints",
+        "presentation_rehearsal_objection_findings",
+        "presentation_rehearsal_objection_analyses",
+        "presentation_rehearsal_analyses",
     }
     for table, rows in before_rows.items():
         after_rows = [
@@ -570,6 +586,16 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             columns = [row[1] for row in migrated.execute(f'PRAGMA table_info("{table}")')]
             schema_index = columns.index("schema_version")
             normalized = [row[:schema_index] + (5,) + row[schema_index + 1 :] for row in after_rows]
+            assert normalized == rows
+        elif table == "sessions":
+            columns = [row[1] for row in migrated.execute(f'PRAGMA table_info("{table}")')]
+            revision_index = columns.index("presentation_revision_id")
+            normalized = [row[:revision_index] + row[revision_index + 1 :] for row in after_rows]
+            assert normalized == rows
+        elif table == "source_units":
+            columns = [row[1] for row in migrated.execute(f'PRAGMA table_info("{table}")')]
+            revision_index = columns.index("presentation_revision_id")
+            normalized = [row[:revision_index] + row[revision_index + 1 :] for row in after_rows]
             assert normalized == rows
         else:
             assert after_rows == rows
@@ -581,7 +607,7 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             ]
             for table in sorted(tables)
         }
-        connection.execute("PRAGMA user_version = 8")
+        connection.execute(f"PRAGMA user_version = {PROJECT_SCHEMA_VERSION + 1}")
         connection.commit()
     try:
         connect_project_database(path)
@@ -590,7 +616,7 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
     else:  # pragma: no cover
         raise AssertionError("future schema was accepted")
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION + 1
         for table, rows in before_future.items():
             assert [
                 tuple(row) for row in connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
@@ -635,3 +661,237 @@ def test_sidecar_write_serializes_complete_ndjson_lines() -> None:
         {"event": "asr.partial", "n": 1},
         {"ok": True, "n": 2},
     ]
+
+
+def test_workspace_rehearsal_binds_revision_maps_slides_and_commits_provenance(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    from presenter_core.errors import CoreDomainError
+
+    core = make_core(
+        tmp_path / "rehearsal-review",
+        DeterministicFakeAudioInput(),
+        DeterministicFakeASRAdapter(),
+        [],
+    )
+    try:
+        project_id = call(core, "project.create", {"name": "Rehearsal edits"})["project"]["id"]
+
+        def create(title: str, headings: list[str]) -> str:
+            return str(
+                call(
+                    core,
+                    "presentation.workspace.create_from_outline",
+                    {
+                        "project_id": project_id,
+                        "title": title,
+                        "slides": [
+                            {
+                                "title": heading,
+                                "bullets": ["A user-authored point"],
+                                "notes": "Original notes",
+                            }
+                            for heading in headings
+                        ],
+                    },
+                )["document"]["id"]
+            )
+
+        first = create("First deck", ["Opening", "Decision"])
+        second = create("Second deck", ["Different deck"])
+
+        def revision(document: str) -> str:
+            return str(
+                call(
+                    core,
+                    "presentation.workspace.list_revisions",
+                    {
+                        "project_id": project_id,
+                        "document_id": document,
+                    },
+                )["current_revision_id"]
+            )
+
+        baseline = revision(first)
+        scope = {"project_id": project_id, "document_id": first, "expected_revision_id": baseline}
+        assert (
+            error_call(
+                core,
+                "session.start",
+                {
+                    "project_id": project_id,
+                    "mode": "run",
+                    "expected_presentation_revision_id": baseline,
+                },
+            )["code"]
+            == "PRESENTATION_REVISION_CONFLICT"
+        )
+        call(core, "presentation.workspace.select_for_rehearsal", scope)
+        session_id = call(
+            core,
+            "session.start",
+            {
+                "project_id": project_id,
+                "mode": "run",
+                "current_slide_start": 1,
+                "expected_presentation_revision_id": baseline,
+            },
+        )["session"]["id"]
+        assert (
+            error_call(
+                core,
+                "presentation.workspace.select_for_rehearsal",
+                {
+                    "project_id": project_id,
+                    "document_id": second,
+                    "expected_revision_id": revision(second),
+                },
+            )["code"]
+            == "PRESENTATION_SESSION_ACTIVE"
+        )
+        call(
+            core,
+            "run.mark_event",
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "marker_type": "weak_point",
+                "note": "Explain the decision clearly",
+            },
+        )
+        # Importing another deck must not change the session's frozen slide count.
+        create("Third deck", ["Unrelated"])
+        status = call(
+            core, "presentation.detect", {"project_id": project_id, "session_id": session_id}
+        )
+        assert status["slide_count"] == 2
+        call(core, "session.stop", {"project_id": project_id, "session_id": session_id})
+        finding = call(core, "presentation.workspace.list_rehearsal_findings", scope)["findings"][0]
+        assert finding["source_revision_id"] == baseline
+        assert finding["current_slide_number"] == 1
+        with core._storage.project_database(project_id) as connection:
+            original = connection.execute(
+                "SELECT sha256 FROM presentation_revisions WHERE id = ?", (baseline,)
+            ).fetchone()[0]
+        opened = call(
+            core,
+            "presentation.workspace.open_source",
+            {"project_id": project_id, "document_id": first},
+        )
+        slides = opened["fidelity_report"]["slides"]
+        call(
+            core,
+            "presentation.workspace.close_source",
+            {"project_id": project_id, "document_id": first, "session_id": opened["session_id"]},
+        )
+        reordered = call(
+            core,
+            "presentation.workspace.reorder_slides",
+            {
+                **scope,
+                "ordered_slide_ids": [slide["slide_id"] for slide in reversed(slides)],
+            },
+        )
+        scope["expected_revision_id"] = reordered["revision_id"]
+        call(core, "source.reindex", {"project_id": project_id, "document_id": first})
+        mapped = call(core, "presentation.workspace.list_rehearsal_findings", scope)["findings"][0]
+        assert mapped["slide_id"] == finding["slide_id"]
+        assert mapped["current_slide_number"] == 2
+        targets = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {
+                "project_id": project_id,
+                "document_id": first,
+                "revision_id": reordered["revision_id"],
+                "slide_number": 2,
+            },
+        )
+        edit = {
+            **scope,
+            "finding_id": finding["finding_id"],
+            "edit_kind": "notes",
+            "slide_id": finding["slide_id"],
+            "expected_text": targets["speaker_notes"]["current_text"],
+            "replacement_text": "Explain the decision clearly",
+        }
+        assert (
+            error_call(
+                core,
+                "presentation.workspace.apply_rehearsal_edit",
+                {
+                    **edit,
+                    "slide_id": next(
+                        slide["slide_id"]
+                        for slide in slides
+                        if slide["slide_id"] != finding["slide_id"]
+                    ),
+                },
+            )["code"]
+            == "INVALID_REQUEST"
+        )
+        assert (
+            error_call(
+                core,
+                "presentation.workspace.apply_rehearsal_edit",
+                {
+                    **edit,
+                    "document_id": second,
+                    "expected_revision_id": revision(second),
+                },
+            )["code"]
+            == "REHEARSAL_FINDING_NOT_FOUND"
+        )
+
+        call(
+            core,
+            "presentation.workspace.reject_rehearsal_finding",
+            {**scope, "finding_id": finding["finding_id"]},
+        )
+        assert (
+            call(core, "presentation.workspace.list_rehearsal_findings", scope)["findings"][0][
+                "disposition"
+            ]
+            == "rejected"
+        )
+        call(
+            core,
+            "presentation.workspace.reject_rehearsal_finding",
+            {**scope, "finding_id": finding["finding_id"], "reopen": True},
+        )
+
+        def fail_provenance(*_args: Any) -> None:
+            raise CoreDomainError("REHEARSAL_REVIEW_TEST_FAILURE", "Synthetic provenance failure.")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(core._presentation_rehearsal, "_record", fail_provenance)
+            assert (
+                error_call(core, "presentation.workspace.apply_rehearsal_edit", edit)["code"]
+                == "REHEARSAL_REVIEW_TEST_FAILURE"
+            )
+        assert revision(first) == reordered["revision_id"]
+        applied = call(core, "presentation.workspace.apply_rehearsal_edit", edit)
+        assert applied["changed"] is True
+        scope["expected_revision_id"] = applied["revision_id"]
+        listed = call(core, "presentation.workspace.list_rehearsal_findings", scope)
+        assert listed["findings"][0]["disposition"] == "applied"
+        assert listed["findings"][0]["applied_revision_id"] == applied["revision_id"]
+        assert (
+            error_call(core, "presentation.workspace.apply_rehearsal_edit", {**edit, **scope})[
+                "code"
+            ]
+            == "REHEARSAL_FINDING_REVIEWED"
+        )
+        with core._storage.project_database(project_id) as connection:
+            review = connection.execute("SELECT * FROM presentation_rehearsal_reviews").fetchone()
+            assert review["source_revision_id"] == baseline
+            assert review["baseline_revision_id"] == reordered["revision_id"]
+            assert (
+                connection.execute(
+                    "SELECT sha256 FROM presentation_revisions WHERE id = ?", (baseline,)
+                ).fetchone()[0]
+                == original
+            )
+    finally:
+        core.close()

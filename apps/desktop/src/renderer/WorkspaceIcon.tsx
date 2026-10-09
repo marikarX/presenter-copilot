@@ -1,5 +1,6 @@
 const paths: Record<string, string> = {
   grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+  slides: "M3 4h18v13H3z M8 21h8 M12 17v4 M7 8h10 M7 12h6",
   folder:
     "M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18",
   people:

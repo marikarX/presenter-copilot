@@ -24,6 +24,7 @@ from presenter_core.limits import (
 
 from .audio import ASR_SIGNAL_RMS_THRESHOLD, SoundDeviceAudioInput
 from .interfaces import ASRAdapter, AudioDevice, AudioFrame, AudioInputAdapter
+from .recognition_review import recognition_review
 from .segmenter import UtteranceSegment, UtteranceSegmenter, VADConfig
 
 EventSink = Callable[[str, dict[str, Any]], None]
@@ -92,7 +93,7 @@ class _ActiveCapture:
     config: ASRConfiguration
     capture_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     voice_local_only: bool = False
-    frames: queue.Queue[AudioFrame] = field(
+    frames: queue.Queue[AudioFrame | None] = field(
         default_factory=lambda: queue.Queue(maxsize=MAX_ASR_AUDIO_QUEUE_FRAMES)
     )
     stop_requested: threading.Event = field(default_factory=threading.Event)
@@ -125,6 +126,9 @@ class _ActiveCapture:
     teach_finalization_started: bool = False
     teach_submission_result: dict[str, Any] | None = None
     teach_finalization_error: CoreDomainError | None = None
+    workspace_final_parts: list[str] = field(default_factory=list)
+    workspace_final_scores: list[float | None] = field(default_factory=list)
+    workspace_final_char_count: int = 0
 
 
 class ASRService:
@@ -140,6 +144,7 @@ class ASRService:
         slide_snapshot: SlideSnapshot,
         event_sink: EventSink | None = None,
         teach_finalizer: TeachFinalizer | None = None,
+        workspace_session_validator: SessionValidator | None = None,
         vad_config: VADConfig | None = None,
         worker_join_timeout_seconds: float = ASR_WORKER_JOIN_TIMEOUT_SECONDS,
     ) -> None:
@@ -154,6 +159,7 @@ class ASRService:
         self._slide_snapshot = slide_snapshot
         self._event_sink = event_sink
         self._teach_finalizer = teach_finalizer
+        self._workspace_session_validator = workspace_session_validator
         self._vad_config = vad_config or VADConfig()
         first_adapter = next(iter(self._adapters.values()))
         self._configuration = ASRConfiguration(
@@ -308,7 +314,7 @@ class ASRService:
         reject_unknown_fields(params, {"project_id", "session_id"})
         project_id = self._required_id(params, "project_id")
         session_id = self._required_id(params, "session_id")
-        if owner_mode not in {None, "teach", "run", "live_assist"}:
+        if owner_mode not in {None, "teach", "run", "live_assist", "presentation_workspace"}:
             raise CoreDomainError("ASR_SESSION_INVALID", "The ASR capture owner is invalid.")
         if not isinstance(voice_local_only, bool):
             raise invalid_request("voice_local_only must be a boolean.", field="voice_local_only")
@@ -321,8 +327,18 @@ class ASRService:
                     "Only one microphone capture may be active at a time.",
                     retryable=True,
                 )
+        validator = (
+            self._workspace_session_validator
+            if owner_mode == "presentation_workspace"
+            else self._session_validator
+        )
+        if validator is None:
+            raise CoreDomainError(
+                "ASR_SESSION_INVALID",
+                "Workspace microphone capture is not available in this core instance.",
+            )
         try:
-            session = self._session_validator(project_id, session_id, owner_mode)
+            session = validator(project_id, session_id, owner_mode)
         except CoreDomainError as error:
             raise CoreDomainError(
                 "ASR_SESSION_INVALID",
@@ -330,7 +346,7 @@ class ASRService:
                 details={"reason": error.code},
             ) from error
         session_mode = str(session.get("mode", ""))
-        if session_mode not in {"run", "live_assist", "teach"}:
+        if session_mode not in {"run", "live_assist", "teach", "presentation_workspace"}:
             raise CoreDomainError(
                 "ASR_SESSION_INVALID",
                 "The selected session cannot own microphone capture.",
@@ -339,6 +355,11 @@ class ASRService:
             raise CoreDomainError(
                 "ASR_SESSION_INVALID",
                 "Teach microphone capture must use the Teach voice lifecycle.",
+            )
+        if owner_mode is not None and session_mode != owner_mode:
+            raise CoreDomainError(
+                "ASR_SESSION_INVALID",
+                "The selected session cannot own this microphone capture lifecycle.",
             )
         if session_mode == "teach" and self._teach_finalizer is None:
             raise CoreDomainError(
@@ -466,13 +487,24 @@ class ASRService:
                         "ASR_SESSION_INVALID",
                         "The requested session does not own this ASR lifecycle.",
                     )
-                if active.session_mode == "teach" and expected_mode is None:
+                if (
+                    active.session_mode in {"teach", "presentation_workspace"}
+                    and expected_mode is None
+                ):
                     raise CoreDomainError(
                         "ASR_SESSION_INVALID",
-                        "Teach microphone capture must use the Teach voice lifecycle.",
+                        "This microphone capture must use its owning voice lifecycle.",
                     )
                 active.accepting = False
                 active.stop_requested.set()
+                # Wake an idle ingestion worker immediately. The marker follows
+                # accepted PCM, so a normal stop still drains every queued frame
+                # before flushing its last utterance. A full queue already has
+                # work to wake the consumer; it checks stop when drained.
+                try:
+                    active.frames.put_nowait(None)
+                except queue.Full:
+                    pass
                 active.stop_attempts += 1
                 active.partial_request = None
                 active.latest_partial = None
@@ -483,12 +515,15 @@ class ASRService:
                     active.utterance = None
                     active.teach_final_parts.clear()
                     active.teach_final_char_count = 0
+                    active.workspace_final_parts.clear()
+                    active.workspace_final_scores.clear()
+                    active.workspace_final_char_count = 0
                 condition = active.decode_condition
                 if condition is not None:
                     condition.notify_all()
-                # A failed Run/Live final is retained for an explicit retry.
-                # Teach finalization is a single stop-owned submission and is
-                # never retried by the ASR worker.
+                # Failed Run/Live/Workspace finals are retained for an explicit
+                # stop retry. Teach finalization is stop-owned and not retried
+                # by the ASR worker.
                 if (
                     not cancel
                     and active.session_mode != "teach"
@@ -544,20 +579,23 @@ class ASRService:
                 elif unresolved_final:
                     cleanup_error = cleanup_error or CoreDomainError(
                         "ASR_CAPTURE_FAILED",
-                        "The active ASR final has not been durably resolved; retry cleanup "
+                        "The active ASR final has not been safely resolved; retry cleanup "
                         "after the worker is available.",
                         retryable=True,
                     )
 
-            # A live worker or unresolved Run/Live final owns the model and
-            # audio handles. In particular, never close an adapter underneath
-            # a blocked decode. Cancellation is explicitly disposable.
-            if cleanup_error is not None and (alive or unresolved_final):
+            # Keep ownership until both device stop and worker cleanup succeed.
+            # A failed device stop may leave hardware running even after the
+            # workers exit. Never release handles underneath a blocked decode
+            # or an unconfirmed device stop; the owning action can retry.
+            if cleanup_error is not None:
                 with self._lock:
                     self._last_error_code = cleanup_error.code
                 raise cleanup_error
 
             teach_submission: dict[str, Any] | None = None
+            workspace_transcript: str | None = None
+            workspace_review: dict[str, Any] | None = None
             teach_finalization_error: CoreDomainError | None = None
             with self._lock:
                 can_finalize_teach = (
@@ -576,6 +614,18 @@ class ASRService:
                 else:
                     final_text = ""
                     finalizer = None
+                if (
+                    not cancel
+                    and active.session_mode == "presentation_workspace"
+                    and cleanup_error is None
+                    and not alive
+                    and not unresolved_final
+                    and active.fatal_error_code is None
+                ):
+                    workspace_transcript = " ".join(active.workspace_final_parts).strip()
+                    workspace_review = recognition_review(
+                        active.workspace_final_parts, active.workspace_final_scores
+                    )
                 if active.teach_submission_result is not None:
                     teach_submission = dict(active.teach_submission_result)
                 teach_finalization_error = active.teach_finalization_error
@@ -640,7 +690,7 @@ class ASRService:
                 raise CoreDomainError(
                     fatal_code,
                     "Microphone capture ended with an error; the capture resources were "
-                    "released, so retry the Run stop.",
+                    "released, so retry the owning stop action.",
                     retryable=True,
                 )
             result = {
@@ -652,6 +702,9 @@ class ASRService:
             }
             if teach_submission is not None:
                 result["submission"] = teach_submission
+            if workspace_transcript is not None and not cancel:
+                result["transcript"] = workspace_transcript
+                result["recognition_review"] = workspace_review
             return result
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -728,10 +781,10 @@ class ASRService:
             active = self._active
         if active is not None:
             try:
-                if active.session_mode == "teach":
+                if active.session_mode in {"teach", "presentation_workspace"}:
                     self.cancel(
                         {"project_id": active.project_id, "session_id": active.session_id},
-                        expected_mode="teach",
+                        expected_mode=active.session_mode,
                     )
                 else:
                     self.stop({"project_id": active.project_id, "session_id": active.session_id})
@@ -841,6 +894,8 @@ class ASRService:
                     if active.stop_requested.is_set():
                         break
                     continue
+                if frame is None:
+                    break
                 frame_start_ms = active.frame_clock_ms
                 active.frame_clock_ms += self._vad_config.frame_duration_ms
                 with self._lock:
@@ -852,7 +907,8 @@ class ASRService:
                 was_active = segmenter.speech_active
                 completed = segmenter.process(frame, frame_start_ms)
                 if not was_active and segmenter.speech_active:
-                    start_ms = segmenter.current_start_ms or frame_start_ms
+                    segment_start_ms = segmenter.current_start_ms
+                    start_ms = frame_start_ms if segment_start_ms is None else segment_start_ms
                     with self._lock:
                         if self._active is not active:
                             return
@@ -1146,6 +1202,36 @@ class ASRService:
                     active.decode_condition.notify_all()
             # Teach final text remains ephemeral inside Core until the explicit
             # voice_stop boundary routes it through TeachService.submit_text.
+            return
+        if active.session_mode == "presentation_workspace":
+            with self._lock:
+                if self._active is not active or active.cancel_requested:
+                    return
+                separator_length = 1 if active.workspace_final_parts else 0
+                if (
+                    active.workspace_final_char_count + separator_length + len(text)
+                    > MAX_FINAL_UTTERANCE_CHARS
+                ):
+                    raise CoreDomainError(
+                        "ASR_TRANSCRIBE_FAILED",
+                        "The local ASR final exceeded the safe transcript bound.",
+                    )
+                active.workspace_final_parts.append(text)
+                active.workspace_final_scores.append(result.confidence)
+                active.workspace_final_char_count += separator_length + len(text)
+                if active.pending_final_retry is request:
+                    active.pending_final_retry = None
+                active.decoder_error_code = None
+                if (
+                    active.fatal_error_code is not None
+                    and active.fatal_error_code != "ASR_BACKPRESSURE"
+                ):
+                    active.fatal_error_code = None
+                if active.decode_condition is not None:
+                    active.decode_condition.notify_all()
+            # Workspace finals stay in Core memory until voice_stop returns
+            # the transcript for explicit renderer review. They are never
+            # written as utterances or emitted as asr.final events.
             return
         slide_ordinal = self._persist_final(
             active.project_id,

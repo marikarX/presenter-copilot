@@ -124,6 +124,18 @@ choice, Selected Context manifest, private-item exclusion, and provider
 execution guard apply exactly as they do for typed text. A cancelled or failed
 capture creates no utterance, candidate, ProviderRun, or provider payload.
 
+PW5 Workspace dictation uses a separate Core-owned ASR lifecycle for one
+selected, supported text target. Raw PCM stays in Core. Bounded partials may
+cross to the renderer as temporary display state; final text remains in Core
+memory and crosses IPC only in the successful Workspace stop response for
+editable user review. It does not create an Utterance, ProviderRun, or
+transcript log. The selected project, source, revision, slide, and object are
+revalidated before the transcript is returned; a stale selection cancels and
+discards it. Cancel, source/project deletion, reset, model removal, and shutdown
+also discard it. The user must explicitly place the reviewed instruction in
+the rewrite field and separately request “Suggest rewrite”; the existing
+project privacy and provider guards then apply.
+
 Run debrief is rehearsal retrieval: the core sends `usage=rehearsal` and may
 set `allow_private=true`, while retrieval still enforces each KnowledgeItem's
 independent `use_rehearsal` flag. Raw PCM remains Core-only; partial text may
@@ -173,6 +185,10 @@ full-corpus upload. UI must not switch to it automatically on provider error.
   explicit development/bootstrap fallback; SQLite persists only safe
   `credential_source` metadata;
 - never store API keys or OAuth refresh tokens in project DB/logs;
+- Sign in with ChatGPT plan tokens are Core-owned and kept in a separate
+  Windows user-scoped DPAPI vault, isolated by ChatGPT account; tokens never
+  cross renderer IPC or enter SQLite/logs. Sign-out and reset delete local
+  credentials and attempt provider revocation where supported;
 - never expose secrets to renderer context;
 - never accept plaintext provider secrets through renderer IPC;
 - official provider auth only;
@@ -364,6 +380,15 @@ The M8 provider disclosure also states that private KnowledgeItems, raw audio, a
 the full corpus are excluded. A project must record an explicit acknowledgement
 before a remote reasoning call; configuring provider metadata alone is not
 consent.
+
+The optional Sign in with ChatGPT decision provider also explains that the
+selected slide's supported text may be sent to OpenAI, that eligible requests
+use ChatGPT plan capacity whose limits may be shared across apps, and that this
+is separate from API-key billing. Its result remains a suggestion for review.
+The project's explicit remote-reasoning acknowledgement is still required.
+This provider uses the distinct [Sign in with ChatGPT open-source app
+flow](https://developers.openai.com/siwc/token-sharing-open-source); it is not
+the Codex App Server sign-in or the API-key provider.
 
 Keep disclosures concise and contextual rather than requiring broad legal acceptance for every session.
 

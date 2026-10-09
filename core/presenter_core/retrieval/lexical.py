@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from presenter_core.errors import invalid_request, reject_unknown_fields
+from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
 from presenter_core.ingestion.models import Evidence
 from presenter_core.ingestion.parsers.utils import lexical_normalize
 from presenter_core.ingestion.service import provenance_label
@@ -56,6 +57,44 @@ def validate_query(value: Any) -> tuple[str, list[str], set[str], str]:
     return value, query_tokens, set(query_tokens), " ".join(query_tokens)
 
 
+def parse_presentation_revision_id(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise invalid_request(
+            "presentation_revision_id must be a UUID.", field="presentation_revision_id"
+        )
+    try:
+        return str(uuid.UUID(value))
+    except ValueError as error:
+        raise invalid_request(
+            "presentation_revision_id must be a UUID.", field="presentation_revision_id"
+        ) from error
+
+
+def validate_presentation_revision_project(
+    connection: sqlite3.Connection,
+    project_id: str,
+    presentation_revision_id: str | None,
+) -> None:
+    if presentation_revision_id is None:
+        return
+    found = connection.execute(
+        """
+        SELECT 1
+        FROM presentation_revisions AS r
+        JOIN documents AS d ON d.id = r.presentation_id
+        WHERE r.id = ? AND d.project_id = ?
+        """,
+        (presentation_revision_id, project_id),
+    ).fetchone()
+    if found is None:
+        raise CoreDomainError(
+            "PRESENTATION_REVISION_NOT_FOUND",
+            "The requested presentation revision is not available in this project.",
+        )
+
+
 def select_chunk_records(
     connection: sqlite3.Connection,
     filters: RetrievalFilters,
@@ -86,6 +125,13 @@ def _chunk_select_sql(
 ) -> tuple[str, list[Any]]:
     clauses = ["documents.project_id = ?", "documents.parse_status = 'ready'"]
     parameters: list[Any] = [filters.project_id]
+    _append_presentation_revision_clause(
+        clauses,
+        parameters,
+        filters,
+        document_alias="documents",
+        source_unit_alias="source_units",
+    )
     if filters.document_ids:
         placeholders = ", ".join("?" for _ in filters.document_ids)
         clauses.append(f"documents.id IN ({placeholders})")
@@ -130,6 +176,34 @@ def _chunk_select_sql(
         + "source_units.ordinal IS NULL, source_units.ordinal, chunks.chunk_index, chunks.id"
     )
     return sql, parameters
+
+
+def _append_presentation_revision_clause(
+    clauses: list[str],
+    parameters: list[Any],
+    filters: RetrievalFilters,
+    *,
+    document_alias: str,
+    source_unit_alias: str,
+) -> None:
+    """Use a session's bound deck revision, or each deck's current head by default."""
+    if filters.presentation_revision_id is None:
+        revision_expression = (
+            "(SELECT h.revision_id FROM presentation_revision_heads AS h "
+            f"WHERE h.presentation_id = {document_alias}.id)"
+        )
+    else:
+        revision_expression = (
+            "COALESCE((SELECT r.id FROM presentation_revisions AS r "
+            f"WHERE r.id = ? AND r.presentation_id = {document_alias}.id), "
+            "(SELECT h.revision_id FROM presentation_revision_heads AS h "
+            f"WHERE h.presentation_id = {document_alias}.id))"
+        )
+        parameters.append(filters.presentation_revision_id)
+    clauses.append(
+        f"({document_alias}.kind <> 'presentation' OR "
+        f"{source_unit_alias}.presentation_revision_id = {revision_expression})"
+    )
 
 
 def _knowledge_select_sql(filters: RetrievalFilters) -> tuple[str, list[Any]]:
@@ -366,7 +440,10 @@ class LexicalRetrievalService:
         self._storage = storage
 
     def query(self, params: dict[str, Any]) -> dict[str, Any]:
-        reject_unknown_fields(params, {"project_id", "query", "limit", "usage"})
+        reject_unknown_fields(
+            params,
+            {"project_id", "query", "limit", "usage", "presentation_revision_id"},
+        )
         project_id = params.get("project_id")
         if not isinstance(project_id, str):
             raise invalid_request("project_id must be a UUID4.", field="project_id")
@@ -378,12 +455,20 @@ class LexicalRetrievalService:
         usage = params.get("usage", "all")
         if usage not in {"all", "live", "rehearsal"}:
             raise invalid_request("usage must be all, live, or rehearsal.", field="usage")
+        presentation_revision_id = parse_presentation_revision_id(
+            params.get("presentation_revision_id")
+        )
 
         started = monotonic()
         with self._storage.project_database(project_id) as connection:
+            validate_presentation_revision_project(connection, project_id, presentation_revision_id)
             candidates = bounded_lexical_candidates(
                 connection,
-                RetrievalFilters(project_id=project_id, usage=usage),
+                RetrievalFilters(
+                    project_id=project_id,
+                    presentation_revision_id=presentation_revision_id,
+                    usage=usage,
+                ),
                 query_tokens,
                 query_set,
                 phrase,

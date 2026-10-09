@@ -32,6 +32,8 @@ EventSink = Callable[[str, dict[str, Any]], None]
 TranscriptReconciler = Callable[[sqlite3.Connection, str, set[str]], None]
 SourceDeleteHook = Callable[[sqlite3.Connection, str], None]
 SourceReindexHook = Callable[[sqlite3.Connection, str, set[str]], None]
+BeforeSourceSnapshotDeleteHook = Callable[[str, str], None]
+PresentationRevisionRecorder = Callable[[sqlite3.Connection, str], str]
 MAX_FILENAME_LENGTH = 120
 MAX_PREVIEW_UNITS = 25
 MAX_PREVIEW_TEXT_CHARS = 12_000
@@ -59,14 +61,23 @@ class IngestionService:
         transcript_reconciler: TranscriptReconciler | None = None,
         source_delete_hook: SourceDeleteHook | None = None,
         source_reindex_hook: SourceReindexHook | None = None,
+        before_source_snapshot_delete: BeforeSourceSnapshotDeleteHook | None = None,
+        presentation_revision_recorder: PresentationRevisionRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._event_sink = event_sink
         self._transcript_reconciler = transcript_reconciler
         self._source_delete_hook = source_delete_hook
         self._source_reindex_hook = source_reindex_hook
+        self._before_source_snapshot_delete = before_source_snapshot_delete
+        self._presentation_revision_recorder = presentation_revision_recorder
 
-    def import_source(self, params: dict[str, Any]) -> dict[str, Any]:
+    def import_source(
+        self,
+        params: dict[str, Any],
+        *,
+        initialize_document: Callable[[sqlite3.Connection, str], None] | None = None,
+    ) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "path", "kind"})
         project_id = self._project_id(params)
         external_path = self._external_path(params)
@@ -157,6 +168,10 @@ class IngestionService:
                         ),
                     ),
                 )
+                if kind == "presentation" and self._presentation_revision_recorder is not None:
+                    self._presentation_revision_recorder(connection, document_id)
+                if initialize_document is not None:
+                    initialize_document(connection, document_id)
                 connection.commit()
         except Exception:
             _remove_snapshot(snapshot)
@@ -172,7 +187,22 @@ class IngestionService:
             raise
         self._emit_progress(project_id, document_id, "parse", 1, 1, "complete")
 
-        unit_rows, chunk_rows = self._build_rows(document_id, parsed_units)
+        presentation_revision = (
+            self._current_presentation_revision(project_id, document_id)
+            if kind == "presentation"
+            else None
+        )
+        unit_rows, chunk_rows = self._build_rows(
+            document_id,
+            parsed_units,
+            presentation_revision_id=(
+                str(presentation_revision["id"]) if presentation_revision is not None else None
+            ),
+            revision_scoped_ids=(
+                presentation_revision is not None
+                and presentation_revision["revision_kind"] == "edited"
+            ),
+        )
         self._emit_progress(
             project_id, document_id, "chunk", len(unit_rows), len(unit_rows), "complete"
         )
@@ -222,19 +252,22 @@ class IngestionService:
         )
         with self._storage.project_database(project_id) as connection:
             document = self._document_row(connection, document_id)
+            revision_where, revision_parameters = self._source_unit_revision_scope(
+                connection, document
+            )
             total_row = connection.execute(
-                "SELECT COUNT(*) AS count FROM source_units WHERE document_id = ?",
-                (document_id,),
+                "SELECT COUNT(*) AS count FROM source_units WHERE document_id = ?" + revision_where,
+                (document_id, *revision_parameters),
             ).fetchone()
             total = int(total_row["count"]) if total_row else 0
             units = connection.execute(
-                """
-                SELECT * FROM source_units
-                WHERE document_id = ?
+                "SELECT * FROM source_units WHERE document_id = ?"
+                + revision_where
+                + """
                 ORDER BY ordinal IS NULL, ordinal, id
                 LIMIT ? OFFSET ?
                 """,
-                (document_id, limit, offset),
+                (document_id, *revision_parameters, limit, offset),
             ).fetchall()
             previews = [self._unit_preview(document, row) for row in units]
             return {
@@ -254,6 +287,8 @@ class IngestionService:
             document = self._document_row(connection, document_id)
         try:
             if document["local_snapshot_path"]:
+                if self._before_source_snapshot_delete is not None:
+                    self._before_source_snapshot_delete(project_id, document_id)
                 snapshot = self._storage.paths.snapshot_path(
                     project_id,
                     document["local_snapshot_path"],
@@ -265,7 +300,7 @@ class IngestionService:
                 _remove_snapshot(snapshot)
             self._delete_document_record(project_id, document_id)
         except CoreDomainError as error:
-            if error.code == "SOURCE_DELETE_FAILED":
+            if error.code in {"SOURCE_DELETE_FAILED", "PRESENTATION_SESSION_ACTIVE"}:
                 raise
             raise CoreDomainError(
                 "SOURCE_DELETE_FAILED",
@@ -310,18 +345,45 @@ class IngestionService:
         document_id = self._document_id(params)
         with self._storage.project_database(project_id) as connection:
             document = self._document_row(connection, document_id)
-            old_unit_ids = {
-                str(row["id"])
-                for row in connection.execute(
-                    "SELECT id FROM source_units WHERE document_id = ?", (document_id,)
-                ).fetchall()
-            }
+            kind = str(document["kind"])
+            presentation_revision = (
+                self._current_presentation_revision_for_connection(connection, document_id)
+                if kind == "presentation"
+                else None
+            )
+            if kind == "presentation":
+                old_unit_ids = {
+                    str(row["id"])
+                    for row in connection.execute(
+                        "SELECT id FROM source_units WHERE document_id = ? "
+                        "AND presentation_revision_id = ?",
+                        (
+                            document_id,
+                            str(presentation_revision["id"])
+                            if presentation_revision is not None
+                            else "",
+                        ),
+                    ).fetchall()
+                }
+            else:
+                old_unit_ids = {
+                    str(row["id"])
+                    for row in connection.execute(
+                        "SELECT id FROM source_units WHERE document_id = ?", (document_id,)
+                    ).fetchall()
+                }
         source_type = _source_type_from_mime(document["mime_type"])
-        kind = str(document["kind"])
         parser = _parser_for_kind(source_type, kind)
         self._emit_progress(project_id, document_id, "parse", 0, 1, "started")
         try:
-            relative_path = document["local_snapshot_path"]
+            if presentation_revision is not None:
+                relative_path = presentation_revision["local_snapshot_path"]
+                expected_sha256 = str(presentation_revision["sha256"])
+                expected_size = int(presentation_revision["byte_size"])
+            else:
+                relative_path = document["local_snapshot_path"]
+                expected_sha256 = str(document["sha256"])
+                expected_size = int(document["byte_size"])
             if not relative_path:
                 raise CoreDomainError("SOURCE_REINDEX_FAILED", "The source has no stored snapshot.")
             snapshot = self._storage.paths.snapshot_path(
@@ -329,10 +391,10 @@ class IngestionService:
             )
             preflight_source(snapshot, source_type)
             snapshot_sha256 = _sha256_file(snapshot)
-            if snapshot_sha256 != document["sha256"]:
+            if snapshot_sha256 != expected_sha256 or snapshot.stat().st_size != expected_size:
                 raise CoreDomainError(
                     "SOURCE_SNAPSHOT_CHANGED",
-                    "The stored source snapshot no longer matches its imported hash.",
+                    "The stored source snapshot no longer matches its revision record.",
                     details={},
                 )
             parsed_units = self._parse_snapshot(snapshot, source_type, kind, parser=parser)
@@ -346,14 +408,48 @@ class IngestionService:
             ) from error
         self._emit_progress(project_id, document_id, "parse", 1, 1, "complete")
 
-        unit_rows, chunk_rows = self._build_rows(document_id, parsed_units)
+        unit_rows, chunk_rows = self._build_rows(
+            document_id,
+            parsed_units,
+            presentation_revision_id=(
+                str(presentation_revision["id"]) if presentation_revision is not None else None
+            ),
+            revision_scoped_ids=(
+                presentation_revision is not None
+                and presentation_revision["revision_kind"] == "edited"
+            ),
+        )
         self._emit_progress(
             project_id, document_id, "chunk", len(unit_rows), len(unit_rows), "complete"
         )
         try:
             with self._storage.project_database(project_id) as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if kind == "presentation":
+                    latest = self._current_presentation_revision_for_connection(
+                        connection, document_id
+                    )
+                    if (
+                        presentation_revision is None
+                        or latest is None
+                        or str(latest["id"]) != str(presentation_revision["id"])
+                    ):
+                        raise CoreDomainError(
+                            "PRESENTATION_REVISION_CONFLICT",
+                            "The current presentation revision changed during re-indexing.",
+                            retryable=True,
+                        )
                 reusable_vectors = self._capture_active_vectors(connection, document_id)
-                connection.execute("DELETE FROM source_units WHERE document_id = ?", (document_id,))
+                if kind == "presentation" and presentation_revision is not None:
+                    connection.execute(
+                        "DELETE FROM source_units WHERE document_id = ? "
+                        "AND presentation_revision_id = ?",
+                        (document_id, str(presentation_revision["id"])),
+                    )
+                else:
+                    connection.execute(
+                        "DELETE FROM source_units WHERE document_id = ?", (document_id,)
+                    )
                 self._insert_rows(connection, unit_rows, chunk_rows)
                 self._reconcile_transcript(connection, document_id, parsed_units, kind=kind)
                 if self._source_reindex_hook is not None:
@@ -490,12 +586,22 @@ class IngestionService:
         self,
         document_id: str,
         units: list[ParsedSourceUnit],
+        *,
+        presentation_revision_id: str | None = None,
+        revision_scoped_ids: bool = False,
     ) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
         unit_rows: list[tuple[Any, ...]] = []
         chunk_rows: list[tuple[Any, ...]] = []
         now = utc_now()
         for structural_index, unit in enumerate(units):
-            unit_id = _source_unit_id(document_id, unit, structural_index)
+            unit_id = _source_unit_id(
+                document_id,
+                unit,
+                structural_index,
+                presentation_revision_id=(
+                    presentation_revision_id if revision_scoped_ids else None
+                ),
+            )
             unit_rows.append(
                 (
                     unit_id,
@@ -510,6 +616,7 @@ class IngestionService:
                     json.dumps(
                         unit.metadata, ensure_ascii=False, separators=(",", ":"), sort_keys=True
                     ),
+                    presentation_revision_id,
                 )
             )
             for chunk in chunk_text(unit.index_text):
@@ -576,8 +683,8 @@ class IngestionService:
             """
             INSERT INTO source_units (
                 id, document_id, unit_type, ordinal, title, start_ms,
-                end_ms, speaker_label, text, metadata_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                end_ms, speaker_label, text, metadata_json, presentation_revision_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             unit_rows,
         )
@@ -779,15 +886,15 @@ class IngestionService:
         return row
 
     def _document_dict(self, row: Any, connection: Any) -> dict[str, Any]:
+        revision_where, revision_parameters = self._source_unit_revision_scope(connection, row)
         units_row = connection.execute(
-            "SELECT COUNT(*) AS count FROM source_units WHERE document_id = ?", (row["id"],)
+            "SELECT COUNT(*) AS count FROM source_units WHERE document_id = ?" + revision_where,
+            (row["id"], *revision_parameters),
         ).fetchone()
         chunks_row = connection.execute(
-            """
-            SELECT COUNT(*) AS count FROM chunks
-            WHERE source_unit_id IN (SELECT id FROM source_units WHERE document_id = ?)
-            """,
-            (row["id"],),
+            "SELECT COUNT(*) AS count FROM chunks WHERE source_unit_id IN ("
+            "SELECT id FROM source_units WHERE document_id = ?" + revision_where + ")",
+            (row["id"], *revision_parameters),
         ).fetchone()
         try:
             metadata = json.loads(row["metadata_json"])
@@ -846,6 +953,46 @@ class IngestionService:
             "metadata": metadata,
             "provenance": evidence.to_dict(),
         }
+
+    @staticmethod
+    def _current_presentation_revision_for_connection(
+        connection: sqlite3.Connection,
+        document_id: str,
+    ) -> sqlite3.Row | None:
+        row = connection.execute(
+            """
+            SELECT r.id, r.revision_kind, r.local_snapshot_path, r.sha256, r.byte_size
+            FROM presentation_revision_heads AS h
+            JOIN presentation_revisions AS r
+              ON r.id = h.revision_id AND r.presentation_id = h.presentation_id
+            WHERE h.presentation_id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+        return cast(sqlite3.Row | None, row)
+
+    def _current_presentation_revision(
+        self,
+        project_id: str,
+        document_id: str,
+    ) -> sqlite3.Row | None:
+        with self._storage.project_database(project_id) as connection:
+            return self._current_presentation_revision_for_connection(connection, document_id)
+
+    @classmethod
+    def _source_unit_revision_scope(
+        cls,
+        connection: sqlite3.Connection,
+        document: Any,
+    ) -> tuple[str, tuple[str, ...]]:
+        if document["kind"] != "presentation":
+            return "", ()
+        revision = cls._current_presentation_revision_for_connection(
+            connection, str(document["id"])
+        )
+        if revision is None:
+            return " AND 0", ()
+        return " AND presentation_revision_id = ?", (str(revision["id"]),)
 
     @staticmethod
     def evidence_for_unit(document: Any, unit: Any, text: str) -> Evidence:
@@ -989,13 +1136,20 @@ def _format_timestamp(value: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
 
-def _source_unit_id(document_id: str, unit: ParsedSourceUnit, structural_index: int) -> str:
+def _source_unit_id(
+    document_id: str,
+    unit: ParsedSourceUnit,
+    structural_index: int,
+    *,
+    presentation_revision_id: str | None = None,
+) -> str:
     """Derive a stable unit identity from document structure, not wall time."""
     ordinal = "" if unit.ordinal is None else str(unit.ordinal)
+    revision_scope = f"revision:{presentation_revision_id}:" if presentation_revision_id else ""
     return str(
         uuid.uuid5(
             uuid.NAMESPACE_URL,
-            f"presenter-copilot:source-unit:{document_id}:{structural_index}:"
+            f"presenter-copilot:source-unit:{document_id}:{revision_scope}{structural_index}:"
             f"{unit.unit_type}:{ordinal}",
         )
     )

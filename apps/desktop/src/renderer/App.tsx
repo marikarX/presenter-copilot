@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
 import {
   isHealthResult,
@@ -15,12 +15,6 @@ import {
   type SourceSummary,
   unwrapInvokeResult,
 } from "../shared/protocol";
-import { AudiencePanel } from "./AudiencePanel";
-import { ChallengePanel } from "./ChallengePanel";
-import { LiveAssistPanel } from "./LiveAssistPanel";
-import { ReleaseControls } from "./ReleaseControls";
-import { RunPanel } from "./RunPanel";
-import { TeachPanel } from "./TeachPanel";
 import {
   requiresTranscriptDisclosure,
   type SourceImportKind,
@@ -50,6 +44,53 @@ const initialStatus: CoreStatus = {
   health: null,
   error: null,
 };
+
+const LazyPresentationWorkspace = lazy(async () => {
+  const module = await import("./PresentationWorkspace");
+  return { default: module.PresentationWorkspace };
+});
+const LazyAudiencePanel = lazy(async () => {
+  const module = await import("./AudiencePanel");
+  return { default: module.AudiencePanel };
+});
+const LazyChallengePanel = lazy(async () => {
+  const module = await import("./ChallengePanel");
+  return { default: module.ChallengePanel };
+});
+const LazyLiveAssistPanel = lazy(async () => {
+  const module = await import("./LiveAssistPanel");
+  return { default: module.LiveAssistPanel };
+});
+const LazyReleaseControls = lazy(async () => {
+  const module = await import("./ReleaseControls");
+  return { default: module.ReleaseControls };
+});
+const LazyRunPanel = lazy(async () => {
+  const module = await import("./RunPanel");
+  return { default: module.RunPanel };
+});
+const LazyTeachPanel = lazy(async () => {
+  const module = await import("./TeachPanel");
+  return { default: module.TeachPanel };
+});
+
+const LAZY_PANEL_VIEWS = new Set<WorkspaceView>([
+  "setup",
+  "audience",
+  "teach",
+  "challenge",
+  "run",
+  "live",
+  "presentation-workspace",
+]);
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <p className="muted" role="status">
+      Loading {label}…
+    </p>
+  );
+}
 
 type ProjectListResult = { projects: ProjectSummary[] };
 type ProjectResult = { project: ReadyProjectSummary };
@@ -99,6 +140,9 @@ function formatTimestamp(value: number | null): string | null {
 
 export function App() {
   const [view, setView] = useState<WorkspaceView>("home");
+  const [mountedPanels, setMountedPanels] = useState<
+    ReadonlySet<WorkspaceView>
+  >(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(() => {
     try {
@@ -113,6 +157,11 @@ export function App() {
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(
     null,
   );
+  const [rehearsalTarget, setRehearsalTarget] = useState<{
+    projectId: string;
+    revisionId: string;
+    label: string;
+  } | null>(null);
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [audienceRefreshToken, setAudienceRefreshToken] = useState(0);
   const refreshAudiencePanels = useCallback(() => {
@@ -151,12 +200,30 @@ export function App() {
   const [runPanelActive, setRunPanelActive] = useState(false);
   const [livePanelActive, setLivePanelActive] = useState(false);
   const [teachVoiceActive, setTeachVoiceActive] = useState(false);
+  const [workspaceVoiceActive, setWorkspaceVoiceActive] = useState(false);
   const runActive = runPanelActive || livePanelActive;
-  const workspaceCaptureActive = runActive || teachVoiceActive;
+  const workspaceCaptureActive =
+    runActive || teachVoiceActive || workspaceVoiceActive;
 
   const navigate = (next: WorkspaceView) => {
-    if (canNavigate(next, runPanelActive, livePanelActive, teachVoiceActive))
-      setView(next);
+    if (
+      !canNavigate(
+        next,
+        runPanelActive,
+        livePanelActive,
+        teachVoiceActive,
+        workspaceVoiceActive,
+      )
+    )
+      return;
+    if (LAZY_PANEL_VIEWS.has(next))
+      setMountedPanels((current) => {
+        if (current.has(next)) return current;
+        const updated = new Set(current);
+        updated.add(next);
+        return updated;
+      });
+    setView(next);
   };
   const closeTour = () => {
     try {
@@ -678,6 +745,7 @@ export function App() {
       runActive={runPanelActive}
       liveActive={livePanelActive}
       teachVoiceActive={teachVoiceActive}
+      workspaceVoiceActive={workspaceVoiceActive}
       onCreate={() => {
         setNotice(null);
         setCreateOpen(true);
@@ -709,12 +777,16 @@ export function App() {
           onCreate={() => setCreateOpen(true)}
           onTour={() => setTourOpen(true)}
         />
-        <ReleaseControls
-          visible={view === "setup"}
-          coreReady={status.state === "ready"}
-          runActive={workspaceCaptureActive}
-          onResetComplete={handleResetComplete}
-        />
+        {mountedPanels.has("setup") ? (
+          <Suspense fallback={<PanelLoading label="setup" />}>
+            <LazyReleaseControls
+              visible={view === "setup"}
+              coreReady={status.state === "ready"}
+              runActive={workspaceCaptureActive}
+              onResetComplete={handleResetComplete}
+            />
+          </Suspense>
+        ) : null}
         <details className="core-details">
           <summary>Core health & troubleshooting</summary>
           <section className="status-grid" aria-labelledby="status-title">
@@ -779,7 +851,13 @@ export function App() {
           </div>
         ) : (
           <>
-            <div className="page-heading">
+            <div
+              className={
+                view === "presentation-workspace"
+                  ? "page-heading pw-page-heading"
+                  : "page-heading"
+              }
+            >
               <p className="eyebrow">
                 {selectedProject.storage_status === "ready" &&
                 selectedProject.privacy_mode === "local_only"
@@ -801,6 +879,33 @@ export function App() {
                 sourceCount={sources.length}
                 onNavigate={navigate}
               />
+            </div>
+            <div
+              hidden={view !== "presentation-workspace"}
+              className="presentation-workspace-host"
+            >
+              {mountedPanels.has("presentation-workspace") ? (
+                <Suspense
+                  fallback={<PanelLoading label="Presentation Workspace" />}
+                >
+                  <LazyPresentationWorkspace
+                    key={selectedProject.id}
+                    project={selectedProject}
+                    sources={sources}
+                    visible={view === "presentation-workspace"}
+                    onGoToSources={() => navigate("sources")}
+                    onGoToRehearsal={(target) => {
+                      setRehearsalTarget(target);
+                      navigate("run");
+                    }}
+                    onPresentationCreated={async () => {
+                      await loadSources(selectedProject.id);
+                      await loadRetrievalHealth(selectedProject.id);
+                    }}
+                    onVoiceActiveChange={setWorkspaceVoiceActive}
+                  />
+                </Suspense>
+              ) : null}
             </div>
             <div hidden={view !== "project-settings"}>
               <div className="section-heading">
@@ -885,41 +990,58 @@ export function App() {
               </button>
             </div>
             <div hidden={view !== "run"}>
-              {selectedProject.storage_status === "ready" ? (
-                <RunPanel
-                  visible={view === "run"}
-                  project={selectedProject}
-                  blocked={livePanelActive || teachVoiceActive}
-                  onActiveChange={setRunPanelActive}
-                />
+              {mountedPanels.has("run") &&
+              selectedProject.storage_status === "ready" ? (
+                <Suspense fallback={<PanelLoading label="Run" />}>
+                  <LazyRunPanel
+                    visible={view === "run"}
+                    project={selectedProject}
+                    rehearsalTarget={
+                      rehearsalTarget?.projectId === selectedProject.id
+                        ? rehearsalTarget
+                        : null
+                    }
+                    blocked={livePanelActive || teachVoiceActive}
+                    onActiveChange={setRunPanelActive}
+                  />
+                </Suspense>
               ) : null}
             </div>
             <div hidden={view !== "live"}>
-              {selectedProject.storage_status === "ready" ? (
-                <LiveAssistPanel
-                  visible={view === "live"}
-                  project={selectedProject}
-                  blocked={runPanelActive || teachVoiceActive}
-                  onActiveChange={setLivePanelActive}
-                />
+              {mountedPanels.has("live") &&
+              selectedProject.storage_status === "ready" ? (
+                <Suspense fallback={<PanelLoading label="Live Assist" />}>
+                  <LazyLiveAssistPanel
+                    visible={view === "live"}
+                    project={selectedProject}
+                    blocked={runPanelActive || teachVoiceActive}
+                    onActiveChange={setLivePanelActive}
+                  />
+                </Suspense>
               ) : null}
             </div>
             <div hidden={view !== "teach"}>
-              {selectedProject.storage_status === "ready" ? (
-                <TeachPanel
-                  project={selectedProject}
-                  captureActive={runActive}
-                  onVoiceActiveChange={setTeachVoiceActive}
-                />
+              {mountedPanels.has("teach") &&
+              selectedProject.storage_status === "ready" ? (
+                <Suspense fallback={<PanelLoading label="Teach" />}>
+                  <LazyTeachPanel
+                    project={selectedProject}
+                    captureActive={runActive}
+                    onVoiceActiveChange={setTeachVoiceActive}
+                  />
+                </Suspense>
               ) : null}
             </div>
             <div hidden={view !== "challenge"}>
-              {selectedProject.storage_status === "ready" ? (
-                <ChallengePanel
-                  project={selectedProject}
-                  refreshToken={audienceRefreshToken}
-                  captureActive={workspaceCaptureActive}
-                />
+              {mountedPanels.has("challenge") &&
+              selectedProject.storage_status === "ready" ? (
+                <Suspense fallback={<PanelLoading label="Challenge" />}>
+                  <LazyChallengePanel
+                    project={selectedProject}
+                    refreshToken={audienceRefreshToken}
+                    captureActive={workspaceCaptureActive}
+                  />
+                </Suspense>
               ) : null}
             </div>
             <div hidden={view !== "sources"}>
@@ -1079,12 +1201,15 @@ export function App() {
               ) : null}
             </div>
             <div hidden={view !== "audience"}>
-              {selectedProject.storage_status === "ready" ? (
-                <AudiencePanel
-                  project={selectedProject}
-                  refreshToken={audienceRefreshToken}
-                  onAudienceChange={refreshAudiencePanels}
-                />
+              {mountedPanels.has("audience") &&
+              selectedProject.storage_status === "ready" ? (
+                <Suspense fallback={<PanelLoading label="Audience" />}>
+                  <LazyAudiencePanel
+                    project={selectedProject}
+                    refreshToken={audienceRefreshToken}
+                    onAudienceChange={refreshAudiencePanels}
+                  />
+                </Suspense>
               ) : null}
             </div>
             {import.meta.env.DEV && view === "project-settings" ? (

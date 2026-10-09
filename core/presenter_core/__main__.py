@@ -12,6 +12,7 @@ from presenter_core.asr.adapters import (
 )
 from presenter_core.asr.audio import DeterministicFakeAudioInput
 from presenter_core.asr.interfaces import ASRAdapter, AudioInputAdapter
+from presenter_core.decisions.models import DecisionProvider
 from presenter_core.ipc.core import CoreService
 from presenter_core.ipc.server import SidecarServer
 from presenter_core.providers.fake import DeterministicFakeReasoningProvider
@@ -37,6 +38,17 @@ def _explicit_developer_provider() -> ReasoningProvider | None:
     return None
 
 
+def _explicit_developer_decision() -> DecisionProvider | None:
+    if (
+        os.environ.get("PRESENTER_COPILOT_DEV_MODE") == "1"
+        and os.environ.get("PRESENTER_COPILOT_TEST_DECISION") == "deterministic_fake"
+    ):
+        from presenter_core.decisions.fake import FixtureDecisionProvider
+
+        return FixtureDecisionProvider()
+    return None
+
+
 def _explicit_developer_asr() -> tuple[AudioInputAdapter | None, dict[str, ASRAdapter] | None]:
     """Return fixture capture only for an explicit disposable UI smoke run."""
     if (
@@ -59,12 +71,25 @@ def main() -> int:
             stdin.reconfigure(encoding="utf-8", errors="replace")
         if isinstance(stdout, TextIOWrapper):
             stdout.reconfigure(encoding="utf-8", errors="strict", newline="\n")
+        if sys.argv[1:] == ["--native-pdf-export"]:
+            from presenter_core.presentation.native_pdf import run_pdf_worker
+
+            return run_pdf_worker(stdin, stdout)
+        if sys.argv[1:] == ["--native-preview-export"]:
+            from presenter_core.presentation.native_preview import run_preview_worker
+
+            return run_preview_worker(stdin, stdout)
+        if sys.argv[1:] == ["--native-layers-export"]:
+            from presenter_core.presentation.native_layers import run_layers_worker
+
+            return run_layers_worker(stdin, stdout)
         audio_input, asr_adapters = _explicit_developer_asr()
         return SidecarServer(
             stdin,
             stdout,
             core=CoreService(
                 reasoning_provider=_explicit_developer_provider(),
+                decision_provider=_explicit_developer_decision(),
                 audio_input=audio_input,
                 asr_adapters=asr_adapters,
             ),

@@ -63,8 +63,20 @@ class PptxParser:
     @staticmethod
     def _visible_text(slide: Any) -> str:
         parts: list[str] = []
-        for shape in slide.shapes:
+        pending = [(shape, 0) for shape in reversed(list(slide.shapes))]
+        visited = 0
+        while pending:
+            shape, depth = pending.pop()
+            visited += 1
+            if visited > 100_000 or depth > 32:
+                raise CoreDomainError(
+                    "SOURCE_PARSE_FAILED",
+                    "The slide exceeds supported group nesting or object limits.",
+                )
             try:
+                if hasattr(shape, "shapes"):
+                    pending.extend((child, depth + 1) for child in reversed(list(shape.shapes)))
+                    continue
                 if shape.has_text_frame:
                     value = normalize_text(shape.text)
                     if value:
@@ -75,7 +87,13 @@ class PptxParser:
                         for row in shape.table.rows
                     ]
                     parts.extend(row for row in rows if row.strip())
-            except (AttributeError, ValueError):
+                elif shape.has_chart:
+                    from presenter_core.presentation.charts import read_chart, summary
+
+                    data = read_chart(shape.chart._chartSpace)
+                    if data is not None:
+                        parts.append(summary(data))
+            except (AttributeError, ValueError, KeyError):
                 continue
         return "\n".join(parts)
 

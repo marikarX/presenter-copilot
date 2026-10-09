@@ -31,12 +31,14 @@ class SessionService:
         app_cleanup: Callable[[str, str], None] | None = None,
         active_run_cleanup: ActiveRunCleanup | None = None,
         active_run_owner: ActiveRunOwner | None = None,
+        before_delete: Callable[[str, str], None] | None = None,
     ) -> None:
         self._storage = storage
         self._style_context = style_context
         self._app_cleanup = app_cleanup or self._clear_app_session_provenance
         self._active_run_cleanup = active_run_cleanup
         self._active_run_owner = active_run_owner
+        self._before_delete = before_delete
 
     def start(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
@@ -48,6 +50,7 @@ class SessionService:
                 "privacy_mode",
                 "provider_id",
                 "current_slide_start",
+                "expected_presentation_revision_id",
             },
         )
         project_id = self._project_id(params)
@@ -74,6 +77,55 @@ class SessionService:
                     "A session cannot grant broader privacy authority than its project.",
                     details={"project_privacy_mode": privacy_mode},
                 )
+            presentation_revision_id: str | None = None
+            current_presentation_id = project["current_presentation_id"]
+            if current_presentation_id is not None:
+                presentation_document = connection.execute(
+                    "SELECT kind, local_snapshot_path FROM documents "
+                    "WHERE id = ? AND project_id = ?",
+                    (current_presentation_id, project_id),
+                ).fetchone()
+            else:
+                presentation_document = None
+            if (
+                presentation_document is not None
+                and presentation_document["kind"] == "presentation"
+            ):
+                presentation_revision = connection.execute(
+                    """
+                    SELECT h.revision_id
+                    FROM documents d
+                    JOIN presentation_revision_heads h ON h.presentation_id = d.id
+                    JOIN presentation_revisions r
+                        ON r.id = h.revision_id AND r.presentation_id = h.presentation_id
+                    WHERE d.id = ? AND d.project_id = ? AND d.kind = 'presentation'
+                    """,
+                    (current_presentation_id, project_id),
+                ).fetchone()
+                if (
+                    presentation_revision is None
+                    and presentation_document["local_snapshot_path"] is not None
+                ):
+                    raise CoreDomainError(
+                        "PRESENTATION_REVISION_STATE_INVALID",
+                        "The selected presentation has no current revision.",
+                        retryable=True,
+                    )
+                if presentation_revision is not None:
+                    presentation_revision_id = str(presentation_revision["revision_id"])
+            expected_revision = params.get("expected_presentation_revision_id")
+            if expected_revision is not None:
+                if not isinstance(expected_revision, str) or mode != "run":
+                    raise invalid_request(
+                        "An expected presentation revision is supported only for Run.",
+                        field="expected_presentation_revision_id",
+                    )
+                if expected_revision != presentation_revision_id:
+                    raise CoreDomainError(
+                        "PRESENTATION_REVISION_CONFLICT",
+                        "The presentation changed. Return to Workspace and choose Rehearse again.",
+                        retryable=True,
+                    )
             self._validate_enum(style_policy, STYLE_POLICIES, "style_policy")
             self._validate_enum(privacy_mode, PRIVACY_MODES, "privacy_mode")
             provider_id = params.get("provider_id")
@@ -96,8 +148,9 @@ class SessionService:
                 """
                 INSERT INTO sessions (
                     id, project_id, mode, started_at, ended_at, style_policy,
-                    privacy_mode, provider_id, current_slide_start, status, teach_state
-                ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'active', 'ready_for_prompt')
+                    privacy_mode, provider_id, current_slide_start,
+                    presentation_revision_id, status, teach_state
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'active', 'ready_for_prompt')
                 """,
                 (
                     session_id,
@@ -108,6 +161,7 @@ class SessionService:
                     privacy_mode,
                     provider_id.strip() if isinstance(provider_id, str) else None,
                     current_slide_start,
+                    presentation_revision_id,
                 ),
             )
             connection.commit()
@@ -267,6 +321,10 @@ class SessionService:
         # a project-side failure then leaves a retryable, still-present session.
         with self._storage.project_database(project_id) as connection:
             row = self._session_row(connection, project_id, session_id)
+        # General resource owners include jobs attached to ended Runs. Cross
+        # their cleanup boundary after validation and outside any DB transaction.
+        if self._before_delete is not None:
+            self._before_delete(project_id, session_id)
         owner = self._active_run_owner() if self._active_run_owner is not None else None
         active_run_cleanup = self._active_run_cleanup
         if active_run_cleanup is not None:
@@ -399,6 +457,7 @@ class SessionService:
             "privacy_mode": row["privacy_mode"],
             "provider_id": row["provider_id"],
             "current_slide_start": row["current_slide_start"],
+            "presentation_revision_id": row["presentation_revision_id"],
             "status": row["status"],
             "teach_state": row["teach_state"],
         }

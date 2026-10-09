@@ -35,8 +35,8 @@ EventSink = Callable[[str, dict[str, Any]], None]
 ASRStop = Callable[[dict[str, Any]], dict[str, Any]]
 ASROwner = Callable[[], tuple[str, str] | None]
 
-DEBRIEF_ALGORITHM_VERSION = "m6-deterministic-v1"
-MARKER_TYPES = frozenset({"question", "weak_point", "note"})
+DEBRIEF_ALGORITHM_VERSION = "m6-deterministic-v2"
+MARKER_TYPES = frozenset({"question", "weak_point", "note", "objection"})
 _NUMERIC_OR_FACTUAL_PATTERN = re.compile(
     r"(?:\b(?:rto|cost|price|percent|percentage|year|years|minute|minutes|hour|hours|sla|availability)\b|\d|[$€£%])",
     re.IGNORECASE,
@@ -600,7 +600,7 @@ class RunService:
         best_explanations: list[dict[str, Any]] = []
         for index, row in enumerate(utterances):
             self._emit_progress(session_id, "retrieve", index, len(utterances))
-            query_result = self._retrieve_for_debrief(project_id, row)
+            query_result = self._retrieve_for_debrief(project_id, session_id, row)
             hits = query_result.get("hits", [])
             conflicts = query_result.get("conflicts", [])
             if not isinstance(hits, list):
@@ -716,7 +716,9 @@ class RunService:
     def close(self) -> None:
         return
 
-    def _retrieve_for_debrief(self, project_id: str, row: sqlite3.Row) -> dict[str, Any]:
+    def _retrieve_for_debrief(
+        self, project_id: str, session_id: str, row: sqlite3.Row
+    ) -> dict[str, Any]:
         try:
             params: dict[str, Any] = {
                 "project_id": project_id,
@@ -725,6 +727,13 @@ class RunService:
                 "allow_private": True,
                 "usage": "rehearsal",
             }
+            with self._storage.project_database(project_id) as connection:
+                session = connection.execute(
+                    "SELECT presentation_revision_id FROM sessions WHERE id = ? AND project_id = ?",
+                    (session_id, project_id),
+                ).fetchone()
+            if session is not None and session["presentation_revision_id"] is not None:
+                params["presentation_revision_id"] = str(session["presentation_revision_id"])
             if row["slide_ordinal"] is not None:
                 params["current_slide"] = int(row["slide_ordinal"])
             return self._retrieval.query(params)
@@ -877,6 +886,8 @@ class RunService:
             note = str(marker.get("note") or "").strip()
             if marker_type == "question":
                 text = f"How would you answer the marked question{location}?"
+            elif marker_type == "objection":
+                text = f"How would you respond to the marked objection{location}?"
             elif marker_type == "weak_point":
                 text = f"How would you strengthen this weak point{location}?"
             else:

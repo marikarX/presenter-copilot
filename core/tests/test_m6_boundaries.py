@@ -308,6 +308,8 @@ def test_asr_status_surfaces_silent_capture_without_exposing_pcm(tmp_path: Path)
 
 
 def test_native_sounddevice_callback_reaches_vad_and_durable_final(tmp_path: Path) -> None:
+    partial_seen = threading.Event()
+
     class FakeStream:
         def __init__(self, **kwargs: Any) -> None:
             self.kwargs = kwargs
@@ -317,9 +319,13 @@ def test_native_sounddevice_callback_reaches_vad_and_durable_final(tmp_path: Pat
             self.started = True
             loud = np.full(882, 0.1, dtype=np.float32)
             quiet = np.zeros(882, dtype=np.float32)
-            for frame in [loud] * 8 + [quiet] * 31:
+            for index, frame in enumerate([loud] * 8 + [quiet] * 31):
                 stereo = np.column_stack((frame * 0.5, frame))
                 self.kwargs["callback"](stereo, 882, None, None)
+                if index == 25:
+                    # Model real callback pacing long enough for the optional
+                    # partial decoder to run before the final audio arrives.
+                    partial_seen.wait(timeout=2.0)
 
         def stop(self) -> None:
             self.started = False
@@ -351,6 +357,8 @@ def test_native_sounddevice_callback_reaches_vad_and_durable_final(tmp_path: Pat
     def on_event(envelope: dict[str, Any]) -> None:
         event = str(envelope["event"])
         events.append((event, dict(envelope["payload"])))
+        if event == "asr.partial":
+            partial_seen.set()
         if event == "asr.final":
             final_seen.set()
 
@@ -371,6 +379,8 @@ def test_native_sounddevice_callback_reaches_vad_and_durable_final(tmp_path: Pat
         assert final_seen.wait(5.0)
         assert [event for event, _payload in events].count("asr.final") == 1
         assert any(event == "asr.partial" for event, _payload in events)
+        final_payload = next(payload for event, payload in events if event == "asr.final")
+        assert final_payload["start_ms"] == 0
         transcript = call(
             core,
             "run.list_transcript",

@@ -13,6 +13,16 @@ segment contains prompt-injection-shaped text; it must remain inert source
 text. The audience goldens use ordinal evidence references rather than
 wall-clock UUIDs.
 
+Slide 2 uses the built-in Section Header layout so tests can verify layout
+reuse and applying another slide's layout to an existing slide. Slide 1
+includes a named top-level rectangle and a generated synthetic picture used to
+exercise geometry editing, object duplication, and deletion. The fixture
+supports checks for slide reordering, move/resize bounds, shape/picture
+duplication, deletion revisions, stable IDs, and revision preservation; it
+does not represent broad Office-object compatibility.
+Slide 1's title uses a deliberately unavailable typeface so desktop preview
+smoke coverage verifies local font substitution and its user-facing notice.
+
 Regenerate the binary/text assets deterministically from the repository root:
 
 ```text

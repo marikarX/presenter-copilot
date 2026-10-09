@@ -60,6 +60,111 @@ export const CORE_METHODS = [
   "presentation.next_slide",
   "presentation.previous_slide",
   "presentation.status",
+  "presentation.workspace.create_from_outline",
+  "presentation.workspace.propose_outline",
+  "presentation.workspace.get_outline_session",
+  "presentation.workspace.save_outline_session",
+  "presentation.workspace.clear_outline_session",
+  "presentation.workspace.select_for_rehearsal",
+  "presentation.workspace.list_rehearsal_findings",
+  "presentation.workspace.compare_rehearsals",
+  "presentation.workspace.rehearsal_coverage",
+  "presentation.workspace.recurring_objections",
+  "presentation.workspace.reject_rehearsal_finding",
+  "presentation.workspace.apply_rehearsal_edit",
+
+  "presentation.workspace.open_source",
+  "presentation.workspace.read_source",
+  "presentation.workspace.close_source",
+  "presentation.workspace.list_revisions",
+  "presentation.workspace.list_checkpoints",
+  "presentation.workspace.save_checkpoint",
+  "presentation.workspace.clear_checkpoint",
+  "presentation.workspace.list_text_targets",
+  "presentation.workspace.voice_start",
+  "presentation.workspace.voice_stop",
+  "presentation.workspace.voice_cancel",
+  "presentation.workspace.classify_slide",
+  "presentation.workspace.triage_claim_evidence",
+  "presentation.workspace.review_deck_semantics",
+  "presentation.workspace.propose_narrative",
+  "presentation.workspace.get_slide_takeaway",
+  "presentation.workspace.save_slide_takeaway",
+  "presentation.workspace.get_narrative",
+  "presentation.workspace.save_narrative",
+  "presentation.workspace.list_slide_purposes",
+  "presentation.workspace.list_claims",
+  "presentation.workspace.list_outline_evidence_candidates",
+  "presentation.workspace.prepare_rehearsal_coverage_review",
+  "presentation.workspace.prepare_rehearsal_objections_review",
+  "presentation.workspace.start_rehearsal_objections_analysis",
+  "presentation.workspace.get_rehearsal_objections_analysis",
+  "presentation.workspace.list_rehearsal_objections_analyses",
+  "presentation.workspace.list_rehearsal_review_sessions",
+  "presentation.workspace.list_rehearsal_review_messages",
+  "presentation.workspace.list_rehearsal_review_slides",
+  "presentation.workspace.list_rehearsal_analyses",
+  "presentation.workspace.get_rehearsal_analysis",
+  "presentation.workspace.analyze_rehearsal_coverage",
+  "presentation.workspace.start_rehearsal_analysis",
+  "presentation.workspace.poll_rehearsal_analysis",
+  "presentation.workspace.cancel_rehearsal_analysis",
+  "presentation.workspace.extract_claims",
+  "presentation.workspace.prepare_claim_scan",
+  "presentation.workspace.save_claim",
+  "presentation.workspace.remove_claim",
+  "presentation.workspace.search_claim_evidence",
+
+  "presentation.workspace.save_slide_purpose",
+  "presentation.workspace.propose_text_rewrite",
+  "presentation.workspace.propose_edit_plan",
+  "presentation.workspace.prepare_edit_plan",
+  "presentation.workspace.open_edit_plan_preview",
+  "presentation.workspace.apply_edit_plan",
+  "presentation.workspace.reject_edit_plan",
+  "presentation.workspace.replace_text_shape",
+  "presentation.workspace.replace_single_run_text",
+  "presentation.workspace.format_single_run_text",
+  "presentation.workspace.format_text_shape",
+  "presentation.workspace.format_shape_style",
+  "presentation.workspace.replace_speaker_notes",
+  "presentation.workspace.transform_object",
+  "presentation.workspace.crop_picture",
+  "presentation.workspace.replace_picture_image",
+  "presentation.workspace.reorder_slides",
+  "presentation.workspace.list_native_layouts",
+  "presentation.workspace.apply_slide_layout",
+  "presentation.workspace.create_slide",
+  "presentation.workspace.duplicate_slide",
+  "presentation.workspace.create_text_box",
+  "presentation.workspace.create_picture",
+  "presentation.workspace.create_shape",
+  "presentation.workspace.list_diagrams",
+  "presentation.workspace.create_diagram",
+  "presentation.workspace.replace_diagram",
+  "presentation.workspace.delete_diagram",
+  "presentation.workspace.list_text_fit_targets",
+  "presentation.workspace.list_tables",
+  "presentation.workspace.create_table",
+  "presentation.workspace.create_chart",
+  "presentation.workspace.list_charts",
+  "presentation.workspace.list_shape_fills",
+  "presentation.workspace.replace_chart_data",
+  "presentation.workspace.replace_table_cells",
+  "presentation.workspace.delete_slide",
+  "presentation.workspace.import_project_picture",
+  "presentation.workspace.list_project_pictures",
+  "presentation.workspace.read_project_picture",
+  "presentation.workspace.delete_project_picture",
+  "presentation.workspace.list_picture_assets",
+  "presentation.workspace.read_picture_asset",
+  "presentation.workspace.change_object_layer",
+  "presentation.workspace.delete_object",
+  "presentation.workspace.duplicate_object",
+  "presentation.workspace.restore_revision",
+  "presentation.workspace.step_revision",
+  "presentation.workspace.export_original_copy",
+  "presentation.workspace.export_current_copy",
   "run.mark_event",
   "run.generate_debrief",
   "run.get_state",
@@ -94,8 +199,19 @@ export const CORE_METHODS = [
   "provider.codex.sign_in",
   "provider.codex.status",
   "provider.codex.sign_out",
+  "provider.chatgpt_plan.sign_in",
+  "provider.chatgpt_plan.status",
+  "provider.chatgpt_plan.select",
+  "provider.chatgpt_plan.cancel",
+  "provider.chatgpt_plan.sign_out",
+  "provider.chatgpt_plan.models",
   "provider.list",
   "provider.configure",
+  "provider.decision.status",
+  "provider.decision.configure",
+  "provider.decision.credentials.status",
+  "provider.decision.credentials.save_detected",
+  "provider.decision.credentials.remove",
   "provider.test",
   "provider.status",
   "provider.credentials.status",
@@ -200,6 +316,109 @@ export const RENDERER_CORE_METHODS = [
   "presentation.next_slide",
   "presentation.previous_slide",
   "presentation.status",
+  "presentation.workspace.create_from_outline",
+  "presentation.workspace.propose_outline",
+  "presentation.workspace.get_outline_session",
+  "presentation.workspace.save_outline_session",
+  "presentation.workspace.clear_outline_session",
+  "presentation.workspace.select_for_rehearsal",
+  "presentation.workspace.list_rehearsal_findings",
+  "presentation.workspace.compare_rehearsals",
+  "presentation.workspace.rehearsal_coverage",
+  "presentation.workspace.recurring_objections",
+  "presentation.workspace.reject_rehearsal_finding",
+  "presentation.workspace.apply_rehearsal_edit",
+
+  "presentation.workspace.open_source",
+  "presentation.workspace.read_source",
+  "presentation.workspace.close_source",
+  "presentation.workspace.list_revisions",
+  "presentation.workspace.list_checkpoints",
+  "presentation.workspace.save_checkpoint",
+  "presentation.workspace.clear_checkpoint",
+  "presentation.workspace.list_text_targets",
+  "presentation.workspace.voice_start",
+  "presentation.workspace.voice_stop",
+  "presentation.workspace.voice_cancel",
+  "presentation.workspace.classify_slide",
+  "presentation.workspace.triage_claim_evidence",
+  "presentation.workspace.review_deck_semantics",
+  "presentation.workspace.propose_narrative",
+  "presentation.workspace.get_slide_takeaway",
+  "presentation.workspace.save_slide_takeaway",
+  "presentation.workspace.get_narrative",
+  "presentation.workspace.save_narrative",
+  "presentation.workspace.list_slide_purposes",
+  "presentation.workspace.list_claims",
+  "presentation.workspace.list_outline_evidence_candidates",
+  "presentation.workspace.prepare_rehearsal_coverage_review",
+  "presentation.workspace.prepare_rehearsal_objections_review",
+  "presentation.workspace.start_rehearsal_objections_analysis",
+  "presentation.workspace.get_rehearsal_objections_analysis",
+  "presentation.workspace.list_rehearsal_objections_analyses",
+  "presentation.workspace.list_rehearsal_review_sessions",
+  "presentation.workspace.list_rehearsal_review_messages",
+  "presentation.workspace.list_rehearsal_review_slides",
+  "presentation.workspace.list_rehearsal_analyses",
+  "presentation.workspace.get_rehearsal_analysis",
+  "presentation.workspace.analyze_rehearsal_coverage",
+  "presentation.workspace.start_rehearsal_analysis",
+  "presentation.workspace.poll_rehearsal_analysis",
+  "presentation.workspace.cancel_rehearsal_analysis",
+  "presentation.workspace.extract_claims",
+  "presentation.workspace.prepare_claim_scan",
+  "presentation.workspace.save_claim",
+  "presentation.workspace.remove_claim",
+  "presentation.workspace.search_claim_evidence",
+
+  "presentation.workspace.save_slide_purpose",
+  "presentation.workspace.propose_text_rewrite",
+  "presentation.workspace.propose_edit_plan",
+  "presentation.workspace.prepare_edit_plan",
+  "presentation.workspace.open_edit_plan_preview",
+  "presentation.workspace.apply_edit_plan",
+  "presentation.workspace.reject_edit_plan",
+  "presentation.workspace.replace_text_shape",
+  "presentation.workspace.replace_single_run_text",
+  "presentation.workspace.format_single_run_text",
+  "presentation.workspace.format_text_shape",
+  "presentation.workspace.format_shape_style",
+  "presentation.workspace.replace_speaker_notes",
+  "presentation.workspace.transform_object",
+  "presentation.workspace.crop_picture",
+  "presentation.workspace.replace_picture_image",
+  "presentation.workspace.reorder_slides",
+  "presentation.workspace.list_native_layouts",
+  "presentation.workspace.apply_slide_layout",
+  "presentation.workspace.create_slide",
+  "presentation.workspace.duplicate_slide",
+  "presentation.workspace.create_text_box",
+  "presentation.workspace.create_picture",
+  "presentation.workspace.create_shape",
+  "presentation.workspace.list_diagrams",
+  "presentation.workspace.create_diagram",
+  "presentation.workspace.replace_diagram",
+  "presentation.workspace.delete_diagram",
+  "presentation.workspace.list_text_fit_targets",
+  "presentation.workspace.list_tables",
+  "presentation.workspace.create_table",
+  "presentation.workspace.create_chart",
+  "presentation.workspace.list_charts",
+  "presentation.workspace.list_shape_fills",
+  "presentation.workspace.replace_chart_data",
+  "presentation.workspace.replace_table_cells",
+  "presentation.workspace.delete_slide",
+  "presentation.workspace.import_project_picture",
+  "presentation.workspace.list_project_pictures",
+  "presentation.workspace.read_project_picture",
+  "presentation.workspace.delete_project_picture",
+  "presentation.workspace.list_picture_assets",
+  "presentation.workspace.read_picture_asset",
+  "presentation.workspace.change_object_layer",
+  "presentation.workspace.delete_object",
+  "presentation.workspace.duplicate_object",
+  "presentation.workspace.restore_revision",
+  "presentation.workspace.step_revision",
   "run.mark_event",
   "run.generate_debrief",
   "run.get_state",
@@ -234,8 +453,19 @@ export const RENDERER_CORE_METHODS = [
   "provider.codex.sign_in",
   "provider.codex.status",
   "provider.codex.sign_out",
+  "provider.chatgpt_plan.sign_in",
+  "provider.chatgpt_plan.status",
+  "provider.chatgpt_plan.select",
+  "provider.chatgpt_plan.cancel",
+  "provider.chatgpt_plan.sign_out",
+  "provider.chatgpt_plan.models",
   "provider.list",
   "provider.configure",
+  "provider.decision.status",
+  "provider.decision.configure",
+  "provider.decision.credentials.status",
+  "provider.decision.credentials.save_detected",
+  "provider.decision.credentials.remove",
   "provider.test",
   "provider.status",
   "provider.credentials.status",
@@ -549,6 +779,82 @@ export interface ImportSourceResult {
   status?: string;
 }
 
+export interface PresentationExportResult {
+  saved: true;
+  file_name: string;
+  byte_size: number;
+  sha256: string;
+  copy_kind?: "original" | "current_revision";
+  opened?: boolean;
+}
+
+export interface PresentationPdfResult {
+  saved: true;
+  file_name: string;
+  revision_id: string;
+  source_sha256: string;
+  sha256: string;
+  byte_size: number;
+  page_count: number;
+  include_hidden: boolean;
+  renderer: "microsoft_powerpoint";
+}
+
+export interface NativeAppearanceResult {
+  plan_id?: string;
+  revision_id: string;
+  source_sha256: string;
+  slide_number: number;
+  width: number;
+  height: number;
+  sha256: string;
+  renderer: "microsoft_powerpoint";
+  image: Uint8Array;
+}
+
+export interface NativeLayersResult {
+  revision_id: string;
+  source_sha256: string;
+  document_id: string;
+  slide_number: number;
+  width: number;
+  height: number;
+  renderer: "microsoft_powerpoint";
+  baseline_max_channel_error: number;
+  background: { sha256: string; image: Uint8Array };
+  layers: {
+    object_id: string;
+    ooxml_shape_id: string;
+    visible: boolean;
+    sha256: string;
+    image: Uint8Array;
+  }[];
+}
+
+export interface PresentationPreviewTextCandidate {
+  shape_node_id: string;
+  name: string;
+  text: string;
+}
+
+export interface PresentationPreviewOpenResult {
+  slide_count: number;
+  slide_width: number;
+  slide_height: number;
+  font_substitutions: string[];
+  unresolved_font_families: string[];
+  font_check_limited: boolean;
+}
+
+export interface PresentationPreviewRenderResult {
+  slide_number: number;
+  width: number;
+  height: number;
+  image: Uint8Array;
+  text_candidates: PresentationPreviewTextCandidate[];
+  mock_text_overflows_shape?: boolean | null;
+}
+
 export interface AudienceProfileSummary {
   id: string;
   display_name: string;
@@ -756,6 +1062,7 @@ export interface Session {
   privacy_mode: string;
   provider_id: string | null;
   current_slide_start: number | null;
+  presentation_revision_id: string | null;
   status: "active" | "completed" | "aborted" | "error";
   teach_state: string;
   utterances: number;
@@ -906,7 +1213,8 @@ export interface ASRStatus {
   device: AudioDevice | null;
   capture_state: "stopped" | "running" | "stopping";
   session_id: string | null;
-  session_mode: "teach" | "run" | "live_assist" | null;
+  session_mode:
+    "teach" | "run" | "live_assist" | "presentation_workspace" | null;
   language: string;
   input_signal_state: "unknown" | "silent" | "detected";
   input_frames_received: number;
@@ -930,7 +1238,7 @@ export interface PresentationStatus {
   tracking: "active" | "stopped";
 }
 
-export type RunMarkerType = "question" | "weak_point" | "note";
+export type RunMarkerType = "question" | "weak_point" | "note" | "objection";
 
 export interface RunMarker {
   id: string;
@@ -1113,6 +1421,21 @@ export interface CodexAuthStatus {
   runtime_version: string | null;
 }
 
+export interface ChatGPTPlanAuthAccount {
+  account_id: string;
+  email: string | null;
+  connected: boolean;
+  active: boolean;
+}
+
+export interface ChatGPTPlanAuthStatus {
+  state: "signed_out" | "signing_in" | "signed_in" | "error";
+  error_code: string | null;
+  credential_store_available: boolean;
+  active_account_id: string | null;
+  accounts: ChatGPTPlanAuthAccount[];
+}
+
 export interface ProviderStatus {
   provider_id: string;
   enabled: boolean;
@@ -1196,8 +1519,11 @@ export interface ResetLocalDataResult {
   model_cache_retained: boolean;
   credentials_removed: boolean;
   stored_credential_present: boolean;
+  stored_openai_credential_present: boolean;
+  stored_decision_credential_present: boolean;
   credential_cleanup_established: boolean;
   environment_credential_detected: boolean;
+  environment_decision_credential_detected: boolean;
   environment_credential_retained: true;
 }
 
@@ -1216,6 +1542,7 @@ export interface ContextManifest {
   privacy_mode?: string;
   classes_sent?: string[];
   source_ids?: string[];
+  presentation_revision_ids?: string[];
   knowledge_item_ids?: string[];
   speaker_evidence_ids?: string[];
   audience_profile_ids?: string[];
@@ -1254,6 +1581,73 @@ export interface PrivacyContextManifestResult {
   has_more: boolean;
 }
 
+export const ACTIVE_TYPED_DECISION_PROVIDER_IDS = [
+  "local_choice",
+  "openai_fast",
+  "openai_ultrafast",
+  "openai_decisions",
+  "openrouter_jev",
+  "ollama_systemone",
+  "openai_chatgpt_plan",
+] as const;
+
+export type ActiveTypedDecisionProviderId =
+  (typeof ACTIVE_TYPED_DECISION_PROVIDER_IDS)[number];
+export type TypedDecisionProviderId =
+  "disabled" | ActiveTypedDecisionProviderId;
+
+export function isActiveTypedDecisionProviderId(
+  value: unknown,
+): value is ActiveTypedDecisionProviderId {
+  return (
+    typeof value === "string" &&
+    (ACTIVE_TYPED_DECISION_PROVIDER_IDS as readonly string[]).includes(value)
+  );
+}
+
+export interface TypedDecisionModelOption {
+  model_id: string;
+  label: string;
+}
+
+export interface TypedDecisionProviderOption {
+  provider_id: Exclude<TypedDecisionProviderId, "disabled">;
+  label: string;
+  model_id: string;
+  configured: boolean;
+  leaves_machine: boolean;
+  credential_source?: string;
+  model_options?: TypedDecisionModelOption[];
+}
+
+export interface TypedDecisionProviderStatus {
+  selected_provider_id: TypedDecisionProviderId | string;
+  ollama_model_id?: string;
+  chatgpt_plan_model_id?: string;
+  providers: TypedDecisionProviderOption[];
+}
+
+export interface DecisionCredentialStatus {
+  provider_id: "openrouter_jev";
+  configured: boolean;
+  credential_source: string;
+  secure_store_available: boolean;
+  environment_detected: boolean;
+}
+
+export interface SlidePurposeDecisionResult {
+  provider_run_id: string;
+  revision_id: string;
+  slide_number: number;
+  purpose: string;
+  confidence: number | null;
+  probabilities: Record<string, number> | null;
+  provider_id: ActiveTypedDecisionProviderId;
+  model_id: string;
+  latency_ms: number;
+  requires_user_review: true;
+}
+
 export interface HealthResult {
   status: "ok";
   ready: true;
@@ -1288,6 +1682,58 @@ export interface PresenterCopilotApi {
       projectId: string,
       kind?: "presentation" | "supporting" | "transcript",
     ): Promise<InvokeResult<ImportSourceResult>>;
+  };
+  presentation: {
+    nativeAppearance(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      sourceSha256: string,
+      slideNumber: number,
+    ): Promise<InvokeResult<NativeAppearanceResult>>;
+    nativeLayers(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      sourceSha256: string,
+      slideNumber: number,
+    ): Promise<InvokeResult<NativeLayersResult>>;
+    nativeEditPlanAppearance(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      planId: string,
+      sourceSha256: string,
+      slideNumber: number,
+    ): Promise<InvokeResult<NativeAppearanceResult>>;
+    savePdf(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      includeHidden: boolean,
+    ): Promise<InvokeResult<PresentationPdfResult | { cancelled: true }>>;
+    saveUnchangedCopy(
+      projectId: string,
+      documentId: string,
+    ): Promise<InvokeResult<PresentationExportResult | { cancelled: true }>>;
+    saveCurrentCopy(
+      projectId: string,
+      documentId: string,
+      openAfterSave?: boolean,
+    ): Promise<InvokeResult<PresentationExportResult | { cancelled: true }>>;
+  };
+  presentationPreview: {
+    open(
+      buffer: ArrayBuffer,
+    ): Promise<InvokeResult<PresentationPreviewOpenResult>>;
+    render(
+      slideNumber: number,
+      mockText?: { shapeNodeId: string; text: string },
+    ): Promise<InvokeResult<PresentationPreviewRenderResult>>;
+    close(): Promise<InvokeResult<{ closed: true }>>;
+  };
+  chatgptPlan: {
+    openUsageSettings(): Promise<InvokeResult<{ opened: true }>>;
   };
   diagnostics: {
     preview(

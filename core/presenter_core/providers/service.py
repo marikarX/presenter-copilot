@@ -2,22 +2,41 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 from collections.abc import Callable
 from typing import Any
 
 from presenter_core.credentials import (
+    ChatGPTPlanCredentialStore,
     CredentialStore,
     CredentialStoreUnavailable,
+    OpenRouterCredentialStore,
     WindowsCredentialStore,
     credential_source,
     resolve_openai_credential,
+    resolve_openrouter_credential,
 )
+from presenter_core.decisions import (
+    DecisionProvider,
+    JevDecisionProvider,
+    LocalChoiceDecisionProvider,
+    OllamaSystemOneDecisionProvider,
+    OpenAIChatGPTPlanDecisionProvider,
+    OpenAIDecisionsProvider,
+    OpenAIFastDecisionProvider,
+    OpenAIUltrafastDecisionProvider,
+)
+from presenter_core.decisions.jev import DEFAULT_JEV_MODEL
+from presenter_core.decisions.ollama import DEFAULT_OLLAMA_MODEL, OLLAMA_MODEL_IDS
+from presenter_core.decisions.openai_decisions import DEFAULT_OPENAI_DECISIONS_MODEL
+from presenter_core.decisions.openai_fast import DEFAULT_OPENAI_ULTRAFAST_DECISION_MODEL
 from presenter_core.errors import invalid_request, reject_unknown_fields
 from presenter_core.project.service import utc_now
 from presenter_core.storage.service import StorageManager
 
+from .chatgpt_plan_auth import ChatGPTPlanAuthService
 from .codex import CodexReasoningProvider
 from .codex_policy import CODEX_MODEL
 from .local import LocalReasoningProvider, validate_endpoint
@@ -43,12 +62,21 @@ class ProviderService:
         provider: ReasoningProvider | None = None,
         event_sink: EventSink | None = None,
         credential_store: CredentialStore | None = None,
+        decision_credential_store: CredentialStore | None = None,
+        chatgpt_plan_store: Any | None = None,
     ) -> None:
         self._storage = storage
         self._injected_provider = provider
         self._credential_store = credential_store or WindowsCredentialStore()
+        self._decision_credential_store = decision_credential_store or OpenRouterCredentialStore()
+        self._chatgpt_plan_auth = ChatGPTPlanAuthService(
+            storage.paths.root,
+            chatgpt_plan_store or ChatGPTPlanCredentialStore(storage.paths.root),
+        )
         self._openai_instance: OpenAIReasoningProvider | None = None
         self._local_instance: LocalReasoningProvider | None = None
+        self._decision_instance: DecisionProvider | None = None
+        self._decision_signature: tuple[str, ...] | None = None
         self._codex = CodexReasoningProvider()
         self._runtime_health: dict[str, ProviderHealth] = {}
         self._event_sink = event_sink
@@ -176,6 +204,31 @@ class ProviderService:
         self._emit_status(self._codex)
         return result
 
+    def chatgpt_plan_auth(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Manage the separate local Sign in with ChatGPT plan connection."""
+        if action == "status":
+            reject_unknown_fields(params, set())
+            return self._chatgpt_plan_auth.status()
+        if action == "sign_in":
+            return self._chatgpt_plan_auth.sign_in(params)
+        if action == "select":
+            return self._chatgpt_plan_auth.select_account(params)
+        if action == "cancel":
+            reject_unknown_fields(params, set())
+            return self._chatgpt_plan_auth.cancel_sign_in()
+        if action == "sign_out":
+            reject_unknown_fields(params, set())
+            self._close_decision_instance("openai_chatgpt_plan")
+            return self._chatgpt_plan_auth.sign_out()
+        raise invalid_request("The ChatGPT plan authentication action is invalid.")
+
+    def chatgpt_plan_status(self) -> dict[str, Any]:
+        """Return only account labels and connection state, never tokens."""
+        return self._chatgpt_plan_auth.status()
+
+    def chatgpt_plan_models(self, *, force_refresh: bool = False) -> builtins.list[dict[str, str]]:
+        return self._chatgpt_plan_auth.model_options(force_refresh=force_refresh)
+
     def credentials_status(self, params: dict[str, Any]) -> dict[str, Any]:
         """Expose only safe credential source/configured metadata."""
         reject_unknown_fields(params, {"provider_id"})
@@ -268,21 +321,25 @@ class ProviderService:
     def prepare_reset_credential_cleanup(self) -> dict[str, Any]:
         """Preflight the OS store before any destructive local-data operation."""
         try:
-            available = self._credential_store.is_available()
+            openai_available = self._credential_store.is_available()
+            decision_available = self._decision_credential_store.is_available()
+            chatgpt_available = self._chatgpt_plan_auth.status()["credential_store_available"]
         except Exception as error:
             raise ProviderError(
                 "CREDENTIAL_STORE_UNAVAILABLE",
                 "A secure operating-system credential store is unavailable.",
                 retryable=True,
             ) from error
-        if not available:
+        if not openai_available or not decision_available or not chatgpt_available:
             raise ProviderError(
                 "CREDENTIAL_STORE_UNAVAILABLE",
                 "A secure operating-system credential store is unavailable.",
                 retryable=True,
             )
         try:
-            stored = self._credential_store.read()
+            stored_openai = self._credential_store.read()
+            stored_decision = self._decision_credential_store.read()
+            stored_chatgpt_plan = self._chatgpt_plan_auth.stored_vault_present()
         except Exception as error:
             raise ProviderError(
                 "CREDENTIAL_STORE_UNAVAILABLE",
@@ -290,25 +347,41 @@ class ProviderService:
                 retryable=True,
             ) from error
         return {
-            "stored_credential_present": bool(stored),
+            "stored_credential_present": bool(
+                stored_openai or stored_decision or stored_chatgpt_plan
+            ),
+            "stored_openai_credential_present": bool(stored_openai),
+            "stored_decision_credential_present": bool(stored_decision),
+            "stored_chatgpt_plan_credential_present": bool(stored_chatgpt_plan),
             "credential_cleanup_established": True,
             "environment_credential_detected": bool(os.environ.get("OPENAI_API_KEY")),
+            "environment_decision_credential_detected": bool(os.environ.get("OPENROUTER_API_KEY")),
             "environment_credential_retained": True,
         }
 
     def remove_stored_credential_for_reset(
         self, plan: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Remove and verify only the OS entry; environment credentials stay external."""
-        del plan
+        """Remove protected credentials; environment credentials stay external."""
         self._codex.sign_out()
         preflight = self.prepare_reset_credential_cleanup()
-        stored_present = bool(preflight["stored_credential_present"])
+        stores = (
+            (
+                self._credential_store,
+                bool(preflight["stored_openai_credential_present"]),
+            ),
+            (
+                self._decision_credential_store,
+                bool(preflight["stored_decision_credential_present"]),
+            ),
+        )
         removed = False
-        if stored_present:
+        for store, stored_present in stores:
+            if not stored_present:
+                continue
             try:
-                self._credential_store.delete()
-                remaining = self._credential_store.read()
+                store.delete()
+                remaining = store.read()
             except Exception as error:
                 raise ProviderError(
                     "CREDENTIAL_CLEANUP_INCOMPLETE",
@@ -322,14 +395,134 @@ class ProviderService:
                     retryable=True,
                 )
             removed = True
+        chatgpt_cleanup = self._chatgpt_plan_auth.clear_for_reset()
+        if (
+            bool(preflight["stored_chatgpt_plan_credential_present"])
+            and not chatgpt_cleanup["removed"]
+        ):
+            # Recovery may run after the file was removed but before the
+            # tombstone recorded completion; verify its absence and treat that
+            # already-completed removal as success.
+            if self._chatgpt_plan_auth.stored_vault_present():
+                raise ProviderError(
+                    "CREDENTIAL_CLEANUP_INCOMPLETE",
+                    "The ChatGPT token vault could not be removed and verified; retry is safe.",
+                    retryable=True,
+                )
+            removed = True
+        removed = removed or bool(plan and plan.get("credential_removed"))
         if self._openai_instance is not None:
             self._openai_instance.close()
+        if self._decision_instance is not None:
+            self._decision_instance.close()
+            self._decision_instance = None
+            self._decision_signature = None
+        self._runtime_health.pop("openai_chatgpt_plan", None)
         self._runtime_health.pop("openai", None)
         self._update_credential_source()
         return {
             **preflight,
             "credentials_removed": removed,
+            "chatgpt_plan_remote_revocation_confirmed": chatgpt_cleanup[
+                "remote_revocation_confirmed"
+            ],
         }
+
+    def decision_provider(
+        self,
+        provider_id: str,
+        *,
+        model_id: str | None = None,
+    ) -> DecisionProvider:
+        """Return a typed decision adapter using current provider settings."""
+        signature: tuple[str, ...]
+        factory: Callable[[], DecisionProvider]
+        if provider_id == "openai_fast":
+            reasoning_provider = self._openai_provider()
+            signature = (provider_id, reasoning_provider.model_id)
+
+            def factory() -> DecisionProvider:
+                return OpenAIFastDecisionProvider(
+                    model_id=reasoning_provider.model_id,
+                    credential_resolver=lambda: resolve_openai_credential(self._credential_store),
+                )
+
+        elif provider_id == "openai_decisions":
+            signature = (provider_id, DEFAULT_OPENAI_DECISIONS_MODEL)
+
+            def factory() -> DecisionProvider:
+                return OpenAIDecisionsProvider(
+                    credential_resolver=lambda: resolve_openai_credential(self._credential_store),
+                )
+
+        elif provider_id == "openai_ultrafast":
+            signature = (provider_id, DEFAULT_OPENAI_ULTRAFAST_DECISION_MODEL)
+
+            def factory() -> DecisionProvider:
+                return OpenAIUltrafastDecisionProvider(
+                    credential_resolver=lambda: resolve_openai_credential(self._credential_store),
+                )
+
+        elif provider_id == "local_choice":
+            reasoning_provider = self._local_provider()
+            signature = (
+                provider_id,
+                reasoning_provider.endpoint,
+                reasoning_provider.model_id,
+            )
+
+            def factory() -> DecisionProvider:
+                return LocalChoiceDecisionProvider(
+                    endpoint=reasoning_provider.endpoint,
+                    model_id=reasoning_provider.model_id,
+                    credential_resolver=lambda: os.environ.get("PRESENTER_LOCAL_API_KEY"),
+                )
+
+        elif provider_id == "openrouter_jev":
+            signature = (provider_id, DEFAULT_JEV_MODEL)
+
+            def factory() -> DecisionProvider:
+                return JevDecisionProvider(
+                    credential_resolver=lambda: resolve_openrouter_credential(
+                        self._decision_credential_store
+                    ),
+                    model_id=DEFAULT_JEV_MODEL,
+                )
+
+        elif provider_id == "ollama_systemone":
+            selected_model_id = DEFAULT_OLLAMA_MODEL if model_id is None else model_id
+            if not isinstance(selected_model_id, str) or selected_model_id not in OLLAMA_MODEL_IDS:
+                raise invalid_request(
+                    "The Ollama decision model is not supported.", field="model_id"
+                )
+            signature = (provider_id, selected_model_id)
+
+            def factory() -> DecisionProvider:
+                return OllamaSystemOneDecisionProvider(model_id=selected_model_id)
+
+        elif provider_id == "openai_chatgpt_plan":
+            chatgpt_model_id = model_id
+            if not isinstance(chatgpt_model_id, str) or not chatgpt_model_id:
+                raise invalid_request(
+                    "Select a model from the signed-in ChatGPT account.", field="model_id"
+                )
+            signature = (provider_id, chatgpt_model_id)
+
+            def factory() -> DecisionProvider:
+                return OpenAIChatGPTPlanDecisionProvider(
+                    access_token_resolver=self._chatgpt_plan_auth.access_token,
+                    model_id=chatgpt_model_id,
+                )
+
+        else:
+            raise invalid_request("The decision provider is not supported.", field="provider_id")
+
+        if self._decision_instance is None or self._decision_signature != signature:
+            if self._decision_instance is not None:
+                self._decision_instance.close()
+            self._decision_instance = factory()
+            self._decision_signature = signature
+        return self._decision_instance
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"provider_id"})
@@ -492,8 +685,19 @@ class ProviderService:
         if self._local_instance is not None:
             self._local_instance.close()
             self._local_instance = None
+        if self._decision_instance is not None:
+            self._decision_instance.close()
+            self._decision_instance = None
+            self._decision_signature = None
         self._codex.close()
+        self._chatgpt_plan_auth.close()
         self._runtime_health.clear()
+
+    def _close_decision_instance(self, provider_id: str) -> None:
+        if self._decision_instance is not None and self._decision_instance.id == provider_id:
+            self._decision_instance.close()
+            self._decision_instance = None
+            self._decision_signature = None
 
     def is_enabled(self) -> bool:
         if self._injected_provider is not None:

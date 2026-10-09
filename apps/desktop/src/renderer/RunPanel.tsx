@@ -20,6 +20,7 @@ type RunPanelProps = {
   blocked?: boolean;
   visible?: boolean;
   onActiveChange: (active: boolean) => void;
+  rehearsalTarget?: { revisionId: string; label: string } | null;
 };
 
 type DeviceListResult = { devices: AudioDevice[] };
@@ -107,6 +108,7 @@ export function RunPanel({
   blocked = false,
   visible = true,
   onActiveChange,
+  rehearsalTarget,
 }: RunPanelProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [asrStatus, setAsrStatus] = useState<ASRStatus | null>(null);
@@ -441,6 +443,9 @@ export function RunPanel({
         project_id: project.id,
         mode: "run",
         current_slide_start: 1,
+        ...(rehearsalTarget
+          ? { expected_presentation_revision_id: rehearsalTarget.revisionId }
+          : {}),
       });
       startedSession = started.session;
       setSession(startedSession);
@@ -515,6 +520,7 @@ export function RunPanel({
     refreshRunData,
     selectedDeviceId,
     trackingPreference,
+    rehearsalTarget,
   ]);
 
   const stopRun = useCallback(async () => {
@@ -657,6 +663,9 @@ export function RunPanel({
         the final transcript is saved, not your audio.
       </p>
 
+      {rehearsalTarget ? (
+        <p className="run-note">Rehearsal target: {rehearsalTarget.label}</p>
+      ) : null}
       {!active ? (
         <div className="run-setup-grid">
           <label>
@@ -832,6 +841,14 @@ export function RunPanel({
               disabled={busy !== null}
             >
               Mark question
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void mark("objection")}
+              disabled={busy !== null}
+            >
+              Mark objection
             </button>
             <button
               type="button"

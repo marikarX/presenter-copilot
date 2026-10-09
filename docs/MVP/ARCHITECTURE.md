@@ -135,9 +135,10 @@ shutdown.
 Development may use the locked `core/.venv` Python environment, but release
 builds cannot assume Python is preinstalled. The Windows release uses a
 reproducible PyInstaller one-folder sidecar under Electron resources and an
-unsigned per-user NSIS installer. Electron launches the bundled executable
-with hidden-window, `shell=false` stdio; packaged resolution never falls back
-to `python.exe`.
+unsigned per-user NSIS installer for routine CI/local builds. The production
+release command enables and requires signing. Electron launches the bundled
+executable with hidden-window, `shell=false` stdio; packaged resolution never
+falls back to `python.exe`.
 
 E10 is also self-contained in the Windows release. The build fetches the exact
 validated official Codex CLI 0.153.4 Windows x64 binary, verifies its pinned

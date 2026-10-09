@@ -80,3 +80,21 @@ Historical revisions may retain immutable references/snapshots as required for v
 ## Export
 
 PPTX export should package the exact asset variant referenced by the exported revision. PDF/export renders should be deterministic for the same revision and asset generation.
+
+
+## Implemented raster library (2026-10-03)
+
+Schema v14 stores immutable project PNG/JPEG uploads as SQLite BLOBs with opaque
+project/content IDs, original file names, SHA-256, MIME type, byte size and creation
+time. Identical content keeps the first item's identity and name. Validation uses
+native insertion constraints: 4 MiB, one frame, 8192 dimensions and 20 MP. Each
+project allows 200 images/64 MiB; bounded thumbnail pages and full reads verify
+content integrity. No source URI, provenance/license fields, usage index, tags,
+variants or generated-image integration is implemented yet.
+
+Objects selection reuses the ordinary native insertion form. Copilot explicitly
+attaches library metadata and binds actual image bytes inside Core staging.
+Library removal requires confirmation and the expected hash. Existing revisions
+and staged proposals own embedded copies and remain usable after removal. This
+is logical library deletion; it is not a secure-erasure guarantee. Pre-deck Core
+methods exist; standalone pre-deck GUI management remains open.

@@ -79,6 +79,48 @@ def test_new_latest_older_and_future_databases_are_handled_transactionally(tmp_p
         assert unchanged_project.execute("PRAGMA user_version").fetchone()[0] == 99
 
 
+def test_project_v10_database_migrates_to_revision_scoped_slide_purposes(
+    tmp_path: Path,
+) -> None:
+    project_path = tmp_path / "project-v10.db"
+    latest = connect_project_database(project_path)
+    latest.close()
+    with sqlite3.connect(project_path) as version_ten:
+        version_ten.execute("DROP TABLE presentation_rehearsal_objection_findings")
+        version_ten.execute("DROP TABLE presentation_rehearsal_objection_analyses")
+        version_ten.execute("DROP TABLE presentation_rehearsal_analyses")
+        version_ten.execute("DROP TABLE presentation_revision_checkpoints")
+        version_ten.execute("DROP TABLE presentation_outline_sessions")
+        version_ten.execute("DROP TABLE presentation_outline_proposals")
+        version_ten.execute("DROP TABLE presentation_slide_takeaways")
+        version_ten.execute("DROP TABLE presentation_narratives")
+        version_ten.execute("DROP TABLE presentation_claims")
+        version_ten.execute("DROP TABLE project_picture_assets")
+        version_ten.execute("DROP TABLE presentation_edit_transactions")
+        version_ten.execute("DROP TABLE presentation_rehearsal_reviews")
+        version_ten.execute("DROP TABLE presentation_slide_purposes")
+        version_ten.execute("PRAGMA user_version = 10")
+        version_ten.execute("UPDATE project SET schema_version = 10")
+
+    upgraded = connect_project_database(project_path)
+    try:
+        assert current_schema_version(upgraded) == PROJECT_SCHEMA_VERSION == 22
+        columns = {
+            row[1] for row in upgraded.execute("PRAGMA table_info(presentation_slide_purposes)")
+        }
+        assert columns == {
+            "presentation_id",
+            "revision_id",
+            "slide_id",
+            "purpose",
+            "provenance",
+            "created_at",
+            "updated_at",
+        }
+    finally:
+        upgraded.close()
+
+
 def test_migration_failure_rolls_back_without_replacing_existing_database(tmp_path: Path) -> None:
     app_path = tmp_path / "partially-created.db"
     with sqlite3.connect(app_path) as connection:
@@ -94,6 +136,37 @@ def test_migration_failure_rolls_back_without_replacing_existing_database(tmp_pa
             unchanged.execute("SELECT name FROM sqlite_master WHERE name = 'projects'").fetchone()
             is None
         )
+
+
+def test_v17_upgrade_adds_outline_storage_without_replacing_existing_rows(tmp_path: Path) -> None:
+    project_path = tmp_path / "project-v17.db"
+    latest = connect_project_database(project_path)
+    latest.execute("CREATE TABLE migration_sentinel (value TEXT NOT NULL)")
+    latest.execute("INSERT INTO migration_sentinel VALUES ('keep me')")
+    latest.commit()
+    latest.close()
+    with sqlite3.connect(project_path) as old:
+        old.execute("DROP TABLE presentation_rehearsal_objection_findings")
+        old.execute("DROP TABLE presentation_rehearsal_objection_analyses")
+        old.execute("DROP TABLE presentation_rehearsal_analyses")
+        old.execute("DROP TABLE presentation_revision_checkpoints")
+        old.execute("DROP TABLE presentation_outline_sessions")
+        old.execute("DROP TABLE presentation_outline_proposals")
+        old.execute("PRAGMA user_version = 17")
+    upgraded = connect_project_database(project_path)
+    try:
+        assert current_schema_version(upgraded) == 22
+        assert upgraded.execute("SELECT value FROM migration_sentinel").fetchone()[0] == "keep me"
+        assert (
+            upgraded.execute("SELECT COUNT(*) FROM presentation_outline_sessions").fetchone()[0]
+            == 0
+        )
+        assert (
+            upgraded.execute("SELECT COUNT(*) FROM presentation_outline_proposals").fetchone()[0]
+            == 0
+        )
+    finally:
+        upgraded.close()
 
 
 def test_project_settings_restart_and_delete_are_vault_scoped(tmp_path: Path) -> None:

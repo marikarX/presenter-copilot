@@ -27,6 +27,29 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 - **Challenge** — rehearse against grounded audience questions and follow-ups.
 - **Run** — uninterrupted presentation rehearsal with post-run debrief.
 - **Live Assist** — private webcam-adjacent source-grounded cues with an explicit push-to-assist fallback.
+- **Presentation Workspace (research preview)** — create native slides from a
+  reviewed manual or Copilot-planned outline, refine the outline against a
+  project briefing and evidence, explicitly save and resume a branched drafting
+  session across restart, or preview an imported PPTX,
+  inspect its structure, replace text in a single-run or uniformly formatted
+  multi-run shape, and apply basic
+  direct formatting across every run in a structurally simple text shape of up to 128 paragraphs (within the Workspace's 2,000-character target limit) plus
+  paragraph alignment, bounded left indentation, signed first-line indentation, whole-point absolute line spacing from 1 to 144 points, disc, hollow-circle, square, or dash bullet styles, no-bullet formatting, or Arabic-period automatic numbering across simple shapes of up to 128 paragraphs, and before/after spacing, add a simple text box, place a PNG or JPEG with
+  explicit bounded geometry, create a simple rectangle or ellipse with
+  slide-bounded geometry and direct fill/outline colors, or insert a blank
+  slide using the selected slide's layout or the layout from another slide in
+  the current revision, apply another slide's layout to the selected slide,
+  crop or replace simple embedded
+  pictures, keep immutable revisions, and export the current or original deck. The
+  editor also connects rehearsed findings to reviewed text and notes edits,
+  retaining their source revision and applied-edit provenance. On Windows with
+  PowerPoint, prepared native object layers support live dragging with transparency,
+  paint order, alignment and spacing guides, followed by explicit review and Save.
+  Resizing uses geometry ghosts and a native staged preview. Fidelity,
+  broader editing, live provider quality, and human-validation gates are
+  still open. Typed slide-purpose suggestions are optional, privacy-checked,
+  and require user review. See
+  [`docs/PRESENTATION_WORKSPACE/`](docs/PRESENTATION_WORKSPACE/README.md).
 - **Immersive Rehearsal (roadmap)** — renderer-independent synthetic audience simulation with visible reactions, interruptions, spatial pressure, and scenario-specific debriefing. See [`docs/IMMERSIVE/`](docs/IMMERSIVE/README.md).
 
 ## Design principles
@@ -35,7 +58,13 @@ The default style policy is **Preserve my voice**: prefer the user's own strong 
 - **Cloud optional.** Remote reasoning is an escalation path, not a requirement for every utterance.
 - **Minimal HUD.** Prefer memory cues and answer scaffolds over generated paragraphs.
 - **Preserve the presenter.** Improve clarity/preparation without replacing the user's voice.
-- **Provider-pluggable.** Use a configured local OpenAI-compatible model server or an OpenAI API key.
+- **Provider-pluggable.** Free-form reasoning can use OpenAI or a local
+  OpenAI-compatible model. Bounded typed decisions can use local structured
+  output, OpenAI Responses Fast or Ultrafast, Jev through OpenRouter, Nimble or
+  Tev1 through Ollama, or optional ChatGPT plan usage through Sign in with
+  ChatGPT; each suggestion requires review. See
+  [`docs/PROVIDERS.md`](docs/PROVIDERS.md) for provider boundaries and account
+  usage details.
 - **Source-grounded.** Important facts remain traceable to slides, documents, user explanations, transcripts, or practiced answers.
 - **Audience evidence, not profiling.** Use observed questions/interaction patterns; do not infer hidden emotions, sensitive traits, or persistent biometric identity.
 - **Behavior before photorealism.** Immersive rehearsal should prove that simulated audience behavior improves preparation before investing in high-fidelity 3D or XR.
@@ -136,7 +165,8 @@ pnpm test:privacy-network      # Local Only network-isolation regression
 pnpm test:e2e:release          # deterministic E2E-01 through E2E-08 runner
 pnpm benchmark:release         # metadata-only aggregate release benchmark
 pnpm build:sidecar             # frozen one-folder Windows sidecar
-pnpm package:win               # Electron app plus unsigned per-user NSIS installer
+pnpm package:win               # unsigned local/CI per-user NSIS installer
+pnpm package:win:release       # Windows release build; fails unless Authenticode signing succeeds
 pnpm test:packaged             # bundled app/sidecar hello-health-shutdown smoke
 pnpm test:install-smoke        # installer artifact/readiness report; manual install remains required
 ```
@@ -179,9 +209,15 @@ credentials; model caches are retained unless the separate removal option is
 selected. Diagnostic ZIPs are metadata-only and are written through the
 Electron main-process native save dialog.
 
-To build the Windows release, run `pnpm package:win`. The unsigned installer
-is written to `artifacts/installer/Presenter-Copilot-0.1.0-x64-setup.exe` and
-the unpacked app is placed under `artifacts/installer/win-unpacked/`.
+For a local or routine CI package, run `pnpm package:win`; it builds an
+unsigned per-user installer and cannot use signing credentials. For a release
+candidate, run `pnpm package:win:release`; it enables signing and
+electron-builder's `forceCodeSigning` gate, so the build fails if signing cannot
+complete. Configure `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` only in the
+protected release environment; never commit certificate material or passwords.
+The installer is written to
+`artifacts/installer/Presenter-Copilot-0.1.0-x64-setup.exe` and the unpacked app
+is placed under `artifacts/installer/win-unpacked/`.
 `pnpm test:packaged` uses a disposable data root and removes Python-related
 development overrides. `pnpm test:install-smoke` reports whether the artifact
 exists but deliberately does not install, uninstall, or delete data on the
@@ -209,6 +245,7 @@ by deterministic tests or a successful package build.
 - [Competition](docs/COMPETITION.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decision log](docs/DECISIONS.md)
+- [Production readiness snapshot](docs/PRODUCTION_READINESS.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Release policy](docs/RELEASING.md)
 
@@ -224,12 +261,16 @@ by deterministic tests or a successful package build.
 
 ## Repository status
 
-Milestones 0–8 are based on the merged MVP architecture. The current branch
+Milestones 0–8 are based on the merged MVP architecture. The repository also
 contains the Milestone 9 release-hardening implementation: deletion/cache
 purge, OS-backed credential handling, safe logs/diagnostics, security checks,
 frozen-sidecar packaging, explicit model controls, restart recovery, and
-metadata-only release gates. M02 clean-machine evidence and the real hardware
-and qualitative acceptance gates remain separate review items until run.
+metadata-only release gates. The current worktree adds a limited Presentation
+Workspace with immutable text-edit revisions and privacy-checked typed
+decisions; the readiness snapshot records local evidence and open acceptance
+gates.
+M02 clean-machine evidence and the real hardware and qualitative acceptance
+gates remain separate review items until run.
 
 Immersive Rehearsal is documented as a post-MVP roadmap direction and does not change the frozen MVP implementation contract.
 

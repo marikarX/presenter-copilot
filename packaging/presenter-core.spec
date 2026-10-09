@@ -17,6 +17,8 @@ hiddenimports: list[str] = [
     "fastembed",
     "sounddevice",
     "win32cred",
+    "pythoncom",
+    "win32com.client",
 ]
 
 # These packages use importlib/plugin metadata at runtime.  Collect their

@@ -414,6 +414,7 @@ OS-backed secret storage for later milestones.
 The existing project style policy and custom guidance remain the project-level
 values. A single `project_style_overrides.enabled` row distinguishes whether
 those values are active. The effective precedence is explicit project override
+
 > global Speaker Profile > the product default `preserve_voice`.
 
 Reason:
@@ -906,3 +907,89 @@ Apply the MIT License to the repository's own code and documentation from this
 revision forward. Third-party components remain subject to their own licenses.
 Permissions already granted for earlier Apache-2.0 versions remain in effect;
 this change does not withdraw them.
+
+## D-059 — Typed decision models are a separate, bounded provider path
+
+**Status:** Accepted as a post-MVP architecture requirement
+
+Add fast typed decisions for bounded semantic judgments where current code is
+too rigid and a generative response is unnecessary. The first workflow is a
+user-triggered slide-purpose suggestion in Presentation Workspace. It reads
+supported text shapes from the selected slide in the current immutable
+revision. Claim/evidence triage and rehearsal classification remain behind
+stable identity and a labeled evaluation.
+
+Decision providers do not replace `ReasoningProvider` and cannot draft, explain,
+or mutate a presentation. They return typed judgments (choice, yes/no
+probability, or bounded score), which Core validates. Any future automated
+routing must use a versioned policy; the current slide-purpose workflow always
+requires user review. Confidence is evidence, not correctness. Low or ambiguous
+confidence stays with user review or the normal reasoning path. Code remains
+authoritative for exact facts, arithmetic, permissions, provider selection,
+and all document mutations.
+
+The provider interface must be isolated from generation and use the existing
+Core-owned privacy acknowledgement, context-manifest, credential, request-size,
+and timeout controls. Add request cancellation before any long-running decision
+workflow. A remote decision call is an off-machine call; Local Only permits only
+an explicitly selected loopback model. No provider or privacy-mode fallback is
+implicit. Decision inputs contain only the bounded text required for the
+judgment, never the PPTX package or unrestricted project state. The resulting
+decision may propose work, but cannot perform a side effect.
+
+Supported transports are separate adapters: OpenRouter's versioned
+`/api/v1/systemone` endpoint for Jev-style typed decisions; Ollama's fixed
+loopback `/v1/systemone` endpoint for installed Nimble 9B and Tev1 4B/0.8B
+models; OpenAI Responses with strict Structured Outputs and Fast or Ultrafast
+service tiers; the OpenAI Decisions API's GPT-6 Luna limited preview once its
+request/response contract and access details are available; and a strict
+structured-output endpoint for local models. OpenAI announced the Decisions
+API for finite-answer decisions in its [2026 DevDay recap](https://openai.com/index/devday-2026-recap/),
+but a 2026-10-02 check of the official [API reference](https://developers.openai.com/api/reference/overview)
+and [changelog](https://developers.openai.com/api/docs/changelog) found no
+published endpoint contract. OpenAI Responses Fast and Ultrafast are interim
+bridges, not implementations of the announced Decisions API. The official
+[Ultrafast guide](https://developers.openai.com/api/docs/guides/ultrafast-mode)
+now documents GPT-6 Astra availability at low rate limits and GPT-5.6 Sol
+preview access, but the Responses [create reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
+still lists GPT-5.6 Sol for Ultrafast; the project's Astra eligibility therefore
+remains unverified with a live account.
+Do not guess the new endpoint, and do not assume a chat-completions-compatible
+local model implements Jev's typed-decision protocol. Pin resolved model
+versions for production decisions and reject malformed, missing, or
+out-of-range answers. Structured output enforces shape, not semantic
+correctness; only providers that return a documented estimate may populate
+confidence, and that estimate must not be treated as correctness. Fast mode
+may carry a per-token premium, so it must be an explicit provider setting and
+must not silently downgrade when unavailable.
+
+Settings can explicitly select Jev through OpenRouter's System One API, an
+installed Nimble or Tev1 model through Ollama's loopback-only System One API,
+OpenAI Responses with Fast service tier or Ultrafast with GPT-6 Astra and strict
+Structured Outputs, or the configured local structured-output endpoint. Core
+sends only bounded text from
+the selected slide after enforcing project privacy and records provider,
+source, revision, and content-boundary metadata without storing the text.
+Ollama System One resolves the selected installed model's digest before and
+after inference; changed models fail closed, and the resolved model identity
+is recorded as content-free provenance.
+Suggestions require user review and are not persisted or applied to the deck.
+Images and diagrams are not classified. These controls provide a bounded
+workflow, not evidence of semantic accuracy or production readiness; a
+licensing-safe, human-labeled evaluation remains required before automation or
+broader decision tasks are enabled. The separately announced OpenAI Decisions
+API adapter remains pending its exact official contract.
+
+Implementation is gated on PW0 research plus stable PW1/PW2 document identity.
+Before enabling a decision workflow, build a licensing-safe, human-labeled
+evaluation set; compare it with the deterministic and current reasoning paths;
+measure latency, abstention, and costly false decisions; and set thresholds
+from those results. Keep the evaluation labels and routing policy replayable.
+
+Reason:
+
+Typed models can reduce latency and token generation for small semantic
+choices, but a separate API, a non-generative contract, and model uncertainty
+make it unsafe to treat them as a drop-in reasoning provider. Presentation
+semantics also depend on fidelity IDs that do not exist until earlier workspace
+gates are met.

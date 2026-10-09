@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 import tempfile
 import threading
@@ -651,6 +654,56 @@ def _git_sha() -> str | None:
     return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
 
 
+def _working_tree_sha256(repository_root: Path) -> str | None:
+    """Fingerprint tracked and non-ignored untracked file contents at run start."""
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=repository_root,
+            check=True,
+            capture_output=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    paths = sorted({path for path in (*tracked.split(b"\0"), *untracked.split(b"\0")) if path})
+    digest = hashlib.sha256()
+    digest.update(b"presenter-copilot-working-tree-v1\0")
+    for encoded_path in paths:
+        relative_path = os.fsdecode(encoded_path)
+        path = repository_root / relative_path
+        try:
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                kind = b"L"
+                contents = os.fsencode(os.readlink(path))
+            elif stat.S_ISREG(metadata.st_mode):
+                kind = b"F"
+                contents = path.read_bytes()
+            else:
+                # A gitlink or special file cannot be represented by these file bytes.
+                return None
+        except FileNotFoundError:
+            kind = b"D"
+            contents = b""
+        except OSError:
+            return None
+
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(kind)
+        digest.update((metadata.st_mode & 0o777).to_bytes(2, "big") if kind != b"D" else b"\0\0")
+        digest.update(len(contents).to_bytes(8, "big"))
+        digest.update(contents)
+    return digest.hexdigest()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run deterministic M9 E2E acceptance scenarios.")
     parser.add_argument(
@@ -661,6 +714,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     output = args.output if args.output.is_absolute() else REPOSITORY_ROOT / args.output
+    working_tree_sha256 = _working_tree_sha256(REPOSITORY_ROOT)
     results: list[dict[str, str]] = []
     with tempfile.TemporaryDirectory(prefix="presenter-copilot-m9-e2e-") as temporary:
         root = Path(temporary)
@@ -679,6 +733,8 @@ def main(argv: list[str] | None = None) -> int:
         "runner": "m9-release-e2e-v1",
         "timestamp": datetime.now(UTC).isoformat(),
         "git_sha": _git_sha(),
+        "working_tree_sha256": working_tree_sha256,
+        "working_tree_scope": "tracked and non-ignored untracked files at runner start",
         "content_output": False,
         "scenarios": results,
         "all_passed": all(item["status"] == "verified" for item in results),

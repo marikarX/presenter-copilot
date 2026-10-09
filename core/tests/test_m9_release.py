@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import stat
+import subprocess
 import uuid
 import zipfile
 from pathlib import Path
@@ -19,6 +20,7 @@ from presenter_core.ingestion.security import preflight_pptx_archive
 from presenter_core.ipc.core import CoreService
 from presenter_core.retrieval.embeddings import DeterministicEmbeddingAdapter
 from presenter_core.storage.database import connect_project_database
+from presenter_core.tools.release_e2e import _working_tree_sha256
 
 
 def _request(core: CoreService, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +68,37 @@ def _all_bytes(root: Path) -> bytes:
         if path.is_file() and not path.is_symlink():
             chunks.append(path.read_bytes())
     return b"\n".join(chunks)
+
+
+def test_release_e2e_fingerprint_covers_tracked_and_untracked_source(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True, capture_output=True)
+    (repository / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    tracked = repository / "tracked.txt"
+    tracked.write_text("first", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", ".gitignore", "tracked.txt"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+    )
+
+    baseline = _working_tree_sha256(repository)
+    assert baseline is not None
+
+    tracked.write_text("second", encoding="utf-8")
+    tracked_changed = _working_tree_sha256(repository)
+    assert tracked_changed is not None and tracked_changed != baseline
+
+    (repository / "new-source.py").write_text("value = 1\n", encoding="utf-8")
+    untracked_changed = _working_tree_sha256(repository)
+    assert untracked_changed is not None and untracked_changed != tracked_changed
+
+    (repository / "ignored.txt").write_text("local data", encoding="utf-8")
+    assert _working_tree_sha256(repository) == untracked_changed
 
 
 def test_credentials_logs_and_diagnostics_never_contain_sentinel(
@@ -200,10 +233,12 @@ def test_reset_local_data_requires_confirmation_and_has_explicit_model_retention
 ) -> None:
     data_root = tmp_path / "data"
     store = InMemoryCredentialStore("m9-reset-secret")
+    decision_store = InMemoryCredentialStore("m9-reset-decision-secret")
     core = CoreService(
         data_root=data_root,
         embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
         credential_store=store,
+        decision_credential_store=decision_store,
     )
     try:
         project_id = _project(core, "M9 reset project")
@@ -229,12 +264,15 @@ def test_reset_local_data_requires_confirmation_and_has_explicit_model_retention
         reset = _request(core, "app.reset_local_data", {"confirm": True})
         assert reset["model_cache_retained"] is True
         assert reset["credentials_removed"] is True
+        assert reset["stored_openai_credential_present"] is True
+        assert reset["stored_decision_credential_present"] is True
         assert reset["project_directories_removed"] == 2
         assert not (data_root / "projects" / project_id).exists()
         assert not orphan_marker.exists()
         assert not diagnostic_file.exists()
         assert retained_model.read_text(encoding="utf-8") == "retain"
         assert store.read() is None
+        assert decision_store.read() is None
         with core._storage.app_database() as connection:  # type: ignore[attr-defined]
             for table in (
                 "projects",
@@ -649,6 +687,7 @@ def test_reset_reports_no_stored_credential_and_retains_environment_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "m9-environment-only-secret")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "m9-decision-environment-only-secret")
     core = CoreService(
         data_root=tmp_path / "data",
         embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
@@ -660,8 +699,10 @@ def test_reset_reports_no_stored_credential_and_retains_environment_boundary(
         assert reset["stored_credential_present"] is False
         assert reset["credential_cleanup_established"] is True
         assert reset["environment_credential_detected"] is True
+        assert reset["environment_decision_credential_detected"] is True
         assert reset["environment_credential_retained"] is True
         assert "m9-environment-only-secret" not in json.dumps(reset)
+        assert "m9-decision-environment-only-secret" not in json.dumps(reset)
     finally:
         core.close()
 

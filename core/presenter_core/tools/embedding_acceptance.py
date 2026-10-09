@@ -51,6 +51,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional application root containing the already-prepared model cache.",
     )
     args = parser.parse_args(argv)
+    cases = _acceptance_cases()
+    if not cases:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "code": "RETRIEVAL_ACCEPTANCE_NO_GOLDENS",
+                    "message": "No semantic or hybrid retrieval acceptance cases are configured.",
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 1
     adapter = FastEmbedAdapter(
         cache_dir=embedding_model_cache_dir(args.model_data_root),
         local_files_only=True,
@@ -89,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             results: list[dict[str, Any]] = []
             passed = 0
-            for index, case in enumerate(_acceptance_cases()):
+            for index, case in enumerate(cases):
                 params: dict[str, Any] = {
                     "project_id": project_id,
                     "query": case["query"],

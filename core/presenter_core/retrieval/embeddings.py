@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,16 +146,42 @@ def fingerprint_model_artifact(model_directory: Path, cache_root: Path) -> str:
             "The local embedding model directory is not inside the model cache.",
         )
 
-    files: list[Path] = []
+    files: list[tuple[Path, Path]] = []
     try:
         for path in resolved_directory.rglob("*"):
-            if path.is_symlink():
+            is_link = path.is_symlink()
+            is_reparse_point = bool(
+                getattr(path.lstat(), "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            )
+            if is_reparse_point and not is_link:
                 raise CoreDomainError(
                     "EMBEDDING_MODEL_INVALID",
-                    "The local embedding model contains an unsafe link.",
+                    "The local embedding model contains an unsupported reparse point.",
                 )
-            if path.is_file():
-                files.append(path)
+            try:
+                resolved_path = path.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                if is_link:
+                    raise CoreDomainError(
+                        "EMBEDDING_MODEL_INVALID",
+                        "The local embedding model contains a broken link.",
+                    ) from exc
+                raise
+            if not resolved_path.is_relative_to(resolved_root):
+                raise CoreDomainError(
+                    "EMBEDDING_MODEL_INVALID",
+                    "The local embedding model references a file outside its cache.",
+                )
+            if is_link and not resolved_path.is_file():
+                raise CoreDomainError(
+                    "EMBEDDING_MODEL_INVALID",
+                    "The local embedding model contains an unsafe directory link.",
+                )
+            if resolved_path.is_file():
+                files.append((path, resolved_path))
+    except CoreDomainError:
+        raise
     except OSError as exc:
         raise CoreDomainError(
             "EMBEDDING_MODEL_UNAVAILABLE",
@@ -167,12 +194,15 @@ def fingerprint_model_artifact(model_directory: Path, cache_root: Path) -> str:
         )
 
     digest = hashlib.sha256()
-    for path in sorted(files, key=lambda item: item.relative_to(resolved_directory).as_posix()):
-        relative = path.relative_to(resolved_directory).as_posix().encode("utf-8")
+    for entry_path, content_path in sorted(
+        files,
+        key=lambda item: item[0].relative_to(resolved_directory).as_posix(),
+    ):
+        relative = entry_path.relative_to(resolved_directory).as_posix().encode("utf-8")
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
         try:
-            with path.open("rb") as handle:
+            with content_path.open("rb") as handle:
                 for block in iter(lambda: handle.read(1024 * 1024), b""):
                     digest.update(block)
         except OSError as exc:
@@ -309,11 +339,17 @@ class FastEmbedAdapter(EmbeddingAdapter):
             health = bootstrap.health()
         finally:
             bootstrap.close()
+        if health.status != "ready":
+            return health
         self.close()
-        return self.health() if health.status == "ready" else health
+        return self.health()
 
     def close(self) -> None:
         self._model = None
+        self._dimension = None
+        self._model_fingerprint = None
+        self._model_load_ms = None
+        self._error = None
 
     def _ensure_model(self) -> Any:
         if self._model is not None:

@@ -61,6 +61,14 @@ class OpenAIReasoningProvider(ReasoningProvider):
                 "challenge_follow_up",
                 "challenge_evaluation",
                 "live_cue",
+                "presentation_text_rewrite",
+                "presentation_outline",
+                "presentation_narrative_review",
+                "presentation_claim_extraction",
+                "presentation_rehearsal_coverage",
+                "presentation_rehearsal_objections",
+                "presentation_rehearsal_objection_equivalence",
+                "presentation_edit_plan",
             ),
         )
 
@@ -107,6 +115,14 @@ class OpenAIReasoningProvider(ReasoningProvider):
             "challenge_follow_up": "challenge_follow_up",
             "challenge_evaluation": "challenge_evaluation",
             "live_cue": "live_cue",
+            "presentation_text_rewrite": "presentation_text_rewrite",
+            "presentation_outline": "presentation_outline",
+            "presentation_narrative_review": "presentation_narrative_review",
+            "presentation_claim_extraction": "presentation_claim_extraction",
+            "presentation_rehearsal_coverage": "presentation_rehearsal_coverage",
+            "presentation_rehearsal_objections": "presentation_rehearsal_objections",
+            "presentation_rehearsal_objection_equivalence": request.task_type,
+            "presentation_edit_plan": "presentation_edit_plan",
         }.get(request.task_type)
         if schema_name is None:
             raise ProviderError(

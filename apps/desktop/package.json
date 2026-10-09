@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "description": "Local-first AI copilot for high-stakes presentations",
+  "author": "Presenter Copilot contributors",
   "main": "dist/main/main.js",
   "scripts": {
     "build": "pnpm build:main && pnpm build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
+    "generate:icon": "node scripts/generate-app-icon.mjs",
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
     "test": "vitest run",
@@ -18,18 +21,23 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit"
   },
   "dependencies": {
+    "jszip": "3.10.2",
+    "pptx-glimpse": "5.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@aiden0z/pptx-renderer": "1.3.0",
     "@eslint/js": "10.0.1",
     "@types/node": "26.4.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.1",
+    "@xmldom/xmldom": "0.8.15",
     "electron": "44.1.0",
     "eslint": "10.9.1",
     "globals": "17.12.0",
+    "pdfjs-dist": "5.4.624",
     "playwright": "1.62.1",
     "prettier": "3.9.6",
     "typescript": "6.0.3",

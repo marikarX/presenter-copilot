@@ -171,6 +171,7 @@ class TeachService:
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
                     allow_private=not provider.leaves_machine,
+                    presentation_revision_id=session["presentation_revision_id"],
                 )
                 execution = self._run_provider(
                     project_id=project_id,
@@ -200,10 +201,14 @@ class TeachService:
                         "provider_error": self._safe_provider_error(error),
                     }
                 )
-                question, focus = self._fallback_question(project_id)
+                question, focus = self._fallback_question(
+                    project_id, session["presentation_revision_id"]
+                )
                 route = self._retrieval_only_decision(route, error.code)
         else:
-            question, focus = self._fallback_question(project_id)
+            question, focus = self._fallback_question(
+                project_id, session["presentation_revision_id"]
+            )
         utterance_id = self._persist_coach_prompt(
             project_id,
             session_id,
@@ -578,6 +583,7 @@ class TeachService:
                     current_slide=session["current_slide_start"],
                     provider_id=provider.id,
                     allow_private=not provider.leaves_machine,
+                    presentation_revision_id=session["presentation_revision_id"],
                 )
                 execution = self._run_provider(
                     project_id=project_id,
@@ -1296,16 +1302,21 @@ class TeachService:
     def _provider_and_health(self) -> tuple[ReasoningProvider | None, Any | None]:
         return self._providers.current_provider_and_health()
 
-    def _fallback_question(self, project_id: str) -> tuple[str, str]:
-        retrieval = self._retrieval.query(
-            {
-                "project_id": project_id,
-                "query": "rejected option decision rationale tradeoff risk assumption",
-                "limit": 6,
-                "usage": "rehearsal",
-                "allow_private": True,
-            }
-        )
+    def _fallback_question(
+        self,
+        project_id: str,
+        presentation_revision_id: str | None = None,
+    ) -> tuple[str, str]:
+        params: dict[str, Any] = {
+            "project_id": project_id,
+            "query": "rejected option decision rationale tradeoff risk assumption",
+            "limit": 6,
+            "usage": "rehearsal",
+            "allow_private": True,
+        }
+        if presentation_revision_id is not None:
+            params["presentation_revision_id"] = str(presentation_revision_id)
+        retrieval = self._retrieval.query(params)
         conflicts = retrieval.get("conflicts")
         if isinstance(conflicts, list) and conflicts:
             conflict = conflicts[0]

@@ -36,6 +36,7 @@ export default defineConfig({
       input: [
         path.join(configDirectory, "src", "index.html"),
         path.join(configDirectory, "src", "hud", "index.html"),
+        path.join(configDirectory, "src", "presentation-preview", "index.html"),
       ],
     },
   },

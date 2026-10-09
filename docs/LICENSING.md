@@ -34,6 +34,10 @@ Using an API, ChatGPT/Codex integration, or another hosted model may be governed
 
 Provider integrations should therefore remain optional and replaceable.
 
+The desktop package bundles `pdfjs-dist` 5.4.624 (Apache-2.0) for rendering
+embedded PDF previews inside the isolated presentation-preview window. The
+Windows package includes its license at `resources/licenses/pdfjs-dist/LICENSE`.
+
 ## Trademarks and product name
 
 The MIT License does not grant trademark rights. "Presenter Copilot" is currently a working project title, not a cleared public trademark. Public branding should not be finalized until name, domain, app-store, competitor, and trademark screening is complete.

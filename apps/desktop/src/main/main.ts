@@ -1,4 +1,9 @@
+import { renderNativeLayers } from "./native-layers";
+import { renderNativeEditAppearance } from "./native-edit-appearance";
 import path from "node:path";
+import os from "node:os";
+import { savePresentationPdf, stopPdfExports } from "./pdf-export";
+import { renderNativeAppearance } from "./native-appearance";
 
 import {
   app,
@@ -6,12 +11,14 @@ import {
   dialog,
   globalShortcut,
   ipcMain,
+  shell,
   screen,
 } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 
 import { CoreClientError, CoreProcessClient, toCoreError } from "./core-client";
 import { invokeResult } from "./invoke-result";
+import { openChatGPTUsageSettings } from "./chatgpt-usage";
 import {
   createSidecarCommand,
   SidecarResolutionError,
@@ -35,6 +42,7 @@ import {
   type JsonObject,
 } from "../shared/protocol";
 import {
+  isExpectedDevelopmentUrl,
   isTrustedHudSender,
   isTrustedRendererSender,
   selectRendererLoadTarget,
@@ -57,6 +65,10 @@ import {
   DEFAULT_AUTOMATIC_RESTART_DELAYS_MS,
   DEFAULT_AUTOMATIC_RESTART_MAX_ATTEMPTS,
 } from "./restart-controller";
+import {
+  closePresentationPreview,
+  registerPresentationPreviewIpc,
+} from "./presentation-preview";
 
 let mainWindow: BrowserWindow | null = null;
 let hudWindow: BrowserWindow | null = null;
@@ -121,6 +133,7 @@ function createWindow(
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.once("ready-to-show", () => window.show());
   window.on("closed", () => {
+    closePresentationPreview();
     disableManualRunShortcuts();
     if (mainWindow === window) {
       mainWindow = null;
@@ -128,6 +141,9 @@ function createWindow(
       // Electron's window-all-closed event from representing app shutdown.
       if (!isQuitting) app.quit();
     }
+  });
+  window.webContents.on("render-process-gone", () => {
+    closePresentationPreview();
   });
 
   const rendererTarget = selectRendererLoadTarget({
@@ -423,6 +439,33 @@ function validateImportPickerRequest(value: unknown): {
     throw new Error("Source kind is invalid.");
   }
   return { projectId: value.project_id, kind };
+}
+
+function validatePresentationExportRequest(value: unknown): {
+  projectId: string;
+  documentId: string;
+  openAfterSave: boolean;
+} {
+  if (
+    !isJsonObject(value) ||
+    typeof value.project_id !== "string" ||
+    typeof value.document_id !== "string" ||
+    value.project_id.length > 80 ||
+    value.document_id.length > 80
+  ) {
+    throw new Error("The presentation export target is invalid.");
+  }
+  if (
+    value.open_after_save !== undefined &&
+    typeof value.open_after_save !== "boolean"
+  ) {
+    throw new Error("The presentation open option is invalid.");
+  }
+  return {
+    projectId: value.project_id,
+    documentId: value.document_id,
+    openAfterSave: value.open_after_save === true,
+  };
 }
 
 function validateManualShortcutRequest(value: unknown): ManualRunTarget {
@@ -902,6 +945,12 @@ function registerIpc(
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(() => requireClient().getStatus());
   });
+  ipcMain.handle("chatgpt-plan:open-usage-settings", (event) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() =>
+      openChatGPTUsageSettings((url) => shell.openExternal(url)),
+    );
+  });
   ipcMain.handle("core:request", async (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
     return invokeResult(async () => {
@@ -923,7 +972,9 @@ function registerIpc(
               ? 15 * 60_000
               : request.method === "asr.start" ||
                   request.method === "teach.voice_start" ||
-                  request.method === "run.generate_debrief"
+                  request.method === "run.generate_debrief" ||
+                  request.method === "presentation.workspace.extract_claims" ||
+                  request.method === "presentation.workspace.prepare_claim_scan"
                 ? 60_000
                 : runCleanupMethods.has(request.method)
                   ? 60_000
@@ -975,6 +1026,199 @@ function registerIpc(
         60_000,
       );
     });
+  });
+  ipcMain.handle(
+    "presentation:save-unchanged-copy",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(async () => {
+        const request = validatePresentationExportRequest(value);
+        const owner = mainWindow;
+        if (!owner || owner.isDestroyed()) {
+          throw new Error("The presentation workspace window is unavailable.");
+        }
+        const selection = await dialog.showSaveDialog(owner, {
+          title: "Save unchanged presentation copy",
+          buttonLabel: "Save copy",
+          defaultPath: "Presentation.pptx",
+          filters: [{ name: "PowerPoint presentation", extensions: ["pptx"] }],
+          properties: ["showOverwriteConfirmation"],
+        });
+        if (selection.canceled || !selection.filePath)
+          return { cancelled: true };
+
+        let destinationPath = selection.filePath;
+        const extension = path.extname(destinationPath);
+        if (!extension) {
+          destinationPath += ".pptx";
+        } else if (extension.toLowerCase() !== ".pptx") {
+          throw new Error("Choose a file name ending in .pptx.");
+        }
+        return requireClient().request(
+          "presentation.workspace.export_original_copy",
+          {
+            project_id: request.projectId,
+            document_id: request.documentId,
+            destination_path: destinationPath,
+          },
+          60_000,
+        );
+      });
+    },
+  );
+  ipcMain.handle(
+    "presentation:save-current-copy",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(async () => {
+        const request = validatePresentationExportRequest(value);
+        const owner = mainWindow;
+        if (!owner || owner.isDestroyed()) {
+          throw new Error("The presentation workspace window is unavailable.");
+        }
+        const selection = await dialog.showSaveDialog(owner, {
+          title: request.openAfterSave
+            ? "Save and open current presentation copy"
+            : "Save current presentation copy",
+          buttonLabel: request.openAfterSave ? "Save and open" : "Save copy",
+          defaultPath: "Presentation.pptx",
+          filters: [{ name: "PowerPoint presentation", extensions: ["pptx"] }],
+          properties: ["showOverwriteConfirmation"],
+        });
+        if (selection.canceled || !selection.filePath)
+          return { cancelled: true as const };
+
+        let destinationPath = selection.filePath;
+        const extension = path.extname(destinationPath);
+        if (!extension) {
+          destinationPath += ".pptx";
+        } else if (extension.toLowerCase() !== ".pptx") {
+          throw new Error("Choose a file name ending in .pptx.");
+        }
+        const result = await requireClient().request(
+          "presentation.workspace.export_current_copy",
+          {
+            project_id: request.projectId,
+            document_id: request.documentId,
+            destination_path: destinationPath,
+          },
+          60_000,
+        );
+        if (
+          !request.openAfterSave ||
+          !isJsonObject(result) ||
+          result.saved !== true
+        ) {
+          return result;
+        }
+        let opened = false;
+        try {
+          opened = (await shell.openPath(destinationPath)).length === 0;
+        } catch {
+          // The file is already safely exported; preserve that result if the
+          // operating system cannot launch the associated presentation app.
+        }
+        return { ...result, opened };
+      });
+    },
+  );
+  ipcMain.handle(
+    "presentation:native-appearance",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(() =>
+        renderNativeAppearance(value, {
+          runtime: createSidecarCommand({
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+          }),
+          copyRevision: (params) =>
+            requireClient().request(
+              "presentation.workspace.export_current_copy",
+              params,
+              60_000,
+            ),
+        }),
+      );
+    },
+  );
+  ipcMain.handle(
+    "presentation:native-layers",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(() =>
+        renderNativeLayers(value, {
+          runtime: createSidecarCommand({
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+          }),
+          copyRevision: (params) =>
+            requireClient().request(
+              "presentation.workspace.export_current_copy",
+              params,
+              60_000,
+            ),
+        }),
+      );
+    },
+  );
+  ipcMain.handle(
+    "presentation:native-edit-appearance",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(() =>
+        renderNativeEditAppearance(value, {
+          runtime: createSidecarCommand({
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+          }),
+          request: (method, params) =>
+            requireClient().request(method, params, 60_000),
+        }),
+      );
+    },
+  );
+  ipcMain.handle("presentation:save-pdf", async (event, value: unknown) => {
+    assertTrustedRendererSender(event, rendererPolicy);
+    return invokeResult(() =>
+      savePresentationPdf(value, {
+        dataRoot: process.env.PRESENTER_COPILOT_DATA_ROOT
+          ? path.resolve(
+              process.env.PRESENTER_COPILOT_DATA_ROOT.replace(
+                /^~(?=[\\/]|$)/,
+                os.homedir(),
+              ),
+            )
+          : path.join(
+              process.env.LOCALAPPDATA ??
+                path.join(os.homedir(), "AppData", "Local"),
+              "PresenterCopilot",
+            ),
+        runtime: createSidecarCommand({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+        }),
+        chooseDestination: async () => {
+          const owner = mainWindow;
+          if (!owner || owner.isDestroyed())
+            throw new Error("Workspace window unavailable");
+          const selection = await dialog.showSaveDialog(owner, {
+            title: "Export current revision as PDF",
+            buttonLabel: "Export PDF",
+            defaultPath: "Presentation.pdf",
+            filters: [{ name: "PDF document", extensions: ["pdf"] }],
+            properties: ["showOverwriteConfirmation"],
+          });
+          return selection.canceled ? null : (selection.filePath ?? null);
+        },
+        copyRevision: (params) =>
+          requireClient().request(
+            "presentation.workspace.export_current_copy",
+            params,
+            60_000,
+          ),
+      }),
+    );
   });
   ipcMain.handle("diagnostics:preview", async (event, value: unknown) => {
     assertTrustedRendererSender(event, rendererPolicy);
@@ -1168,10 +1412,12 @@ function registerIpc(
 }
 
 async function stopCore(): Promise<void> {
+  closePresentationPreview();
   disableManualRunShortcuts();
   disableLiveShortcuts();
   if (hudWindow && !hudWindow.isDestroyed()) hudWindow.close();
   if (!coreClient) return;
+  await stopPdfExports();
   await coreClient.shutdown();
 }
 
@@ -1195,6 +1441,18 @@ void app.whenReady().then(() => {
     bundledHudPath: path.join(__dirname, "../renderer/hud/index.html"),
     allowDevelopmentHud: rendererPolicy.allowDevelopmentRenderer,
   };
+  registerPresentationPreviewIpc(rendererPolicy, {
+    bundledPreviewPath: path.join(
+      __dirname,
+      "../renderer/presentation-preview/index.html",
+    ),
+    allowDevelopmentPreview:
+      rendererPolicy.allowDevelopmentRenderer &&
+      isExpectedDevelopmentUrl(
+        process.env.PRESENTER_COPILOT_DEV_SERVER_URL ?? "",
+      ),
+    rendererPolicy,
+  });
   currentHudPolicy = hudPolicy;
   hudRegistry = new GlobalShortcutRegistry(globalShortcut);
   registerIpc(rendererPolicy, hudPolicy);
@@ -1263,7 +1521,10 @@ void app.whenReady().then(() => {
 });
 
 app.on("before-quit", (event) => {
-  if (isQuitting || !coreClient) return;
+  if (isQuitting || !coreClient) {
+    closePresentationPreview();
+    return;
+  }
   event.preventDefault();
   isQuitting = true;
   automaticRestartController.cancel();

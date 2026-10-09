@@ -11,22 +11,33 @@ extraResources:
   - from: ../../artifacts/sidecar/presenter-core
     to: sidecar/presenter-core
     filter:
-      - '**/*'
+      - "**/*"
   - from: ../../artifacts/codex
     to: codex
     filter:
-      - '**/*'
+      - "**/*"
   - from: ../../third_party/codex
     to: licenses/codex
     filter:
-      - '**/*'
+      - "**/*"
+  - from: node_modules/@aiden0z/pptx-renderer
+    to: licenses/pptx-renderer
+    filter:
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**/*
+  - from: node_modules/pdfjs-dist
+    to: licenses/pdfjs-dist
+    filter:
+      - LICENSE
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
         - x64
   executableName: Presenter Copilot
-  signAndEditExecutable: false
+  signExecutable: false
 nsis:
   oneClick: false
   perMachine: false

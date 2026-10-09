@@ -45,6 +45,12 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
     assert "project.create" in result["capabilities"]["methods"]
     assert "source.import" in result["capabilities"]["methods"]
     assert "search.lexical" in result["capabilities"]["methods"]
+    assert "presentation.workspace.create_slide" in result["capabilities"]["methods"]
+    assert "presentation.workspace.apply_slide_layout" in result["capabilities"]["methods"]
+    assert "presentation.workspace.format_shape_style" in result["capabilities"]["methods"]
+    assert "presentation.workspace.replace_picture_image" in result["capabilities"]["methods"]
+    assert "presentation.workspace.create_picture" in result["capabilities"]["methods"]
+    assert "presentation.workspace.create_shape" in result["capabilities"]["methods"]
     assert {
         "transcript.list_speakers",
         "transcript.map_speaker",
@@ -84,6 +90,11 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "retrieval.lexical",
         "reasoning.fake",
         "provider.openai.responses",
+        "decision.openrouter.jev",
+        "decision.ollama.systemone",
+        "decision.openai.responses-fast",
+        "decision.openai.chatgpt-plan",
+        "decision.local.structured-output",
         "audio.sounddevice",
         "asr.faster-whisper",
         "asr.deterministic-fake",
@@ -92,7 +103,7 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "debrief.deterministic-local",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 7}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 22}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:

@@ -98,7 +98,9 @@ pnpm test:install-smoke
 
 `package:win` creates an unsigned per-user NSIS installer under
 `artifacts/installer/` and bundles the PyInstaller one-folder sidecar under
-the Electron resources directory. `test:packaged` launches the packaged
+the Electron resources directory. Use `package:win:release` to enable and
+require successful signing for a production candidate.
+`test:packaged` launches the packaged
 executable with a disposable data root and verifies bounded startup/shutdown;
 it never uses the repository's Python fallback. `test:install-smoke` is a
 read-only reporter for the manual clean-machine checklist in
