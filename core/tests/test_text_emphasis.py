@@ -128,3 +128,22 @@ def test_invalid_font_family_is_rejected(tmp_path: Path, family: str) -> None:
         assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
     finally:
         deck.core.close()
+
+
+def test_highlight_applies_in_schema_order_and_removes(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _keep)
+    try:
+        assert deck.target()[0]["text_style"]["highlight_color"] is None
+        assert deck.format({"highlight_color": "#ffff00", "font_family": "Georgia"})["ok"]
+        for run in _runs(deck):
+            names = [child.tag.removeprefix(A) for child in run]
+            assert names.index("highlight") < names.index("latin")
+            assert run.find(f"{A}highlight/{A}srgbClr").get("val") == "FFFF00"
+        assert deck.target()[0]["text_style"]["highlight_color"] == "#FFFF00"
+        assert deck.format({"highlight_color": "none"})["ok"]
+        assert all(run.find(f"{A}highlight") is None for run in _runs(deck))
+        assert deck.target()[0]["text_style"]["highlight_color"] is None
+        bad = deck.format({"highlight_color": "yellow"})
+        assert not bad["ok"] and bad["error"]["code"] == "INVALID_REQUEST"
+    finally:
+        deck.core.close()

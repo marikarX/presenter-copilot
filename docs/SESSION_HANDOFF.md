@@ -76,7 +76,10 @@ Commits this session:
   style with a suggestion list in the Text panel and in Copilot plans. It
   replaces the typeface in place, drops stale panose/charset metadata and
   inserts `latin` in schema order. PowerPoint reads back single underline,
-  single strike and Georgia. `test-text-emphasis.mjs` 5/5.
+  single strike and Georgia.
+- Text highlight color (`a:highlight` solid RGB, or `none` to remove) is a
+  direct-run style in the Text panel and Copilot plans, inserted in schema
+  order before underline/font elements. `test-text-emphasis.mjs` 6/6.
 - Slide background: a solid `#RRGGBB` color or "Use layout background" is a
   reviewed edit (`presentation.workspace.set_slide_background`, Objects panel
   and Copilot plans). Inherited, theme-style (`bgRef`) and solid RGB

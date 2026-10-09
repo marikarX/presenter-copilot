@@ -7324,7 +7324,7 @@ class PresentationEditService:
                     revised_object.text_style,
                     "bullet_state" if name == "bullet_mode" else name,
                 )
-                != value
+                != (None if name == "highlight_color" and value == "none" else value)
                 for name, value in replacement_style.items()
             )
         ):
@@ -7344,6 +7344,44 @@ class PresentationEditService:
                 run_properties.set(
                     "b" if name == "bold" else "i",
                     "1" if replacement_style[name] else "0",
+                )
+        if "highlight_color" in replacement_style:
+            for existing in run_properties.findall(f"{{{DRAWING_NS}}}highlight"):
+                run_properties.remove(existing)
+            if replacement_style["highlight_color"] != "none":
+                following = {
+                    f"{{{DRAWING_NS}}}{name}"
+                    for name in (
+                        "uLnTx",
+                        "uLn",
+                        "uFillTx",
+                        "uFill",
+                        "latin",
+                        "ea",
+                        "cs",
+                        "sym",
+                        "hlinkClick",
+                        "hlinkMouseOver",
+                        "rtl",
+                        "extLst",
+                    )
+                }
+                highlight = etree.Element(f"{{{DRAWING_NS}}}highlight")
+                etree.SubElement(
+                    highlight,
+                    f"{{{DRAWING_NS}}}srgbClr",
+                    val=replacement_style["highlight_color"][1:],
+                )
+                run_properties.insert(
+                    next(
+                        (
+                            index
+                            for index, child in enumerate(run_properties)
+                            if child.tag in following
+                        ),
+                        len(run_properties),
+                    ),
+                    highlight,
                 )
         if "font_family" in replacement_style:
             latin = run_properties.find(f"{{{DRAWING_NS}}}latin")
@@ -8740,6 +8778,7 @@ class PresentationEditService:
             "underline",
             "strikethrough",
             "font_family",
+            "highlight_color",
             "font_size_pt",
             "font_color",
             "alignment",
@@ -8770,6 +8809,15 @@ class PresentationEditService:
                         field=f"replacement_style.{name}",
                     )
                 result[name] = item
+            elif name == "highlight_color":
+                if not isinstance(item, str) or not (
+                    item == "none" or re.fullmatch(r"#[0-9A-Fa-f]{6}", item)
+                ):
+                    raise invalid_request(
+                        "replacement_style.highlight_color must be #RRGGBB or none.",
+                        field="replacement_style.highlight_color",
+                    )
+                result[name] = item if item == "none" else item.upper()
             elif name == "font_family":
                 if not isinstance(item, str) or not (
                     item in {"+mn-lt", "+mj-lt"}

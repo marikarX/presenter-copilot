@@ -206,6 +206,7 @@ class FidelityTextStyle:
     underline: bool | None = None
     strikethrough: bool | None = None
     font_family: str | None = None
+    highlight_color: str | None = None
     font_size_pt: float | None = None
     font_color: str | None = None
     color_editable: bool = False
@@ -459,6 +460,7 @@ class FidelityDocument:
                             "underline": obj.text_style.underline,
                             "strikethrough": obj.text_style.strikethrough,
                             "font_family": obj.text_style.font_family,
+                            "highlight_color": obj.text_style.highlight_color,
                             "font_size_pt": obj.text_style.font_size_pt,
                             "font_color": obj.text_style.font_color,
                             "color_editable": obj.text_style.color_editable,
@@ -1917,6 +1919,7 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         underline=uniform("underline"),
         strikethrough=uniform("strikethrough"),
         font_family=uniform("font_family"),
+        highlight_color=uniform("highlight_color"),
         font_size_pt=uniform("font_size_pt"),
         font_color=uniform("font_color"),
         color_editable=all(style.color_editable for style in styles),
@@ -2281,6 +2284,21 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
     if len(latin) > 1:
         return FidelityTextStyle(editable=False, fingerprint=fingerprint)
     font_family = latin[0].get("typeface") or None if latin else None
+    highlights = [child for child in children if child.tag == f"{{{DRAWING_NS}}}highlight"]
+    highlight_color: str | None = None
+    if highlights:
+        colors = list(highlights[0])
+        value = colors[0].get("val", "") if len(colors) == 1 else ""
+        if (
+            len(highlights) != 1
+            or highlights[0].attrib
+            or len(colors) != 1
+            or colors[0].tag != f"{{{DRAWING_NS}}}srgbClr"
+            or len(colors[0])
+            or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
+        ):
+            return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+        highlight_color = f"#{value.upper()}"
     strikethrough = None if raw_strike is None else raw_strike != "noStrike"
 
     fill_tags = {
@@ -2314,6 +2332,7 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
         underline=underline,
         strikethrough=strikethrough,
         font_family=font_family,
+        highlight_color=highlight_color,
         font_size_pt=font_size_pt,
         font_color=font_color,
         color_editable=color_editable,

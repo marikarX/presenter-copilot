@@ -215,12 +215,27 @@ try {
     "GUI rejects an invalid font name and applies Georgia as one native revision",
   );
 
+  await page
+    .getByLabel("Text highlight color", { exact: true })
+    .fill("#ffff00");
+  await page
+    .getByRole("button", { name: "Apply highlight", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 6", { exact: true }).waitFor();
+  assert.equal((await style()).highlight_color, "#FFFF00");
+  checks.push("GUI applies a yellow highlight as one native revision");
+  await page.screenshot({ path: path.join(output, "text-highlight.png") });
+
   await workspace
     .getByRole("button", { name: "Undo last presentation edit", exact: true })
     .click();
-  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
-  assert.notEqual((await style()).font_family, "Georgia");
-  checks.push("Undo restores the previous font");
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  const undone = await style();
+  assert.deepEqual(
+    [undone.highlight_color, undone.font_family],
+    [null, "Georgia"],
+  );
+  checks.push("Undo removes the highlight and keeps the earlier font change");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

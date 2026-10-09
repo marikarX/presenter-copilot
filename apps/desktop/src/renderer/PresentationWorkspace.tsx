@@ -239,6 +239,7 @@ type TextStyle = {
   underline?: boolean | null;
   strikethrough?: boolean | null;
   font_family?: string | null;
+  highlight_color?: string | null;
   font_size_pt: number | null;
   font_color: string | null;
   color_editable: boolean;
@@ -272,6 +273,7 @@ type TextStyleChange = Partial<
     | "underline"
     | "strikethrough"
     | "font_family"
+    | "highlight_color"
     | "font_size_pt"
     | "font_color"
     | "alignment"
@@ -454,6 +456,7 @@ function validFontFamily(value: string): boolean {
 }
 
 type TextStyleDraft = {
+  highlight_color: string;
   font_family: string;
   font_size_pt: string;
   font_color: string;
@@ -1027,6 +1030,9 @@ function isTextStyle(value: unknown): value is TextStyle {
     (candidate.underline == null || typeof candidate.underline === "boolean") &&
     (candidate.strikethrough == null ||
       typeof candidate.strikethrough === "boolean") &&
+    (candidate.highlight_color == null ||
+      (typeof candidate.highlight_color === "string" &&
+        /^#[0-9A-F]{6}$/.test(candidate.highlight_color))) &&
     (candidate.font_family == null ||
       (typeof candidate.font_family === "string" &&
         candidate.font_family.length <= 256));
@@ -1297,6 +1303,7 @@ export function PresentationWorkspace({
   const [voiceClarification, setVoiceClarification] = useState("");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [textStyleDraft, setTextStyleDraft] = useState<TextStyleDraft>({
+    highlight_color: "#FFFF00",
     font_family: "",
     font_size_pt: "",
     font_color: "#000000",
@@ -2163,6 +2170,7 @@ export function PresentationWorkspace({
     setTextRewriteProposal(null);
     setRewriteBusy(false);
     setTextStyleDraft({
+      highlight_color: "#FFFF00",
       font_family: "",
       font_size_pt: "",
       font_color: "#000000",
@@ -2607,6 +2615,7 @@ export function PresentationWorkspace({
         setSelectedTargetHandle(firstTarget?.key ?? "");
         setMockText(firstTarget?.text.slice(0, MAX_MOCK_TEXT_CHARS) ?? "");
         setTextStyleDraft({
+          highlight_color: firstTarget?.style.highlight_color ?? "#FFFF00",
           font_family: firstTarget?.style.font_family ?? "",
           font_size_pt: firstTarget?.style.font_size_pt?.toString() ?? "",
           font_color: firstTarget?.style.font_color ?? "#000000",
@@ -7902,6 +7911,8 @@ export function PresentationWorkspace({
                             target?.text.slice(0, MAX_MOCK_TEXT_CHARS) ?? "",
                           );
                           setTextStyleDraft({
+                            highlight_color:
+                              target?.style.highlight_color ?? "#FFFF00",
                             font_family: target?.style.font_family ?? "",
                             font_size_pt:
                               target?.style.font_size_pt?.toString() ?? "",
@@ -8516,6 +8527,59 @@ export function PresentationWorkspace({
                             stay read-only.
                           </p>
                         ) : null}
+                        <div className="pw-shape-color-control">
+                          <label>
+                            Highlight color
+                            <input
+                              type="color"
+                              aria-label="Text highlight color"
+                              value={textStyleDraft.highlight_color}
+                              onChange={(event) =>
+                                setTextStyleDraft((current) => ({
+                                  ...current,
+                                  highlight_color:
+                                    event.target.value.toUpperCase(),
+                                }))
+                              }
+                              disabled={!loadedSourceId || loading}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              void saveTextStyleRevision({
+                                highlight_color: textStyleDraft.highlight_color,
+                              })
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              !selectedTarget.style.fingerprint ||
+                              textStyleDraft.highlight_color ===
+                                selectedTarget.style.highlight_color
+                            }
+                          >
+                            Apply highlight
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              void saveTextStyleRevision({
+                                highlight_color: "none",
+                              })
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              !selectedTarget.style.fingerprint ||
+                              !selectedTarget.style.highlight_color
+                            }
+                          >
+                            Remove highlight
+                          </button>
+                        </div>
                         <label>
                           Font (theme: +mn-lt body, +mj-lt headings)
                           <input
