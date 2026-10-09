@@ -65,6 +65,10 @@ replaceable imported marker like symbol glyphs; replacing removes only the
 `buBlip`. Full check 1914 passed. Equations stay read-only by design: editing
 inside `mc:AlternateContent` would leave PowerPoint's pre-rendered fallback
 image inconsistent.
+Text-layout probe: line breaking matches PowerPoint; the preview's default
+single line height is ~6% tighter (~8% under autofit line reduction) inside
+`@aiden0z/pptx-renderer`. Closing the text fidelity gap needs renderer work
+(patch or fork); evidence in `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

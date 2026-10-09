@@ -24,6 +24,29 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Text-layout probe: preview vs PowerPoint — 2026-10-09
+
+A synthetic deck (`.local/session2/text_probe.py`) puts three wrapped Arial
+24 pt paragraphs in a 6 x 4 in box, varying one property per slide. Each slide
+was rendered by PowerPoint and by `render-workspace-preview.mjs` at the same
+pixel size. The probe compared detected text-line counts and median line pitch:
+
+| Case | Lines PPT/preview | Pitch px PPT/preview |
+| --- | --- | --- |
+| Single spacing | 15/15 | 34/32 |
+| `lnSpc` 150% | 10/10 | 53/54 |
+| `lnSpc` 40 pt | 10/10 | 49/50 |
+| `spcBef` 24 pt | 12/12 | 35/34 |
+| `normAutofit` 70% / `lnSpcReduction` 10% | 9/9 | 25/23 |
+
+Line breaking matched in every case. The residual is default single line
+height: about 6% tighter in the preview, and about 8% tighter under autofit
+line-spacing reduction. The first line also starts about 3 px higher.
+Explicit spacing matches within about 1 px. That line-height logic is inside
+`@aiden0z/pptx-renderer`, not repository code, so closing it requires renderer
+work (patching or forking the dependency). This is the starting evidence for
+that project.
+
 ### Preview `a:lum` corrected to PowerPoint's measured behavior — 2026-10-09
 
 PowerPoint rendered a 256-level grey ramp with `a:lum` variants and a
