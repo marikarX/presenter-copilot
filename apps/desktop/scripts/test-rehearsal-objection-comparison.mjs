@@ -442,6 +442,76 @@ db.commit();print(second)
     "Dismissing one compared original candidate changes only that candidate's own review record; the equivalent counterpart and native revision stay unchanged",
   );
 
+  // Defer delivery of a real verified comparison reply, then close the panel.
+  await app.evaluate(
+    (_electron, modulePath) => {
+      const { CoreProcessClient } = process.mainModule.require(modulePath);
+      const original = CoreProcessClient.prototype.request;
+      globalThis.comparisonHold = true;
+      globalThis.comparisonHeld = false;
+      globalThis.comparisonRelease = false;
+      globalThis.comparisonReturned = false;
+      CoreProcessClient.prototype.request = async function (...args) {
+        const result = await original.apply(this, args);
+        if (
+          args[0] ===
+            "presentation.workspace.get_rehearsal_objection_comparison" &&
+          globalThis.comparisonHold
+        ) {
+          globalThis.comparisonHeld = true;
+          const deadline = Date.now() + 30000;
+          while (!globalThis.comparisonRelease && Date.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 30));
+          globalThis.comparisonReturned = true;
+        }
+        return result;
+      };
+    },
+    path.join(desktop, "dist", "main", "core-client.js"),
+  );
+  const waitMain = async (name) => {
+    const until = Date.now() + 20000;
+    while (!(await app.evaluate((_electron, key) => globalThis[key], name))) {
+      assert.ok(Date.now() < until, `${name} was not reached`);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+  };
+  await panel
+    .getByRole("button", { name: "Review saved comparison", exact: true })
+    .click();
+  await waitMain("comparisonHeld");
+  const studioButton = (name) =>
+    page
+      .getByRole("group", { name: "Slide studio panels", exact: true })
+      .getByRole("button", { name, exact: true });
+  await studioButton("Notes").click();
+  await app.evaluate(() => {
+    globalThis.comparisonHold = false;
+    globalThis.comparisonRelease = true;
+  });
+  await waitMain("comparisonReturned");
+  await studioButton("Rehearsal").click();
+  await panel.getByText("1 saved comparisons for this deck.").waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(
+    await panel
+      .getByRole("region", { name: "Verified objection comparison" })
+      .count(),
+    0,
+    "A reply delivered after the panel closed must not reappear",
+  );
+  assert.equal(
+    await panel.getByText(/Prepared 2 × 1 pairs/).count(),
+    0,
+    "Reopening starts from a clean selection",
+  );
+  assert.deepEqual(errors, []);
+  checks.push(
+    "A real comparison detail reply held past panel closure is discarded; reopening shows saved history without stale detail or selection",
+  );
+  await pick(first, "First Run", firstRun, leftAnalysis.analysis_id, [1, 2]);
+  await pick(second, "Second Run", secondRun, rightAnalysis.analysis_id, [1]);
+
   // Held provider: Cancel during inference persists nothing.
   await control({ hold: true, release: false });
   await panel

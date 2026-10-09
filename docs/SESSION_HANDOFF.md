@@ -22,7 +22,8 @@ Commits this session:
   desktop allowlists and examples.
 - `ff1d9f5` Comparison GUI (`RehearsalObjectionComparison.tsx`, in the
   Rehearsal panel) and `test-rehearsal-objection-comparison.mjs` (7/7 actual
-  Electron/Core checks; model adapter is the only fixture). A rejected Start
+  Electron/Core checks; model adapter is the only fixture; now 8/8 including
+  a real detail reply held past panel closure being discarded). A rejected Start
   clears the stale preparation (bug found in the GUI run).
 - `e1bfd65` List numbering `1)`, `a.`, `A.`, `i.`, `I.` across detection,
   apply, text-fit markers and the GUI; fixes Copilot edit plans offering
@@ -128,7 +129,7 @@ Human-gated items (cannot be completed by an agent):
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: remaining direct-edit gaps (picture bullets, symbol-font bullets), held Run/head GUI replies,
+Next: remaining direct-edit gaps (picture bullets, equations), held revision-change GUI replies,
 fidelity corpus review and human acceptance gates. Signing and clean Windows
 validation remain accepted debt.
 
