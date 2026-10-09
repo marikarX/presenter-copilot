@@ -4845,6 +4845,84 @@ export function PresentationWorkspace({
     selectedSource,
   ]);
 
+  const renderPictureAdjustment = (selectedObject: PresentationObject) =>
+    selectedObject.picture_adjustment ? (
+      <fieldset className="pw-picture-crop">
+        <legend>Picture adjustments</legend>
+        <p className="muted">
+          Brightness and contrast use PowerPoint&apos;s percentages from -100 to
+          100.
+        </p>
+        <div className="pw-geometry-fields">
+          {(
+            [
+              ["brightness_percent", "Brightness (%)"],
+              ["contrast_percent", "Contrast (%)"],
+            ] as const
+          ).map(([field, label]) => (
+            <label key={field}>
+              {label}
+              <input
+                type="number"
+                min="-100"
+                max="100"
+                step="1"
+                aria-label={`Picture ${label}`}
+                value={objectAdjustmentDraft[field]}
+                onChange={(event) =>
+                  setObjectAdjustmentDraft((current) => ({
+                    ...current,
+                    [field]: event.target.value,
+                  }))
+                }
+                disabled={!loadedSourceId || loading}
+              />
+            </label>
+          ))}
+        </div>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            aria-label="Picture grayscale"
+            checked={objectAdjustmentDraft.grayscale}
+            onChange={(event) =>
+              setObjectAdjustmentDraft((current) => ({
+                ...current,
+                grayscale: event.target.checked,
+              }))
+            }
+            disabled={!loadedSourceId || loading}
+          />
+          Grayscale
+        </label>
+        {replacementPictureAdjustment === null ? (
+          <p className="muted" role="alert">
+            Use whole percentages from -100 to 100.
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => void savePictureAdjustmentRevision()}
+          disabled={
+            !loadedSourceId ||
+            loading ||
+            !replacementPictureAdjustment ||
+            samePictureAdjustment(
+              selectedObject.picture_adjustment,
+              replacementPictureAdjustment,
+            )
+          }
+        >
+          Apply picture adjustments
+        </button>
+      </fieldset>
+    ) : (
+      <p className="muted">
+        This picture uses image effects that stay read-only.
+      </p>
+    );
+
   const replacePictureImageRevision = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -9457,91 +9535,7 @@ export function PresentationWorkspace({
                                   Replace picture image
                                 </button>
                               </fieldset>
-                              {selectedObject.picture_adjustment ? (
-                                <fieldset className="pw-picture-crop">
-                                  <legend>Picture adjustments</legend>
-                                  <p className="muted">
-                                    Brightness and contrast use
-                                    PowerPoint&apos;s percentages from -100 to
-                                    100.
-                                  </p>
-                                  <div className="pw-geometry-fields">
-                                    {(
-                                      [
-                                        [
-                                          "brightness_percent",
-                                          "Brightness (%)",
-                                        ],
-                                        ["contrast_percent", "Contrast (%)"],
-                                      ] as const
-                                    ).map(([field, label]) => (
-                                      <label key={field}>
-                                        {label}
-                                        <input
-                                          type="number"
-                                          min="-100"
-                                          max="100"
-                                          step="1"
-                                          aria-label={`Picture ${label}`}
-                                          value={objectAdjustmentDraft[field]}
-                                          onChange={(event) =>
-                                            setObjectAdjustmentDraft(
-                                              (current) => ({
-                                                ...current,
-                                                [field]: event.target.value,
-                                              }),
-                                            )
-                                          }
-                                          disabled={!loadedSourceId || loading}
-                                        />
-                                      </label>
-                                    ))}
-                                  </div>
-                                  <label className="checkbox-row">
-                                    <input
-                                      type="checkbox"
-                                      aria-label="Picture grayscale"
-                                      checked={objectAdjustmentDraft.grayscale}
-                                      onChange={(event) =>
-                                        setObjectAdjustmentDraft((current) => ({
-                                          ...current,
-                                          grayscale: event.target.checked,
-                                        }))
-                                      }
-                                      disabled={!loadedSourceId || loading}
-                                    />
-                                    Grayscale
-                                  </label>
-                                  {replacementPictureAdjustment === null ? (
-                                    <p className="muted" role="alert">
-                                      Use whole percentages from -100 to 100.
-                                    </p>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    className="secondary-button"
-                                    onClick={() =>
-                                      void savePictureAdjustmentRevision()
-                                    }
-                                    disabled={
-                                      !loadedSourceId ||
-                                      loading ||
-                                      !replacementPictureAdjustment ||
-                                      samePictureAdjustment(
-                                        selectedObject.picture_adjustment,
-                                        replacementPictureAdjustment,
-                                      )
-                                    }
-                                  >
-                                    Apply picture adjustments
-                                  </button>
-                                </fieldset>
-                              ) : (
-                                <p className="muted">
-                                  This picture uses image effects that stay
-                                  read-only.
-                                </p>
-                              )}
+                              {renderPictureAdjustment(selectedObject)}
                             </>
                           ) : (
                             <p className="muted">
@@ -9552,10 +9546,16 @@ export function PresentationWorkspace({
                         ) : null}
                       </>
                     ) : selectedObject ? (
-                      <p className="muted">
-                        This object is preserved but does not have a supported
-                        slide-level transform.
-                      </p>
+                      <>
+                        <p className="muted">
+                          This object is preserved but does not have a supported
+                          slide-level transform.
+                        </p>
+                        {selectedObject.kind === "pic" &&
+                        selectedObject.picture_adjustment
+                          ? renderPictureAdjustment(selectedObject)
+                          : null}
+                      </>
                     ) : (
                       <p className="muted">
                         Select an object with supported geometry to edit it.

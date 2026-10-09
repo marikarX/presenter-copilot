@@ -135,3 +135,57 @@ def test_invalid_adjustments_are_rejected(tmp_path: Path, replacement: dict) -> 
         assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
     finally:
         picture.core.close()
+
+
+def test_full_bleed_picture_outside_slide_bounds_can_be_adjusted(tmp_path: Path) -> None:
+    import io
+
+    from PIL import Image
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    image = io.BytesIO()
+    Image.new("RGB", (32, 24), (200, 80, 40)).save(image, "PNG")
+    image.seek(0)
+    source = tmp_path / "bleed.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    picture = slide.shapes.add_picture(image, Inches(-0.5), Inches(0), Inches(11), Inches(7.5))
+    picture.name = "Bleed"
+    deck.save(source)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        inventory = _call(
+            core,
+            "targets",
+            "presentation.workspace.list_text_targets",
+            {
+                "project_id": project,
+                "document_id": document,
+                "revision_id": revision,
+                "slide_number": 1,
+            },
+        )["result"]
+        target = next(o for o in inventory["objects"] if o["name"] == "Bleed")
+        assert target["geometry_editable"] is False
+        reply = _call(
+            core,
+            "adjust",
+            "presentation.workspace.adjust_picture",
+            {
+                "project_id": project,
+                "document_id": document,
+                "expected_revision_id": revision,
+                "slide_id": inventory["slide_id"],
+                "object_id": target["object_id"],
+                "expected_geometry": target["geometry"],
+                "expected_adjustment": target["picture_adjustment"],
+                "replacement_adjustment": {"brightness_percent": -20, "grayscale": True},
+            },
+        )
+        assert reply["ok"] and reply["result"]["changed"], reply.get("error")
+    finally:
+        core.close()

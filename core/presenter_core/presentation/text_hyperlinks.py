@@ -139,7 +139,7 @@ def set_text_hyperlink(editor: PresentationEditService, params: dict[str, Any]) 
                 )
             root = _parse_xml_part(archive, members[slide.part_name])
             rels = _parse_xml_part(archive, members[rels_part])
-            node = editor._find_object_node(root, ooxml_id=obj.ooxml_id, kind=obj.kind)
+            node = editor._find_shape(root, obj.ooxml_id)
             if shape_hyperlink(
                 node, slide_hyperlink_targets(archive, members, slide.part_name)
             ) != (expected):

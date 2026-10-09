@@ -96,6 +96,15 @@ Commits this session:
   fields are listed as not replaceable. Replace-all requires the reviewed
   match set to be unchanged, writes one revision, verifies every other object
   is untouched and is undoable. `test-find-replace.mjs` 3/3.
+- Real-deck acceptance of the edits above (`.local/session2/corpus_new_edits.py`,
+  33 corpus decks, edits chained on one revision series per deck): rotate 33,
+  move an already-rotated object 13, picture adjustment 18, underline + font
+  32, text link 32, slide background 31, deck-wide replace 31; no edit errors.
+  All 28 decks eligible for the PowerPoint gate open with the expected slide
+  count; the other 5 are blocked before any edit by pre-existing active or
+  external content. The run found and fixed two bugs: find/replace and links
+  failed on shapes inside groups (now searched slide-wide), and full-bleed
+  pictures extending past the slide could not be adjusted.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

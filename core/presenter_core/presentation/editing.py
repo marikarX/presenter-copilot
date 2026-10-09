@@ -953,7 +953,7 @@ class PresentationEditService:
         slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
         object_id = self._uuid_field(params.get("object_id"), "object_id")
         expected_geometry = self._geometry_field(
-            params.get("expected_geometry"), "expected_geometry"
+            params.get("expected_geometry"), "expected_geometry", allow_offslide=True
         )
         expected_adjustment = self._picture_adjustment_field(
             params.get("expected_adjustment"), "expected_adjustment"
@@ -3194,7 +3194,8 @@ class PresentationEditService:
             )
         if (
             source_object.kind != "pic"
-            or not source_object.geometry_editable
+            # Brightness/contrast never moves the frame, so full-bleed pictures qualify.
+            or (replacement_adjustment is None and not source_object.geometry_editable)
             or source_object.geometry is None
             or source_object.picture_crop is None
         ):
@@ -8950,7 +8951,9 @@ class PresentationEditService:
         return normalized
 
     @staticmethod
-    def _geometry_field(value: Any, field: str) -> FidelityGeometry:
+    def _geometry_field(
+        value: Any, field: str, *, allow_offslide: bool = False
+    ) -> FidelityGeometry:
         names = {"x_emu", "y_emu", "width_emu", "height_emu"}
         if not isinstance(value, dict) or set(value) != names:
             raise invalid_request(
@@ -8962,8 +8965,9 @@ class PresentationEditService:
             raise invalid_request(f"{field} coordinates must be integers.", field=field)
         x_emu, y_emu, width_emu, height_emu = coordinates
         if (
-            x_emu < 0
-            or y_emu < 0
+            (not allow_offslide and (x_emu < 0 or y_emu < 0))
+            or abs(x_emu) > MAX_SLIDE_DIMENSION_EMU
+            or abs(y_emu) > MAX_SLIDE_DIMENSION_EMU
             or width_emu <= 0
             or height_emu <= 0
             or any(number > MAX_SLIDE_DIMENSION_EMU for number in coordinates)

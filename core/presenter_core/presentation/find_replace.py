@@ -82,8 +82,13 @@ def _scan(
                 continue
             if root is None:
                 root = _parse_xml_part(archive, archive.getinfo(slide.part_name))
-            node = editor._find_object_node(root, ooxml_id=obj.ooxml_id, kind=obj.kind)
-            replaceable, skipped = _scan_object(node, pattern)
+            try:
+                node = editor._find_shape(root, obj.ooxml_id)
+            except CoreDomainError:
+                # Ambiguous copies (alternate content) are listed, never rewritten.
+                replaceable, skipped = 0, len(pattern.findall(obj.text))
+            else:
+                replaceable, skipped = _scan_object(node, pattern)
             if replaceable or skipped:
                 index = pattern.search(obj.text)
                 start = max((index.start() if index else 0) - 40, 0)
@@ -221,7 +226,7 @@ def replace_text_all(editor: PresentationEditService, params: dict[str, Any]) ->
                 for obj in slide.objects:
                     if obj.object_id not in targets:
                         continue
-                    node = editor._find_object_node(root, ooxml_id=obj.ooxml_id, kind=obj.kind)
+                    node = editor._find_shape(root, obj.ooxml_id)
                     texts = []
                     for item in node.xpath("./p:txBody/a:p/a:r/a:t", namespaces=_NS):
                         item.text = pattern.sub(lambda _match: replacement, item.text or "")
@@ -264,7 +269,7 @@ def replace_text_all(editor: PresentationEditService, params: dict[str, Any]) ->
                 root = _parse_xml_part(archive, archive.getinfo(slide.part_name))
                 for obj in slide.objects:
                     if obj.object_id in targets:
-                        node = editor._find_object_node(root, ooxml_id=obj.ooxml_id, kind=obj.kind)
+                        node = editor._find_shape(root, obj.ooxml_id)
                         if [
                             item.text or ""
                             for item in node.xpath("./p:txBody/a:p/a:r/a:t", namespaces=_NS)

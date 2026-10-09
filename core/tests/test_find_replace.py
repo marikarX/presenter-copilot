@@ -144,3 +144,42 @@ def test_stale_matches_and_invalid_queries_are_rejected(tmp_path: Path) -> None:
             assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
     finally:
         workspace.core.close()
+
+
+def test_text_inside_group_shapes_is_found_and_replaced(tmp_path: Path) -> None:
+    source = tmp_path / "grouped.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    group = slide.shapes.add_group_shape()
+    inner = group.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    inner.name = "Grouped text"
+    inner.text_frame.text = "Grouped legacy note"
+    deck.save(source)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document, "expected_revision_id": revision}
+        found = _call(
+            core, "find", "presentation.workspace.find_text", {**scope, "query": "legacy"}
+        )
+        assert found["ok"], found
+        [match] = found["result"]["objects"]
+        assert (match["name"], match["replaceable_count"]) == ("Grouped text", 1)
+        reply = _call(
+            core,
+            "replace",
+            "presentation.workspace.replace_text_all",
+            {
+                **scope,
+                "query": "legacy",
+                "replacement": "current",
+                "expected_matches": [
+                    {k: match[k] for k in ("slide_id", "object_id", "replaceable_count")}
+                ],
+            },
+        )
+        assert reply["ok"] and reply["result"]["replaced_matches"] == 1, reply
+    finally:
+        core.close()
