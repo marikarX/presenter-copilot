@@ -49,9 +49,9 @@ Final corpus pass: 13 real decks were edited through actual Core. Seven were
 Wingdings lists changed to "•" with a color. Six were recognised lists changed
 to lettered numbering from B with color and 120% size. Every edit read back
 exactly, every edited paragraph's marker uses a text font, and PowerPoint
-opened each copy. PowerPoint-rendered original/edited PNG pairs for all 13
-were reviewed for two representative decks (26 slide 2, 22 slide 2). Markers
-changed as intended and text positions did not move. Renders:
+opened each copy. PowerPoint rendered original and edited PNGs for all 13.
+Two representative pairs (deck 26 slide 2, deck 22 slide 2) were reviewed by
+eye: markers changed as intended and text positions did not move. Renders:
 `.local/session2/corpus-renders/`.
 
 ### Native templates and draft authoring — 2026-10-03

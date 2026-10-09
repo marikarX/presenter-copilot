@@ -39,14 +39,22 @@ Commits this session:
   starts are now editable while malformed values stay read-only. GUI
   "Numbering starts at" field; bullet harness checks roman numbering from III.
 
-Validation: full `pnpm check` green on `2946282` (1888 Core tests, desktop
-312, lint/types/format); `test-workspace.mjs` 117/117 after both the numbering
+Validation: latest full `pnpm check` green on `57c84c4` (1902 Core tests,
+desktop 312, lint/types/format) with `test-workspace.mjs` 117/117 and
+`test-bullet-marker.mjs` 4/4 on that commit. Earlier: check green on
+`2946282` (1888 Core tests) and `2f5ce70` (1894); `test-workspace.mjs` 117/117 after both the numbering
 and bullet-marker commits; existing objection review GUI 20/20 with the
 comparison panel mounted; `test-bullet-marker.mjs` 4/4 including start values.
-Corpus: on the 33 cached decks, direct-marker lists that are bullet-editable
-went from 0 to 14 (7 decks). One reviewed numbering/color/size edit per deck
-read back exactly and opened in PowerPoint on 5 decks; 2 were declined by the
-active/external-content safety policy. See `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
+- `57c84c4` Real-deck bullet tolerance: follow-text, point-size, theme-color
+  and single-glyph symbol bullets are editable; applying a marker drops a
+  direct symbol font and writes `buFontTx` when needed, fixing markers that
+  would have inherited a Wingdings list-style font.
+
+Corpus: all 1836 format-editable text objects in the 33 cached decks are now
+bullet-editable (from 1654). 13 real-deck edits read back exactly, use a
+text-font marker and open in PowerPoint; rendered before/after pairs were
+reviewed. Two decks are declined by the active/external-content safety policy.
+See `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
 LM Studio is installed on this host but its daemon would not start headlessly,
 so no local-model Fast Decisions run was possible this session.
 
