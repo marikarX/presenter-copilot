@@ -252,6 +252,10 @@ type TextStyle = {
   space_before_editable: boolean;
   space_after_pt: number | null;
   space_after_editable: boolean;
+  bullet_color: string | null;
+  bullet_color_editable: boolean;
+  bullet_size_percent: number | null;
+  bullet_size_editable: boolean;
 };
 
 type TextStyleChange = Partial<
@@ -267,6 +271,8 @@ type TextStyleChange = Partial<
     | "line_spacing_pt"
     | "space_before_pt"
     | "space_after_pt"
+    | "bullet_color"
+    | "bullet_size_percent"
   >
 > & {
   bullet_mode?: (typeof TEXT_BULLET_STATES)[number];
@@ -351,6 +357,8 @@ type TextStyleDraft = {
   font_color: string;
   alignment: string;
   bullet_mode: string;
+  bullet_color: string;
+  bullet_size_percent: string;
   left_indent_pt: string;
   first_line_indent_pt: string;
   line_spacing_pt: string;
@@ -773,6 +781,17 @@ function isTextStyle(value: unknown): value is TextStyle {
     candidate.alignment === null ||
     (typeof candidate.alignment === "string" &&
       TEXT_ALIGNMENTS.some((alignment) => alignment === candidate.alignment));
+  const validBulletDecoration =
+    (candidate.bullet_color === null ||
+      (typeof candidate.bullet_color === "string" &&
+        /^#[0-9A-F]{6}$/.test(candidate.bullet_color))) &&
+    (candidate.bullet_size_percent === null ||
+      (typeof candidate.bullet_size_percent === "number" &&
+        Number.isSafeInteger(candidate.bullet_size_percent) &&
+        candidate.bullet_size_percent >= 25 &&
+        candidate.bullet_size_percent <= 400)) &&
+    typeof candidate.bullet_color_editable === "boolean" &&
+    typeof candidate.bullet_size_editable === "boolean";
   const validBulletState =
     candidate.bullet_state === null ||
     (typeof candidate.bullet_state === "string" &&
@@ -820,6 +839,7 @@ function isTextStyle(value: unknown): value is TextStyle {
     validAlignment &&
     typeof candidate.alignment_editable === "boolean" &&
     validBulletState &&
+    validBulletDecoration &&
     typeof candidate.bullet_editable === "boolean" &&
     validLeftIndent &&
     typeof candidate.left_indent_editable === "boolean" &&
@@ -1012,6 +1032,8 @@ export function PresentationWorkspace({
     font_color: "#000000",
     alignment: "",
     bullet_mode: "",
+    bullet_color: "",
+    bullet_size_percent: "",
     left_indent_pt: "",
     first_line_indent_pt: "",
     line_spacing_pt: "",
@@ -1309,6 +1331,30 @@ export function PresentationWorkspace({
   );
   const invalidTextBulletMode =
     textStyleDraft.bullet_mode !== "" && !replacementTextBulletMode;
+  const parsedBulletSize = /^\d+$/.test(textStyleDraft.bullet_size_percent)
+    ? Number(textStyleDraft.bullet_size_percent)
+    : null;
+  const replacementBulletSize =
+    parsedBulletSize !== null &&
+    parsedBulletSize >= 25 &&
+    parsedBulletSize <= 400
+      ? parsedBulletSize
+      : null;
+  const invalidBulletSize =
+    textStyleDraft.bullet_size_percent !== "" && replacementBulletSize === null;
+  const replacementBulletMarker: TextStyleChange = {};
+  if (
+    selectedTarget?.style.bullet_color_editable &&
+    /^#[0-9A-F]{6}$/.test(textStyleDraft.bullet_color) &&
+    textStyleDraft.bullet_color !== selectedTarget.style.bullet_color
+  )
+    replacementBulletMarker.bullet_color = textStyleDraft.bullet_color;
+  if (
+    selectedTarget?.style.bullet_size_editable &&
+    replacementBulletSize !== null &&
+    replacementBulletSize !== selectedTarget.style.bullet_size_percent
+  )
+    replacementBulletMarker.bullet_size_percent = replacementBulletSize;
   const replacementTextAlignment = TEXT_ALIGNMENTS.find(
     (alignment) => alignment === textStyleDraft.alignment,
   );
@@ -1810,6 +1856,8 @@ export function PresentationWorkspace({
       font_color: "#000000",
       alignment: "",
       bullet_mode: "",
+      bullet_color: "",
+      bullet_size_percent: "",
       left_indent_pt: "",
       first_line_indent_pt: "",
       line_spacing_pt: "",
@@ -2236,6 +2284,9 @@ export function PresentationWorkspace({
           font_color: firstTarget?.style.font_color ?? "#000000",
           alignment: firstTarget?.style.alignment ?? "",
           bullet_mode: firstTarget?.style.bullet_state ?? "",
+          bullet_color: firstTarget?.style.bullet_color ?? "",
+          bullet_size_percent:
+            firstTarget?.style.bullet_size_percent?.toString() ?? "",
           left_indent_pt: firstTarget?.style.left_indent_pt?.toString() ?? "",
           first_line_indent_pt:
             firstTarget?.style.first_line_indent_pt?.toString() ?? "",
@@ -6971,6 +7022,10 @@ export function PresentationWorkspace({
                             font_color: target?.style.font_color ?? "#000000",
                             alignment: target?.style.alignment ?? "",
                             bullet_mode: target?.style.bullet_state ?? "",
+                            bullet_color: target?.style.bullet_color ?? "",
+                            bullet_size_percent:
+                              target?.style.bullet_size_percent?.toString() ??
+                              "",
                             left_indent_pt:
                               target?.style.left_indent_pt?.toString() ?? "",
                             first_line_indent_pt:
@@ -7270,6 +7325,77 @@ export function PresentationWorkspace({
                             <option value="none">No bullet</option>
                           </select>
                         </label>
+                        <fieldset
+                          className="pw-bullet-marker"
+                          aria-label="Bullet marker"
+                        >
+                          <legend>Bullet marker</legend>
+                          <label>
+                            Bullet color
+                            <input
+                              type="color"
+                              value={textStyleDraft.bullet_color || "#000000"}
+                              onChange={(event) =>
+                                setTextStyleDraft((current) => ({
+                                  ...current,
+                                  bullet_color:
+                                    event.target.value.toUpperCase(),
+                                }))
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !selectedTarget.style.bullet_color_editable
+                              }
+                            />
+                          </label>
+                          <label>
+                            Bullet size (% of text, 25–400)
+                            <input
+                              type="number"
+                              min="25"
+                              max="400"
+                              step="5"
+                              placeholder="Keep imported"
+                              value={textStyleDraft.bullet_size_percent}
+                              onChange={(event) =>
+                                setTextStyleDraft((current) => ({
+                                  ...current,
+                                  bullet_size_percent: event.target.value,
+                                }))
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !selectedTarget.style.bullet_size_editable
+                              }
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              void saveTextStyleRevision(
+                                replacementBulletMarker,
+                              )
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              !selectedTarget.style.fingerprint ||
+                              invalidBulletSize ||
+                              Object.keys(replacementBulletMarker).length === 0
+                            }
+                          >
+                            Apply bullet marker
+                          </button>
+                          {!selectedTarget.style.bullet_color_editable ? (
+                            <p className="muted">
+                              This list uses a bullet font, picture or theme
+                              color that stays read-only here.
+                            </p>
+                          ) : null}
+                        </fieldset>
                         <label>
                           Left indent (points, 0–144)
                           <input

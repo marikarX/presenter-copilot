@@ -1899,6 +1899,15 @@ h1 {
 .pw-text-format p {
   margin: 0;
 }
+.pw-text-format .pw-bullet-marker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
 .pw-rewrite-proposal {
   display: grid;
   gap: 8px;

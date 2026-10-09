@@ -34,9 +34,10 @@ from presenter_core.ingestion.security import (
     preflight_source,
 )
 from presenter_core.presentation.fidelity import (
-    _PARAGRAPH_BULLET_PROPERTY_NAMES,
+    _PARAGRAPH_BULLET_TYPE_NAMES,
     DRAWING_NS,
     EMU_PER_POINT,
+    MAX_BULLET_SIZE_PERCENT,
     MAX_SLIDE_DIMENSION_EMU,
     MAX_SPEAKER_NOTES_CHARS,
     MAX_SPEAKER_NOTES_PARAGRAPHS,
@@ -44,6 +45,7 @@ from presenter_core.presentation.fidelity import (
     MAX_TEXT_LEFT_INDENT_PT,
     MAX_TEXT_LINE_SPACING_PT,
     MAX_TEXT_PARAGRAPH_SPACING_PT,
+    MIN_BULLET_SIZE_PERCENT,
     NOTES_SLIDE_REL_TYPE,
     OBJECT_LIMIT,
     PARAGRAPH_AUTONUM_TYPE_BY_MODE,
@@ -57,6 +59,7 @@ from presenter_core.presentation.fidelity import (
     _formatable_text_runs,
     _is_uniform_run_text_shape,
     _notes_body_is_plain_editable,
+    _paragraph_bullet_decoration_for_shape,
     _paragraph_bullet_mode_for_shape,
     _paragraph_property_insert_index,
     _paragraph_text,
@@ -356,6 +359,16 @@ class PresentationEditService:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This text paragraph's bullet style cannot be safely edited.",
+            )
+        if "bullet_color" in replacement_style and not style.bullet_color_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's bullet color cannot be safely edited.",
+            )
+        if "bullet_size_percent" in replacement_style and not style.bullet_size_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's bullet size cannot be safely edited.",
             )
         if "left_indent_pt" in replacement_style and not style.left_indent_editable:
             raise CoreDomainError(
@@ -6702,6 +6715,16 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This text paragraph's bullet style cannot be safely edited.",
             )
+        if "bullet_color" in replacement_style and not obj.text_style.bullet_color_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's bullet color cannot be safely edited.",
+            )
+        if "bullet_size_percent" in replacement_style and not obj.text_style.bullet_size_editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This text paragraph's bullet size cannot be safely edited.",
+            )
         if "left_indent_pt" in replacement_style and not obj.text_style.left_indent_editable:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
@@ -6785,6 +6808,8 @@ class PresentationEditService:
                 paragraph_style_keys = {
                     "alignment",
                     "bullet_mode",
+                    "bullet_color",
+                    "bullet_size_percent",
                     "left_indent_pt",
                     "first_line_indent_pt",
                     "line_spacing_pt",
@@ -6808,6 +6833,11 @@ class PresentationEditService:
                                 paragraph,
                                 replacement_style["bullet_mode"],
                             )
+                        for decoration in ("bullet_color", "bullet_size_percent"):
+                            if decoration in replacement_style:
+                                PresentationEditService._apply_paragraph_bullet_decoration(
+                                    paragraph, decoration, replacement_style[decoration]
+                                )
                         if "left_indent_pt" in replacement_style:
                             PresentationEditService._apply_paragraph_left_indent(
                                 paragraph,
@@ -7049,11 +7079,12 @@ class PresentationEditService:
                 "This paragraph's existing bullet style cannot be safely edited.",
             )
 
+        # Only the marker type is replaced; supported color/size/font decoration stays.
         for child in list(paragraph_properties):
             if (
                 isinstance(child.tag, str)
                 and child.tag.startswith(f"{{{DRAWING_NS}}}")
-                and child.tag.removeprefix(f"{{{DRAWING_NS}}}") in _PARAGRAPH_BULLET_PROPERTY_NAMES
+                and child.tag.removeprefix(f"{{{DRAWING_NS}}}") in _PARAGRAPH_BULLET_TYPE_NAMES
             ):
                 paragraph_properties.remove(child)
 
@@ -7076,6 +7107,47 @@ class PresentationEditService:
         elif bullet_mode in PARAGRAPH_AUTONUM_TYPE_BY_MODE:
             bullet_node.set("type", PARAGRAPH_AUTONUM_TYPE_BY_MODE[bullet_mode])
         paragraph_properties.insert(insert_index, bullet_node)
+
+    @staticmethod
+    def _apply_paragraph_bullet_decoration(
+        paragraph: etree._Element, name: str, value: str | int
+    ) -> None:
+        """Replace one direct bullet color (buClr) or size (buSzPct) decoration."""
+        paragraph_properties = paragraph.find(f"{{{DRAWING_NS}}}pPr")
+        if paragraph_properties is None:
+            paragraph_properties = etree.Element(f"{{{DRAWING_NS}}}pPr")
+            paragraph.insert(0, paragraph_properties)
+        _, _, editable = _paragraph_bullet_decoration_for_shape(paragraph_properties)
+        if not editable:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This paragraph's existing bullet decoration cannot be safely edited.",
+            )
+        replaced, tag = (
+            ({"buClrTx", "buClr"}, "buClr")
+            if name == "bullet_color"
+            else ({"buSzTx", "buSzPct", "buSzPts"}, "buSzPct")
+        )
+        for child in list(paragraph_properties):
+            if (
+                isinstance(child.tag, str)
+                and child.tag.removeprefix(f"{{{DRAWING_NS}}}") in replaced
+            ):
+                paragraph_properties.remove(child)
+        insert_index = _paragraph_property_insert_index(paragraph_properties, tag)
+        if insert_index is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This paragraph's properties cannot safely accept bullet decoration.",
+            )
+        node = etree.Element(f"{{{DRAWING_NS}}}{tag}")
+        if name == "bullet_color":
+            assert isinstance(value, str)
+            etree.SubElement(node, f"{{{DRAWING_NS}}}srgbClr", val=value.removeprefix("#"))
+        else:
+            assert isinstance(value, int)
+            node.set("val", str(value * 1000))
+        paragraph_properties.insert(insert_index, node)
 
     @staticmethod
     def _apply_paragraph_spacing(
@@ -8120,6 +8192,8 @@ class PresentationEditService:
             "font_color",
             "alignment",
             "bullet_mode",
+            "bullet_color",
+            "bullet_size_percent",
             "left_indent_pt",
             "first_line_indent_pt",
             "line_spacing_pt",
@@ -8167,6 +8241,23 @@ class PresentationEditService:
                     raise invalid_request(
                         "replacement_style.bullet_mode must be a supported paragraph bullet mode.",
                         field="replacement_style.bullet_mode",
+                    )
+                result[name] = item
+            elif name == "bullet_color":
+                if not isinstance(item, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", item):
+                    raise invalid_request(
+                        "replacement_style.bullet_color must be a #RRGGBB color.",
+                        field="replacement_style.bullet_color",
+                    )
+                result[name] = item.upper()
+            elif name == "bullet_size_percent":
+                if (
+                    type(item) is not int
+                    or not MIN_BULLET_SIZE_PERCENT <= item <= MAX_BULLET_SIZE_PERCENT
+                ):
+                    raise invalid_request(
+                        "replacement_style.bullet_size_percent must be an integer from 25 to 400.",
+                        field="replacement_style.bullet_size_percent",
                     )
                 result[name] = item
             elif name == "left_indent_pt":

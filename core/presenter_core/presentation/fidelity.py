@@ -112,6 +112,26 @@ PARAGRAPH_AUTONUM_TYPE_BY_MODE = {
 _PARAGRAPH_MODE_BY_AUTONUM_TYPE = {
     kind: mode for mode, kind in PARAGRAPH_AUTONUM_TYPE_BY_MODE.items()
 }
+_PARAGRAPH_BULLET_TYPE_NAMES = frozenset({"buNone", "buAutoNum", "buChar", "buBlip"})
+# Unicode text fonts that render the predefined glyphs; symbol fonts stay read-only.
+_PLAIN_BULLET_FONTS = frozenset(
+    {
+        "+mn-lt",
+        "+mj-lt",
+        "Arial",
+        "Calibri",
+        "Calibri Light",
+        "Helvetica",
+        "Segoe UI",
+        "Times New Roman",
+        "Verdana",
+        "Tahoma",
+        "Georgia",
+        "Aptos",
+    }
+)
+MIN_BULLET_SIZE_PERCENT = 25
+MAX_BULLET_SIZE_PERCENT = 400
 PARAGRAPH_BULLET_MODES = frozenset(
     {"none", *PARAGRAPH_AUTONUM_TYPE_BY_MODE, *PARAGRAPH_BULLET_CHAR_BY_MODE}
 )
@@ -174,6 +194,10 @@ class FidelityTextStyle:
     space_before_editable: bool = False
     space_after_pt: int | None = None
     space_after_editable: bool = False
+    bullet_color: str | None = None
+    bullet_color_editable: bool = False
+    bullet_size_percent: int | None = None
+    bullet_size_editable: bool = False
 
 
 @dataclass(frozen=True)
@@ -361,6 +385,10 @@ class FidelityDocument:
                             "space_before_editable": obj.text_style.space_before_editable,
                             "space_after_pt": obj.text_style.space_after_pt,
                             "space_after_editable": obj.text_style.space_after_editable,
+                            "bullet_color": obj.text_style.bullet_color,
+                            "bullet_color_editable": obj.text_style.bullet_color_editable,
+                            "bullet_size_percent": obj.text_style.bullet_size_percent,
+                            "bullet_size_editable": obj.text_style.bullet_size_editable,
                         }
                         if obj.text_style is not None
                         else None
@@ -1407,6 +1435,10 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
     ]
     bullet_state = _uniform_style_value([state for state, _editable in bullet_state_values])
     bullet_editable = all(editable for _state, editable in bullet_state_values)
+    decorations = [
+        _paragraph_bullet_decoration_for_shape(properties) for properties in paragraph_properties
+    ]
+    decoration_editable = bullet_editable and all(item[2] for item in decorations)
 
     left_indent_values: list[int | None] = []
     left_indent_editable = True
@@ -1489,6 +1521,10 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         space_before_editable=space_before_editable,
         space_after_pt=space_after_pt,
         space_after_editable=space_after_editable,
+        bullet_color=_uniform_style_value([item[0] for item in decorations]),
+        bullet_color_editable=decoration_editable,
+        bullet_size_percent=_uniform_style_value([item[1] for item in decorations]),
+        bullet_size_editable=decoration_editable,
     )
 
 
@@ -1571,11 +1607,8 @@ def _paragraph_property_insert_index(
     return insertion_index
 
 
-def _paragraph_bullet_mode_for_shape(
-    paragraph_properties: etree._Element | None,
-) -> tuple[str | None, bool]:
-    """Expose only plain bullet/list markers or safely insertable states."""
-    bullet_nodes = (
+def _bullet_nodes(paragraph_properties: etree._Element | None) -> list[etree._Element]:
+    return (
         [
             child
             for child in paragraph_properties
@@ -1586,6 +1619,86 @@ def _paragraph_bullet_mode_for_shape(
         if paragraph_properties is not None
         else []
     )
+
+
+def _bullet_decoration(
+    node: etree._Element,
+) -> tuple[str, str | int | None] | None:
+    """Classify one supported color/size/font decoration, or None when unsupported."""
+    name = node.tag.removeprefix(f"{{{DRAWING_NS}}}")
+    if node.text and node.text.strip():
+        return None
+    if name == "buClr":
+        if node.attrib or len(node) != 1:
+            return None
+        color = node[0]
+        value = color.get("val", "")
+        if (
+            color.tag != f"{{{DRAWING_NS}}}srgbClr"
+            or set(color.attrib) != {"val"}
+            or len(color)
+            or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
+        ):
+            return None
+        return "color", f"#{value.upper()}"
+    if name == "buSzPct":
+        raw = node.get("val", "")
+        if set(node.attrib) != {"val"} or len(node) or not re.fullmatch(r"[0-9]{4,6}", raw):
+            return None
+        value = int(raw)
+        if (
+            value % 1000
+            or not MIN_BULLET_SIZE_PERCENT * 1000 <= value <= MAX_BULLET_SIZE_PERCENT * 1000
+        ):
+            return None
+        return "size", value // 1000
+    if name == "buFont":
+        if (
+            len(node)
+            or not set(node.attrib) <= {"typeface", "panose", "pitchFamily", "charset"}
+            or node.get("typeface") not in _PLAIN_BULLET_FONTS
+        ):
+            return None
+        return "font", None
+    return None
+
+
+def _paragraph_bullet_decoration_for_shape(
+    paragraph_properties: etree._Element | None,
+) -> tuple[str | None, int | None, bool]:
+    """Return direct bullet color, size percent and whether both can be edited."""
+    color: str | None = None
+    size: int | None = None
+    for node in _bullet_nodes(paragraph_properties):
+        if node.tag.removeprefix(f"{{{DRAWING_NS}}}") in _PARAGRAPH_BULLET_TYPE_NAMES:
+            continue
+        decoration = _bullet_decoration(node)
+        if decoration is None:
+            return None, None, False
+        kind, value = decoration
+        if kind == "color":
+            color = value if isinstance(value, str) else None
+        elif kind == "size":
+            size = value if isinstance(value, int) else None
+    return color, size, True
+
+
+def _paragraph_bullet_mode_for_shape(
+    paragraph_properties: etree._Element | None,
+) -> tuple[str | None, bool]:
+    """Expose only plain bullet/list markers or safely insertable states."""
+    nodes = _bullet_nodes(paragraph_properties)
+    if any(
+        node.tag.removeprefix(f"{{{DRAWING_NS}}}") not in _PARAGRAPH_BULLET_TYPE_NAMES
+        and _bullet_decoration(node) is None
+        for node in nodes
+    ):
+        return None, False
+    bullet_nodes = [
+        node
+        for node in nodes
+        if node.tag.removeprefix(f"{{{DRAWING_NS}}}") in _PARAGRAPH_BULLET_TYPE_NAMES
+    ]
     if not bullet_nodes:
         return None, _paragraph_property_insert_index(paragraph_properties, "buChar") is not None
     if len(bullet_nodes) != 1:
