@@ -126,6 +126,14 @@ Commits this session:
   external content. The run found and fixed two bugs: find/replace and links
   failed on shapes inside groups (now searched slide-wide), and full-bleed
   pictures extending past the slide could not be adjusted.
+- Preview fidelity: measured that PowerPoint renders `normAutofit fontScale`
+  text at the scaled size rounded half-up to a whole point (28 pt x 62.5% ->
+  18 pt, 15.4 -> 15, 9.45 -> 9) and does not re-fit cached autofit values on
+  open; line pitch is (lnSpc - lnSpcReduction) x 1.2 x size. The renderer
+  patch now rounds scaled sizes the same way (body, bullet, table cell,
+  superscript and empty-paragraph sizes). Airline slide 21 now wraps line for
+  line like PowerPoint (MAE 12.14% -> 10.21%); corpus mean slide RGB MAE
+  3.170% -> 3.148% on the same 563 slides (26 better, 15 slightly worse).
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
