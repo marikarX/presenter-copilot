@@ -317,18 +317,27 @@ class ChatGPTPlanAuthService:
             max_bytes=MAX_AUTH_RESPONSE_BYTES,
             error_code="CHATGPT_MODEL_LIST_FAILED",
         )
-        raw_models = data.get("models") if isinstance(data, dict) else None
-        if not isinstance(raw_models, list) or len(raw_models) > MAX_MODEL_COUNT:
+        raw_models, standard_shape = _catalog_items(data)
+        if raw_models is None or len(raw_models) > MAX_MODEL_COUNT:
             raise CoreDomainError(
                 "CHATGPT_MODEL_LIST_INVALID", "The ChatGPT model catalog is invalid."
             )
         options: list[dict[str, str]] = []
         seen: set[str] = set()
         for item in raw_models:
-            if not isinstance(item, dict) or item.get("visibility") != "list":
+            if not isinstance(item, dict):
                 continue
-            model_id = item.get("slug")
-            display_name = item.get("display_name")
+            if standard_shape:
+                # Standard list shape: {"data": [{"id": ..., "object": "model"}]}.
+                if item.get("visibility", "list") != "list":
+                    continue
+                model_id = item.get("id")
+                display_name = item.get("display_name", model_id)
+            else:
+                if item.get("visibility") != "list":
+                    continue
+                model_id = item.get("slug")
+                display_name = item.get("display_name")
             if (
                 not isinstance(model_id, str)
                 or not _MODEL_ID.fullmatch(model_id)
@@ -1039,6 +1048,19 @@ def _validate_vault(value: Any) -> None:
         raise CoreDomainError(
             "CHATGPT_VAULT_INVALID", "The protected ChatGPT token vault is invalid."
         )
+
+
+def _catalog_items(data: object) -> tuple[list[object] | None, bool]:
+    """Return catalog entries and whether they use the standard ``data`` list shape."""
+    if not isinstance(data, dict):
+        return None, False
+    models = data.get("models")
+    if isinstance(models, list):
+        return models, False
+    standard = data.get("data")
+    if isinstance(standard, list):
+        return standard, True
+    return None, False
 
 
 def _is_connected(account: Any) -> bool:

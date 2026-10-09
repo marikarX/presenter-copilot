@@ -74,6 +74,7 @@ class _OAuthHarness:
         self.public_jwk.update({"kid": "test-key", "use": "sig", "alg": "RS256"})
         self.transport = httpx.MockTransport(self._handle)
         self.auth: ChatGPTPlanAuthService | None = None
+        self.model_payload: dict[str, Any] | None = None
 
     def client(self) -> httpx.Client:
         return httpx.Client(
@@ -155,6 +156,8 @@ class _OAuthHarness:
         if request.url.path == "/api/accounts/oauth/revoke":
             self.revocations.append(parse_qs(request.content.decode("utf-8")))
             return httpx.Response(200, request=request)
+        if str(request.url) == MODEL_LIST_ENDPOINT and self.model_payload is not None:
+            return httpx.Response(200, json=self.model_payload, request=request)
         if str(request.url) == MODEL_LIST_ENDPOINT:
             return httpx.Response(
                 200,
@@ -487,3 +490,31 @@ def test_chatgpt_plan_decision_requires_completed_stream_and_maps_shared_quota()
             ]
         ).decide(_decision_request())
     assert quota.value.code == "DECISION_PROVIDER_QUOTA_EXCEEDED"
+
+
+def test_chatgpt_plan_model_catalog_accepts_standard_list_shape() -> None:
+    harness = _OAuthHarness()
+    harness.model_payload = {
+        "object": "list",
+        "data": [
+            {"id": "gpt-6-luna", "object": "model", "display_name": "GPT-6 Luna"},
+            {"id": "gpt-6-astra", "object": "model"},
+            {"id": "gpt-6-luna", "object": "model"},
+            {"id": "hidden-preview", "object": "model", "visibility": "internal"},
+            {"id": "bad id with spaces", "object": "model"},
+        ],
+    }
+    auth = harness.make_auth(InMemoryChatGPTPlanCredentialStore())
+    try:
+        auth.sign_in()
+        harness.complete_login("oaiapp_presenter_one")
+        assert auth.model_options() == [
+            {"model_id": "gpt-6-luna", "label": "GPT-6 Luna"},
+            {"model_id": "gpt-6-astra", "label": "gpt-6-astra"},
+        ]
+        harness.model_payload = {"object": "list"}
+        with pytest.raises(CoreDomainError) as invalid:
+            auth.model_options(force_refresh=True)
+        assert invalid.value.code == "CHATGPT_MODEL_LIST_INVALID"
+    finally:
+        auth.close()
