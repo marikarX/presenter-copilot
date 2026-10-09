@@ -46,9 +46,9 @@ Commits this session:
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
 
-Validation: latest full `pnpm check` green on `9bd3cbb` (1908 Core tests,
-desktop 312, lint/types/format) with `test-workspace.mjs` 117/117 and
-`test-bullet-marker.mjs` 4/4 on that commit. Earlier: check green on
+Validation: latest full `pnpm check` green on `7de3127` (1910 Core tests,
+desktop 312, lint/types/format) with `test-workspace.mjs` 117/117; earlier
+`9bd3cbb` also passed `test-bullet-marker.mjs` 4/4. Earlier: check green on
 `2946282` (1888 Core tests) and `2f5ce70` (1894); `test-workspace.mjs` 117/117 after both the numbering
 and bullet-marker commits; existing objection review GUI 20/20 with the
 comparison panel mounted; `test-bullet-marker.mjs` 4/4 including start values.
