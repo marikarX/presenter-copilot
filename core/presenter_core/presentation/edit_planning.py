@@ -875,6 +875,11 @@ class PresentationEditPlanningService:
                         {k: target[k] for k in ["geometry_pt", "paragraphs", "cached_font_scale"]}
                     )
                 )
+        elif kind == "set_text_hyperlink":
+            if obj.hyperlink is None:
+                raise invalid_request("The proposed text link is not editable.")
+            params["expected_text"] = obj.text
+            params["expected_url"] = obj.hyperlink.url
         elif kind == "replace_text_shape":
             if (
                 not (obj.single_run_text_edit_candidate or obj.uniform_run_text_edit_candidate)

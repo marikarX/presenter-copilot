@@ -2109,6 +2109,11 @@ class PresentationEditService:
             ),
         )
 
+    def set_text_hyperlink(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.text_hyperlinks import set_text_hyperlink
+
+        return set_text_hyperlink(self, params)
+
     def set_slide_background(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_background import set_slide_background
 

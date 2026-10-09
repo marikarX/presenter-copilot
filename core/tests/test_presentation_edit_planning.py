@@ -1095,3 +1095,67 @@ def test_provider_slide_background_binds_current_background_and_applies(
         assert after["background"]["color"] == "#0B1F33"
     finally:
         core.close()
+
+
+def test_provider_text_link_binds_current_link_and_applies(tmp_path: Path) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": params["expected_revision_id"], "slide_number": 1},
+        )
+        target = next(obj for obj in inventory["objects"] if obj["hyperlink"] is not None)
+
+        def modify(output: dict[str, Any], _invocation: Any) -> None:
+            output["operations"] = [
+                {
+                    "type": "set_text_hyperlink",
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "object_id": target["object_id"],
+                        "replacement_url": "https://example.com/pilot",
+                    },
+                    "rationale": "Link the pilot brief",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(core, "presentation.workspace.propose_edit_plan", params)
+        bound = proposal["operations"][0]["params"]
+        assert bound["expected_url"] is None and bound["expected_text"]
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        linked = next(
+            obj
+            for obj in call(
+                core,
+                "presentation.workspace.list_text_targets",
+                {**scope, "revision_id": result["revision_id"], "slide_number": 1},
+            )["objects"]
+            if obj["object_id"] == target["object_id"]
+        )
+        assert linked["hyperlink"] == {"url": "https://example.com/pilot"}
+    finally:
+        core.close()

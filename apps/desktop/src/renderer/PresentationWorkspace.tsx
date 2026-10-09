@@ -397,6 +397,7 @@ type PresentationObject = {
   picture_crop: PictureCrop | null;
   picture_adjustment?: PictureAdjustment | null;
   rotation?: ObjectRotation | null;
+  hyperlink?: { url: string | null } | null;
   shape_style: ShapeStyle | null;
 };
 
@@ -683,6 +684,22 @@ function pictureCropDraft(crop: PictureCrop | null): PictureCropDraft {
   };
 }
 
+function validHyperlinkUrl(value: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  if (!value || value.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(value))
+    return false;
+  try {
+    const url = new URL(value);
+    return (
+      ((url.protocol === "http:" || url.protocol === "https:") &&
+        url.host !== "") ||
+      (url.protocol === "mailto:" && url.pathname.includes("@"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function objectRotationDraft(
   rotation: ObjectRotation | null | undefined,
 ): ObjectRotationDraft {
@@ -896,6 +913,12 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       ) &&
       pictureCrop.left_percent + pictureCrop.right_percent < 100 &&
       pictureCrop.top_percent + pictureCrop.bottom_percent < 100);
+  const hyperlink = candidate.hyperlink;
+  const validHyperlink =
+    hyperlink == null ||
+    (typeof hyperlink === "object" &&
+      (hyperlink.url === null ||
+        (typeof hyperlink.url === "string" && hyperlink.url.length <= 2048)));
   const rotation = candidate.rotation;
   const validRotation =
     rotation === undefined ||
@@ -969,6 +992,7 @@ function isPresentationObject(value: unknown): value is PresentationObject {
     validPictureCrop &&
     validPictureAdjustment &&
     validRotation &&
+    validHyperlink &&
     (rotation == null || candidate.kind === "sp" || candidate.kind === "pic") &&
     (pictureAdjustment == null || candidate.kind === "pic") &&
     validShapeStyle &&
@@ -1281,6 +1305,7 @@ export function PresentationWorkspace({
   const [speakerNotesTarget, setSpeakerNotesTarget] =
     useState<SpeakerNotesTarget | null>(null);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
+  const [linkDraft, setLinkDraft] = useState({ objectId: "", value: "" });
   const [slideBackground, setSlideBackground] =
     useState<SlideBackground | null>(null);
   const [slideBackgroundDraft, setSlideBackgroundDraft] = useState("#FFFFFF");
@@ -4410,6 +4435,116 @@ export function PresentationWorkspace({
     selectedSlide,
     selectedSource,
   ]);
+
+  const selectedTextObject = workspaceObjects.find(
+    (object) => object.object_id === selectedTarget?.object_id,
+  );
+  const selectedTextLink = selectedTextObject?.hyperlink ?? null;
+  const linkValue =
+    linkDraft.objectId === selectedTarget?.object_id
+      ? linkDraft.value
+      : (selectedTextLink?.url ?? "");
+
+  const saveTextHyperlinkRevision = useCallback(
+    async (url: string | null) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const target = selectedTarget;
+      const current = selectedTextLink;
+      if (
+        !source ||
+        !revision ||
+        !UUID_PATTERN.test(activeSlideId) ||
+        !target ||
+        !current ||
+        (url !== null && !validHyperlinkUrl(url)) ||
+        url === current.url ||
+        loadedSourceId !== source.id ||
+        loading
+      ) {
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      setMockSvg(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_text_hyperlink",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            object_id: target.object_id,
+            expected_text: target.text,
+            expected_url: current.url,
+            replacement_url: url,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number) ||
+          result.revision_number < 1 ||
+          !/^[0-9a-f]{64}$/.test(result.sha256) ||
+          !Number.isSafeInteger(result.byte_size) ||
+          result.byte_size < 1 ||
+          (result.changed && result.parent_revision_id !== revision.revision_id)
+        ) {
+          throw new Error("The text link revision could not be verified.");
+        }
+        if (!result.changed) {
+          setNotice("The text link is unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        let indexedRevision = false;
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+          indexedRevision = true;
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        setLinkDraft({ objectId: "", value: "" });
+        await loadPresentation(selectedSlide, target.object_id);
+        setNotice(
+          indexedRevision
+            ? `Saved revision ${result.revision_number} and refreshed the text link.`
+            : `Saved revision ${result.revision_number}. Re-index this presentation before using its content in rehearsal.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The text link could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedSlide,
+      selectedSource,
+      selectedTarget,
+      selectedTextLink,
+    ],
+  );
 
   const saveSlideBackgroundRevision = useCallback(
     async (color: string | null) => {
@@ -8197,6 +8332,61 @@ export function PresentationWorkspace({
                         >
                           Apply paragraph format
                         </button>
+                        {selectedTextLink ? (
+                          <div className="pw-shape-color-control">
+                            <label>
+                              Link (http, https or mailto)
+                              <input
+                                type="url"
+                                maxLength={2048}
+                                placeholder="https://example.com"
+                                aria-label="Text link"
+                                value={linkValue}
+                                onChange={(event) =>
+                                  setLinkDraft({
+                                    objectId: selectedTarget.object_id,
+                                    value: event.target.value,
+                                  })
+                                }
+                                disabled={!loadedSourceId || loading}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void saveTextHyperlinkRevision(linkValue)
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !validHyperlinkUrl(linkValue) ||
+                                linkValue === selectedTextLink.url
+                              }
+                            >
+                              Apply link
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void saveTextHyperlinkRevision(null)
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                selectedTextLink.url === null
+                              }
+                            >
+                              Remove link
+                            </button>
+                          </div>
+                        ) : selectedTextObject ? (
+                          <p className="muted">
+                            This text uses mixed, slide-jump or hover links that
+                            stay read-only.
+                          </p>
+                        ) : null}
                         <label>
                           Font (theme: +mn-lt body, +mj-lt headings)
                           <input

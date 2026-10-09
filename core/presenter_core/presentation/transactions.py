@@ -29,6 +29,7 @@ PLAN_OPERATIONS = frozenset(
         "adjust_picture",
         "rotate_object",
         "set_slide_background",
+        "set_text_hyperlink",
         "replace_picture_image",
         "reorder_slides",
         "apply_slide_layout",

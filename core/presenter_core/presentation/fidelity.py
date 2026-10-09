@@ -171,6 +171,13 @@ class FidelityPictureCrop:
 
 
 @dataclass(frozen=True)
+class FidelityHyperlink:
+    """One external click link shared by every text run, or none."""
+
+    url: str | None = None
+
+
+@dataclass(frozen=True)
 class FidelityRotation:
     """Direct slide-level rotation (60000ths of a degree, normalized) and flips."""
 
@@ -293,6 +300,7 @@ class FidelityObject:
     picture_crop: FidelityPictureCrop | None = None
     picture_adjustment: FidelityPictureAdjustment | None = None
     rotation: FidelityRotation | None = None
+    hyperlink: FidelityHyperlink | None = None
     shape_style: FidelityShapeStyle | None = None
     semantic_source_kind: str | None = None
 
@@ -516,6 +524,9 @@ class FidelityDocument:
                         if obj.picture_crop is not None
                         else None
                     ),
+                    "hyperlink": (
+                        {"url": obj.hyperlink.url} if obj.hyperlink is not None else None
+                    ),
                     "rotation": (
                         {
                             "rotation_degrees": obj.rotation.rotation / 60_000,
@@ -651,6 +662,7 @@ def inspect_pptx_snapshot(
                     slide_height_emu=slide_height_emu,
                     chart_text=chart_texts(archive, members, slide_root, part_name),
                     group_picture_ids=grouping_picture_ids(archive, members, slide_root, part_name),
+                    hyperlink_targets=slide_hyperlink_targets(archive, members, part_name),
                 )
                 speaker_notes, notes_editable = _speaker_notes_for_slide(
                     archive,
@@ -884,6 +896,7 @@ def _objects_for_slide(
     slide_height_emu: int,
     chart_text: dict[str, str] | None = None,
     group_picture_ids: set[str] | None = None,
+    hyperlink_targets: dict[str, str] | None = None,
 ) -> tuple[FidelityObject, ...]:
     shape_tree = root.find(f".//{{{PRESENTATION_NS}}}spTree")
     if shape_tree is None:
@@ -1034,6 +1047,14 @@ def _objects_for_slide(
                 ),
                 rotation=(
                     None if alternate_content else object_rotation(candidate, kind, shape_tree)
+                ),
+                hyperlink=(
+                    shape_hyperlink(candidate, hyperlink_targets or {})
+                    if not alternate_content
+                    and kind == "sp"
+                    and text_style is not None
+                    and text_style.editable
+                    else None
                 ),
                 shape_style=shape_style,
                 semantic_source_kind="native_text"
@@ -1390,6 +1411,59 @@ def slide_background(slide_root: etree._Element) -> FidelityBackground | None:
     ):
         return None
     return FidelityBackground(state="solid", color=f"#{value.upper()}")
+
+
+HYPERLINK_REL_TYPE = f"{REL_NS}/hyperlink"
+_HYPERLINK_ATTRIBUTES = {f"{{{REL_NS}}}id", "tooltip", "history", "highlightClick", "endSnd"}
+
+
+def slide_hyperlink_targets(
+    archive: zipfile.ZipFile, members: dict[str, zipfile.ZipInfo], part_name: str
+) -> dict[str, str]:
+    """External hyperlink relationship targets of one slide part."""
+    directory, name = posixpath.split(part_name)
+    info = members.get(f"{directory}/_rels/{name}.rels")
+    if info is None:
+        return {}
+    return {
+        relationship_id: target
+        for relationship_id, (relationship_type, target, mode) in _relationships(
+            _parse_xml_part(archive, info)
+        ).items()
+        if relationship_type == HYPERLINK_REL_TYPE and mode == "External"
+    }
+
+
+def shape_hyperlink(candidate: etree._Element, targets: dict[str, str]) -> FidelityHyperlink | None:
+    """The uniform external click link of a text shape; None when mixed or unsupported."""
+    runs = candidate.xpath("./p:txBody/a:p/a:r | ./p:txBody/a:p/a:fld", namespaces=_NS)
+    if not runs:
+        return None
+    urls: set[str | None] = set()
+    for run in runs:
+        properties = run.find(f"{{{DRAWING_NS}}}rPr")
+        links = [] if properties is None else properties.findall(f"{{{DRAWING_NS}}}hlinkClick")
+        if (
+            properties is not None
+            and properties.find(f"{{{DRAWING_NS}}}hlinkMouseOver") is not None
+        ):
+            return None
+        if not links:
+            urls.add(None)
+            continue
+        link = links[0]
+        relationship_id = link.get(f"{{{REL_NS}}}id")
+        if (
+            len(links) != 1
+            or len(link)
+            or not set(link.attrib) <= _HYPERLINK_ATTRIBUTES
+            or relationship_id not in targets
+        ):
+            return None
+        urls.add(targets[relationship_id])
+    if len(urls) != 1:
+        return None
+    return FidelityHyperlink(url=urls.pop())
 
 
 _FLIP_VALUES = {"0": False, "false": False, "1": True, "true": True}

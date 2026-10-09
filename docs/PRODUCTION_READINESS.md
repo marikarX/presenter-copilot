@@ -83,6 +83,13 @@ Commits this session:
   backgrounds are editable; picture, gradient and pattern backgrounds stay
   read-only. PowerPoint reads back the color with master following off.
   `test-slide-background.mjs` 4/4.
+- Text links: one external http/https/mailto click link across a text
+  shape's runs is a reviewed edit (`presentation.workspace.set_text_hyperlink`,
+  Text panel and Copilot plans). Script, file and relative targets are
+  rejected; changing or removing a link deletes the orphaned relationship;
+  slide-jump, hover and mixed links stay read-only. Preview windows already
+  deny navigation, so links are inert in the app. PowerPoint resolves the
+  written address. `test-text-hyperlink.mjs` 4/4.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
