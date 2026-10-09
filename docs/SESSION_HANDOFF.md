@@ -90,6 +90,12 @@ Commits this session:
   slide-jump, hover and mixed links stay read-only. Preview windows already
   deny navigation, so links are inert in the app. PowerPoint resolves the
   written address. `test-text-hyperlink.mjs` 4/4.
+- Deck-wide find and replace (`presentation.workspace.find_text` /
+  `replace_text_all`, "Find and replace" dialog): replacement happens inside
+  each text run so mixed formatting survives; matches spanning runs or inside
+  fields are listed as not replaceable. Replace-all requires the reviewed
+  match set to be unchanged, writes one revision, verifies every other object
+  is untouched and is undoable. `test-find-replace.mjs` 3/3.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

@@ -46,6 +46,7 @@ import {
 } from "./SlideEditReview";
 import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
+import { FindReplace } from "./FindReplace";
 import { DeckSemanticReview } from "./DeckSemanticReview";
 import type { ClaimScanCache } from "./claim-scan-state";
 import { SlideTakeaway } from "./SlideTakeaway";
@@ -6396,6 +6397,35 @@ export function PresentationWorkspace({
               role="group"
               aria-label="Object actions"
             >
+              {selectedSource &&
+              currentRevision &&
+              loadedSourceId === selectedSource.id ? (
+                <FindReplace
+                  key={`find-replace:${project.id}:${selectedSource.id}:${currentRevision.revision_id}`}
+                  projectId={project.id}
+                  documentId={selectedSource.id}
+                  revisionId={currentRevision.revision_id}
+                  disabled={loading || voiceWorkflowActive}
+                  onReplaced={async (replaced, objects) => {
+                    let indexed = true;
+                    try {
+                      await requestCore("source.reindex", {
+                        project_id: project.id,
+                        document_id: selectedSource.id,
+                      });
+                    } catch {
+                      indexed = false;
+                    }
+                    await loadPresentation(selectedSlide);
+                    setNotice(
+                      `Replaced ${replaced} ${replaced === 1 ? "match" : "matches"} in ${objects} ${objects === 1 ? "object" : "objects"} as one revision.` +
+                        (indexed
+                          ? ""
+                          : " Re-index this deck before rehearsal."),
+                    );
+                  }}
+                />
+              ) : null}
               {selectedSource &&
               currentRevision &&
               activeSlideId &&

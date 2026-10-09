@@ -925,6 +925,12 @@ class CoreService:
             result = self._presentation_edits.transform_object(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.find_text":
+            return make_response(request_id, result=self._presentation_edits.find_text(params))
+        if method == "presentation.workspace.replace_text_all":
+            result = self._presentation_edits.replace_text_all(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.set_text_hyperlink":
             result = self._presentation_edits.set_text_hyperlink(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

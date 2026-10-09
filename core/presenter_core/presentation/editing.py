@@ -2109,6 +2109,16 @@ class PresentationEditService:
             ),
         )
 
+    def find_text(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.find_replace import find_text
+
+        return find_text(self, params)
+
+    def replace_text_all(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.find_replace import replace_text_all
+
+        return replace_text_all(self, params)
+
     def set_text_hyperlink(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.text_hyperlinks import set_text_hyperlink
 
