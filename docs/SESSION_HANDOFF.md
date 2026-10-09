@@ -39,7 +39,11 @@ Commits this session:
   starts are now editable while malformed values stay read-only. GUI
   "Numbering starts at" field; bullet harness checks roman numbering from III.
 
-Validation: latest full `pnpm check` green on `57c84c4` (1902 Core tests,
+- `9bd3cbb` Blank lines (run-less paragraphs) no longer block text and list
+  formatting (the only blocker for 21% of corpus text shapes); corpus
+  format-editable objects 1836 -> 2068.
+
+Validation: latest full `pnpm check` green on `9bd3cbb` (1908 Core tests,
 desktop 312, lint/types/format) with `test-workspace.mjs` 117/117 and
 `test-bullet-marker.mjs` 4/4 on that commit. Earlier: check green on
 `2946282` (1888 Core tests) and `2f5ce70` (1894); `test-workspace.mjs` 117/117 after both the numbering
