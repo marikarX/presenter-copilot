@@ -149,13 +149,33 @@ isolated data root, synthetic content only):
 - The Settings disclosure texts were not re-read live in this run (the guided
   script stopped at model listing before the fix); they are covered by the
   fixture GUI test. Receipts: `.local/chatgpt-live/`.
+- Second live run (same day, user consent again, after the catalog fix):
+  consent (19 s), restart persistence, model listing (3 models) and all three
+  Settings disclosures (preview/limits, shared limits, storage disabled)
+  passed in the guided GUI script. The synthetic decision was correctly
+  blocked by the new project's Local Only privacy, a script gap that is now
+  fixed (the script sets cloud privacy for its synthetic project and always
+  signs out on failure). The same live session was then finished: decision
+  `recommendation` in 2325 ms and sign-out with revocation confirmed. Every
+  release-gate step has now passed live: consent, returning sign-in, model
+  listing, disclosures, synthetic decision, refresh and sign-out.
 
-Human-gated items (cannot be completed by an agent):
+Gate decisions (2026-10-09, by the user):
 
-- Sign in with ChatGPT: accepted live (above). Rerun
-  `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live` against a
-  release candidate to cover the Settings disclosures end to end.
-- Fast Decisions calibration needs a licensing-safe human-labeled set. Live
+- Sign in with ChatGPT: ACCEPTED live with the user's eligible account (see
+  above).
+- Fast Decisions calibration: the user chose to accept the assistant-labeled
+  100-slide real-deck evaluation as the calibration evidence. Recorded result:
+  local 4B model 44% agreement, no confidence values, so there is no numeric
+  threshold. Fast Decisions stay review-only with `confidence_calibrated:
+  false`, and claim-triage thresholds remain provisional. A future
+  human-labeled set can still be evaluated with `pnpm calibrate:decisions`.
+
+Remaining human-gated items:
+
+- Rerun `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live`
+  against the signed release candidate.
+- Optional: a human-labeled set for a stronger calibration claim. Live
   local integration is now exercised (see above); rerun with
   `PRESENTER_DECISION_LIVE_MODEL=<id> node apps/desktop/scripts/accept-fast-decisions-local.mjs`
   after starting a loopback model server.

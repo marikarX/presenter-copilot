@@ -191,6 +191,13 @@ try {
 
   const project = (await ask("project.create", { name: "ChatGPT live" }))
     .project.id;
+  // New projects are Local Only; this synthetic project explicitly allows the
+  // selected slide text to reach the remote decision provider.
+  await ask("project.update_settings", {
+    project_id: project,
+    privacy_mode: "selected_context_cloud",
+  });
+  await ask("project.acknowledge_remote_reasoning", { project_id: project });
   const document = (
     await ask("presentation.workspace.create_from_outline", {
       project_id: project,
@@ -259,6 +266,23 @@ try {
       .catch(() => {});
   process.exitCode = 1;
 } finally {
+  // Never leave a live session behind: sign out (revoking tokens) on failure too.
+  if (page && !receipt.steps.sign_out) {
+    receipt.cleanup_sign_out = await page
+      .evaluate(async () => {
+        const r = await window.presenterCopilot.core.request(
+          "provider.chatgpt_plan.sign_out",
+          {},
+        );
+        return r.ok
+          ? {
+              state: r.result.state,
+              remote_revocation_confirmed: r.result.remote_revocation_confirmed,
+            }
+          : { error: r.error.code };
+      })
+      .catch((error) => ({ error: String(error.message).slice(0, 200) }));
+  }
   receipt.finished_at = new Date().toISOString();
   const file = path.join(
     output,
