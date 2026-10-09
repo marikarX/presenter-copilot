@@ -58,6 +58,7 @@ from presenter_core.presentation.fidelity import (
     SHAPE_LINE_DASHES,
     SLIDE_LIMIT,
     FidelityGeometry,
+    FidelityPictureAdjustment,
     FidelityPictureCrop,
     _formatable_text_runs,
     _is_uniform_run_text_shape,
@@ -67,6 +68,7 @@ from presenter_core.presentation.fidelity import (
     _paragraph_property_insert_index,
     _paragraph_text,
     _parse_xml_part,
+    _picture_adjustment,
     _picture_crop,
     _relationships,
     _resolve_internal_part,
@@ -800,6 +802,131 @@ class PresentationEditService:
                 image_format=image_format,
             ),
         )
+
+    def adjust_picture(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Set brightness, contrast and grayscale on a verified embedded picture."""
+        reject_unknown_fields(
+            params,
+            {
+                "project_id",
+                "document_id",
+                "expected_revision_id",
+                "slide_id",
+                "object_id",
+                "expected_geometry",
+                "expected_adjustment",
+                "replacement_adjustment",
+            },
+        )
+        project_id = self._project_id(params.get("project_id"))
+        document_id = self._document_id(params.get("document_id"))
+        expected_revision_id = self._uuid_field(
+            params.get("expected_revision_id"), "expected_revision_id"
+        )
+        slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
+        object_id = self._uuid_field(params.get("object_id"), "object_id")
+        expected_geometry = self._geometry_field(
+            params.get("expected_geometry"), "expected_geometry"
+        )
+        expected_adjustment = self._picture_adjustment_field(
+            params.get("expected_adjustment"), "expected_adjustment"
+        )
+        replacement_adjustment = self._picture_adjustment_field(
+            params.get("replacement_adjustment"), "replacement_adjustment"
+        )
+        source = self._current_revision_source(project_id, document_id)
+        if source["revision_id"] != expected_revision_id:
+            raise self._revision_conflict()
+        source_path = self._storage.paths.snapshot_path(
+            project_id, source["local_snapshot_path"], require_exists=True
+        )
+        with source_path.open("rb") as source_handle:
+            if os.fstat(source_handle.fileno()).st_size != int(source["byte_size"]):
+                raise CoreDomainError(
+                    "SOURCE_SNAPSHOT_CHANGED",
+                    "The stored presentation no longer matches its revision record.",
+                )
+            fidelity = inspect_pptx_snapshot(
+                source_handle,
+                document_id=document_id,
+                expected_sha256=str(source["sha256"]),
+                byte_size=int(source["byte_size"]),
+            )
+        slide = next((item for item in fidelity.slides if item.slide_id == slide_id), None)
+        obj = (
+            next((item for item in slide.objects if item.object_id == object_id), None)
+            if slide is not None
+            else None
+        )
+        if slide is None or obj is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_TARGET_NOT_FOUND", "The selected picture is unavailable."
+            )
+        if (
+            obj.kind != "pic"
+            or obj.geometry is None
+            or obj.picture_crop is None
+            or obj.picture_adjustment is None
+        ):
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This picture uses image effects that cannot be adjusted safely.",
+            )
+        if obj.geometry != expected_geometry or obj.picture_adjustment != expected_adjustment:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_STALE_TARGET",
+                "The picture changed. Refresh the preview and try again.",
+                retryable=True,
+            )
+        if replacement_adjustment == expected_adjustment:
+            return {
+                "changed": False,
+                "revision_id": source["revision_id"],
+                "revision_number": int(source["revision_number"]),
+                "sha256": source["sha256"],
+                "byte_size": int(source["byte_size"]),
+            }
+        crop = obj.picture_crop
+        return self._commit_revision(
+            project_id,
+            document_id,
+            expected_revision_id,
+            source,
+            lambda original_path, staged_path: self._write_revised_picture_crop_package(
+                original_path,
+                staged_path,
+                document_id=document_id,
+                expected_sha256=str(source["sha256"]),
+                expected_byte_size=int(source["byte_size"]),
+                slide_id=slide_id,
+                object_id=object_id,
+                expected_geometry=expected_geometry,
+                expected_crop=crop,
+                replacement_crop=crop,
+                expected_adjustment=expected_adjustment,
+                replacement_adjustment=replacement_adjustment,
+            ),
+        )
+
+    @staticmethod
+    def _picture_adjustment_field(value: Any, field: str) -> FidelityPictureAdjustment:
+        if not isinstance(value, dict):
+            raise invalid_request(f"{field} must be an object.", field=field)
+        reject_unknown_fields(value, {"brightness_percent", "contrast_percent", "grayscale"})
+        result: dict[str, Any] = {}
+        for name, key in (("brightness_percent", "brightness"), ("contrast_percent", "contrast")):
+            item = value.get(name, 0)
+            if type(item) is not int or not -100 <= item <= 100:
+                raise invalid_request(
+                    f"{field}.{name} must be an integer from -100 to 100.", field=f"{field}.{name}"
+                )
+            result[key] = item
+        grayscale = value.get("grayscale", False)
+        if type(grayscale) is not bool:
+            raise invalid_request(
+                f"{field}.grayscale must be a boolean.", field=f"{field}.grayscale"
+            )
+        return FidelityPictureAdjustment(grayscale=grayscale, **result)
 
     def crop_picture(self, params: dict[str, Any]) -> dict[str, Any]:
         """Apply a bounded source crop to a verified embedded picture."""
@@ -2868,6 +2995,8 @@ class PresentationEditService:
         expected_geometry: FidelityGeometry,
         expected_crop: FidelityPictureCrop,
         replacement_crop: FidelityPictureCrop,
+        expected_adjustment: FidelityPictureAdjustment | None = None,
+        replacement_adjustment: FidelityPictureAdjustment | None = None,
     ) -> None:
         with source_path.open("rb") as source_handle:
             if os.fstat(source_handle.fileno()).st_size != expected_byte_size:
@@ -2986,6 +3115,24 @@ class PresentationEditService:
                         "The picture crop changed. Refresh the preview and try again.",
                         retryable=True,
                     )
+                if replacement_adjustment is not None:
+                    if _picture_adjustment(object_node, "pic") != expected_adjustment:
+                        raise CoreDomainError(
+                            "PRESENTATION_EDIT_STALE_TARGET",
+                            "The picture adjustments changed. Refresh and try again.",
+                            retryable=True,
+                        )
+                    blip = blips[0]
+                    for child in list(blip):
+                        blip.remove(child)
+                    if replacement_adjustment.grayscale:
+                        etree.SubElement(blip, f"{{{DRAWING_NS}}}grayscl")
+                    if replacement_adjustment.brightness or replacement_adjustment.contrast:
+                        luminance = etree.SubElement(blip, f"{{{DRAWING_NS}}}lum")
+                        if replacement_adjustment.brightness:
+                            luminance.set("bright", str(replacement_adjustment.brightness * 1000))
+                        if replacement_adjustment.contrast:
+                            luminance.set("contrast", str(replacement_adjustment.contrast * 1000))
                 fill = fill_nodes[0]
                 source_rectangles = fill.xpath("./a:srcRect", namespaces=_NS)
                 if len(source_rectangles) > 1:
@@ -3083,7 +3230,15 @@ class PresentationEditService:
             replace(
                 current_slide,
                 objects=tuple(
-                    replace(current_object, picture_crop=replacement_crop)
+                    replace(
+                        current_object,
+                        picture_crop=replacement_crop,
+                        picture_adjustment=(
+                            replacement_adjustment
+                            if replacement_adjustment is not None
+                            else current_object.picture_adjustment
+                        ),
+                    )
                     if current_slide.slide_id == slide_id and current_object.object_id == object_id
                     else current_object
                     for current_object in current_slide.objects

@@ -51,6 +51,13 @@ Commits this session:
   keep the outline color, insert `prstDash` in schema order, create `ln` when
   absent, and keep custom dash patterns read-only. `test-shape-outline.mjs`
   passes 3/3 (apply, color kept, undo).
+- Picture brightness and contrast (whole percents, -100..100, written as
+  `a:lum`) and grayscale (`a:grayscl`) are reviewed edits in the Objects
+  panel (`presentation.workspace.adjust_picture`). Only plain embedded
+  pictures with no other blip effects are editable; crop is preserved. The
+  preview renderer patch now applies PowerPoint's measured contrast curve
+  (slope 1/(1-c) for positive contrast, about mid-grey after brightness).
+  `test-picture-adjust.mjs` passes 3/3 (range rejection, apply, undo).
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

@@ -311,6 +311,18 @@ type PictureCrop = {
   bottom_percent: number;
 };
 
+type PictureAdjustment = {
+  brightness_percent: number;
+  contrast_percent: number;
+  grayscale: boolean;
+};
+
+type PictureAdjustmentDraft = {
+  brightness_percent: string;
+  contrast_percent: string;
+  grayscale: boolean;
+};
+
 type ShapeStyle = {
   editable: boolean;
   fingerprint: string | null;
@@ -345,6 +357,7 @@ type PresentationObject = {
   group_reason: string | null;
   geometry: ObjectGeometry | null;
   picture_crop: PictureCrop | null;
+  picture_adjustment?: PictureAdjustment | null;
   shape_style: ShapeStyle | null;
 };
 
@@ -603,6 +616,48 @@ function pictureCropDraft(crop: PictureCrop | null): PictureCropDraft {
   };
 }
 
+function pictureAdjustmentDraft(
+  adjustment: PictureAdjustment | null | undefined,
+): PictureAdjustmentDraft {
+  return {
+    brightness_percent: String(adjustment?.brightness_percent ?? 0),
+    contrast_percent: String(adjustment?.contrast_percent ?? 0),
+    grayscale: adjustment?.grayscale ?? false,
+  };
+}
+
+function pictureAdjustmentFromDraft(
+  draft: PictureAdjustmentDraft,
+): PictureAdjustment | null {
+  const brightness = Number(draft.brightness_percent);
+  const contrast = Number(draft.contrast_percent);
+  if (
+    !draft.brightness_percent.trim() ||
+    !draft.contrast_percent.trim() ||
+    ![brightness, contrast].every(
+      (value) => Number.isInteger(value) && value >= -100 && value <= 100,
+    )
+  ) {
+    return null;
+  }
+  return {
+    brightness_percent: brightness,
+    contrast_percent: contrast,
+    grayscale: draft.grayscale,
+  };
+}
+
+function samePictureAdjustment(
+  left: PictureAdjustment,
+  right: PictureAdjustment,
+): boolean {
+  return (
+    left.brightness_percent === right.brightness_percent &&
+    left.contrast_percent === right.contrast_percent &&
+    left.grayscale === right.grayscale
+  );
+}
+
 function draftForShapeStyle(style: ShapeStyle | null): ShapeStyleDraft {
   return {
     fill_color: style?.fill_color ?? "#000000",
@@ -734,6 +789,22 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       ) &&
       pictureCrop.left_percent + pictureCrop.right_percent < 100 &&
       pictureCrop.top_percent + pictureCrop.bottom_percent < 100);
+  const pictureAdjustment = candidate.picture_adjustment;
+  const validPictureAdjustment =
+    pictureAdjustment === undefined ||
+    pictureAdjustment === null ||
+    (!!pictureAdjustment &&
+      [
+        pictureAdjustment.brightness_percent,
+        pictureAdjustment.contrast_percent,
+      ].every(
+        (value) =>
+          typeof value === "number" &&
+          Number.isInteger(value) &&
+          value >= -100 &&
+          value <= 100,
+      ) &&
+      typeof pictureAdjustment.grayscale === "boolean");
   const shapeStyle = candidate.shape_style;
   const validShapeStyle =
     shapeStyle === null ||
@@ -778,6 +849,8 @@ function isPresentationObject(value: unknown): value is PresentationObject {
     (candidate.group_reason === null ||
       typeof candidate.group_reason === "string") &&
     validPictureCrop &&
+    validPictureAdjustment &&
+    (pictureAdjustment == null || candidate.kind === "pic") &&
     validShapeStyle &&
     (pictureCrop === null || candidate.kind === "pic") &&
     validGeometry &&
@@ -1159,6 +1232,8 @@ export function PresentationWorkspace({
   const [objectCropDraft, setObjectCropDraft] = useState<PictureCropDraft>(() =>
     pictureCropDraft(null),
   );
+  const [objectAdjustmentDraft, setObjectAdjustmentDraft] =
+    useState<PictureAdjustmentDraft>(() => pictureAdjustmentDraft(null));
   const [objectStyleDraft, setObjectStyleDraft] = useState<ShapeStyleDraft>(
     () => draftForShapeStyle(null),
   );
@@ -1511,6 +1586,9 @@ export function PresentationWorkspace({
         )
       : null;
   const replacementPictureCrop = pictureCropFromDraft(objectCropDraft);
+  const replacementPictureAdjustment = pictureAdjustmentFromDraft(
+    objectAdjustmentDraft,
+  );
 
   useEffect(() => {
     decisionGeneration.current += 1;
@@ -1947,6 +2025,7 @@ export function PresentationWorkspace({
     setActiveSlideId("");
     setObjectGeometryDraft({ x: "", y: "", width: "", height: "" });
     setObjectCropDraft(pictureCropDraft(null));
+    setObjectAdjustmentDraft(pictureAdjustmentDraft(null));
     setObjectStyleDraft(draftForShapeStyle(null));
     setSlideSizeEmu(null);
     setSlideContext(null);
@@ -2327,6 +2406,9 @@ export function PresentationWorkspace({
         );
         setObjectCropDraft(
           pictureCropDraft(firstEditableObject?.picture_crop ?? null),
+        );
+        setObjectAdjustmentDraft(
+          pictureAdjustmentDraft(firstEditableObject?.picture_adjustment),
         );
         setObjectStyleDraft(
           draftForShapeStyle(firstEditableObject?.shape_style ?? null),
@@ -4181,6 +4263,106 @@ export function PresentationWorkspace({
     selectedSource,
   ]);
 
+  const savePictureAdjustmentRevision = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const target = selectedObject;
+    const replacement = replacementPictureAdjustment;
+    if (
+      !source ||
+      !revision ||
+      !UUID_PATTERN.test(activeSlideId) ||
+      target?.kind !== "pic" ||
+      !target.geometry ||
+      !target.picture_adjustment ||
+      !replacement ||
+      samePictureAdjustment(target.picture_adjustment, replacement) ||
+      loadedSourceId !== source.id ||
+      loading
+    ) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    setMockSvg(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.adjust_picture",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          slide_id: activeSlideId,
+          object_id: target.object_id,
+          expected_geometry: target.geometry,
+          expected_adjustment: target.picture_adjustment,
+          replacement_adjustment: replacement,
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id) ||
+        !Number.isSafeInteger(result.revision_number) ||
+        result.revision_number < 1 ||
+        !/^[0-9a-f]{64}$/.test(result.sha256) ||
+        !Number.isSafeInteger(result.byte_size) ||
+        result.byte_size < 1 ||
+        (result.changed && result.parent_revision_id !== revision.revision_id)
+      ) {
+        throw new Error(
+          "The picture adjustment revision could not be verified.",
+        );
+      }
+      if (!result.changed) {
+        setNotice("The picture adjustments are unchanged.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      let indexedRevision = false;
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+        indexedRevision = true;
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, target.object_id);
+      setNotice(
+        indexedRevision
+          ? `Saved revision ${result.revision_number} and refreshed the picture adjustments.`
+          : `Saved revision ${result.revision_number}. Re-index this presentation before using its content in rehearsal.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The picture adjustments could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    activeSlideId,
+    currentRevision,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    replacementPictureAdjustment,
+    selectedObject,
+    selectedSlide,
+    selectedSource,
+  ]);
+
   const replacePictureImageRevision = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -6029,6 +6211,9 @@ export function PresentationWorkspace({
                     );
                     setObjectCropDraft(
                       pictureCropDraft(object?.picture_crop ?? null),
+                    );
+                    setObjectAdjustmentDraft(
+                      pictureAdjustmentDraft(object?.picture_adjustment),
                     );
                     setObjectStyleDraft(
                       draftForShapeStyle(object?.shape_style ?? null),
@@ -8227,6 +8412,9 @@ export function PresentationWorkspace({
                           setObjectCropDraft(
                             pictureCropDraft(object?.picture_crop ?? null),
                           );
+                          setObjectAdjustmentDraft(
+                            pictureAdjustmentDraft(object?.picture_adjustment),
+                          );
                           setObjectStyleDraft(
                             draftForShapeStyle(object?.shape_style ?? null),
                           );
@@ -8331,125 +8519,213 @@ export function PresentationWorkspace({
                         </button>
                         {selectedObject.kind === "pic" ? (
                           selectedObject.picture_crop ? (
-                            <fieldset className="pw-picture-crop">
-                              <legend>Picture crop</legend>
-                              <p className="muted">
-                                Crop the image inside its existing frame. Values
-                                are percentages from each edge.
-                              </p>
-                              <div className="pw-geometry-fields">
-                                {(
-                                  [
-                                    ["left_percent", "Left crop (%)"],
-                                    ["right_percent", "Right crop (%)"],
-                                    ["top_percent", "Top crop (%)"],
-                                    ["bottom_percent", "Bottom crop (%)"],
-                                  ] as const
-                                ).map(([field, label]) => (
-                                  <label key={field}>
-                                    {label}
+                            <>
+                              <fieldset className="pw-picture-crop">
+                                <legend>Picture crop</legend>
+                                <p className="muted">
+                                  Crop the image inside its existing frame.
+                                  Values are percentages from each edge.
+                                </p>
+                                <div className="pw-geometry-fields">
+                                  {(
+                                    [
+                                      ["left_percent", "Left crop (%)"],
+                                      ["right_percent", "Right crop (%)"],
+                                      ["top_percent", "Top crop (%)"],
+                                      ["bottom_percent", "Bottom crop (%)"],
+                                    ] as const
+                                  ).map(([field, label]) => (
+                                    <label key={field}>
+                                      {label}
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="99.999"
+                                        step="0.001"
+                                        aria-label={label}
+                                        value={objectCropDraft[field]}
+                                        onChange={(event) =>
+                                          setObjectCropDraft((current) => ({
+                                            ...current,
+                                            [field]: event.target.value,
+                                          }))
+                                        }
+                                        disabled={!loadedSourceId || loading}
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                                {replacementPictureCrop === null ? (
+                                  <p className="muted" role="alert">
+                                    Leave a visible portion of the image in both
+                                    directions and use increments of 0.001%.
+                                  </p>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() => void savePictureCropRevision()}
+                                  disabled={
+                                    !loadedSourceId ||
+                                    loading ||
+                                    !replacementPictureCrop ||
+                                    samePictureCrop(
+                                      selectedObject.picture_crop,
+                                      replacementPictureCrop ??
+                                        selectedObject.picture_crop,
+                                    )
+                                  }
+                                >
+                                  Save picture crop
+                                </button>
+                                <label>
+                                  Replace picture image (PNG or JPEG, up to 4
+                                  MiB)
+                                  <input
+                                    ref={replacementPictureInput}
+                                    type="file"
+                                    accept="image/png,image/jpeg"
+                                    aria-label="Replacement picture image"
+                                    onChange={(event) => {
+                                      const file =
+                                        event.currentTarget.files?.[0] ?? null;
+                                      setReplacementPictureFile(null);
+                                      if (!file) return;
+                                      if (
+                                        file.size < 1 ||
+                                        file.size > MAX_REPLACEMENT_IMAGE_BYTES
+                                      ) {
+                                        event.currentTarget.value = "";
+                                        setError(
+                                          "Choose an image no larger than 4 MiB.",
+                                        );
+                                        return;
+                                      }
+                                      if (
+                                        !["image/png", "image/jpeg"].includes(
+                                          file.type,
+                                        )
+                                      ) {
+                                        event.currentTarget.value = "";
+                                        setError("Choose a PNG or JPEG image.");
+                                        return;
+                                      }
+                                      setError(null);
+                                      setReplacementPictureFile(file);
+                                    }}
+                                    disabled={!loadedSourceId || loading}
+                                  />
+                                </label>
+                                {replacementPictureFile ? (
+                                  <p className="muted">
+                                    Selected: {replacementPictureFile.name} ·{" "}
+                                    {Math.ceil(
+                                      replacementPictureFile.size / 1024,
+                                    )}{" "}
+                                    KiB
+                                  </p>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() =>
+                                    void replacePictureImageRevision()
+                                  }
+                                  disabled={
+                                    !loadedSourceId ||
+                                    loading ||
+                                    !replacementPictureFile
+                                  }
+                                >
+                                  Replace picture image
+                                </button>
+                              </fieldset>
+                              {selectedObject.picture_adjustment ? (
+                                <fieldset className="pw-picture-crop">
+                                  <legend>Picture adjustments</legend>
+                                  <p className="muted">
+                                    Brightness and contrast use
+                                    PowerPoint&apos;s percentages from -100 to
+                                    100.
+                                  </p>
+                                  <div className="pw-geometry-fields">
+                                    {(
+                                      [
+                                        [
+                                          "brightness_percent",
+                                          "Brightness (%)",
+                                        ],
+                                        ["contrast_percent", "Contrast (%)"],
+                                      ] as const
+                                    ).map(([field, label]) => (
+                                      <label key={field}>
+                                        {label}
+                                        <input
+                                          type="number"
+                                          min="-100"
+                                          max="100"
+                                          step="1"
+                                          aria-label={`Picture ${label}`}
+                                          value={objectAdjustmentDraft[field]}
+                                          onChange={(event) =>
+                                            setObjectAdjustmentDraft(
+                                              (current) => ({
+                                                ...current,
+                                                [field]: event.target.value,
+                                              }),
+                                            )
+                                          }
+                                          disabled={!loadedSourceId || loading}
+                                        />
+                                      </label>
+                                    ))}
+                                  </div>
+                                  <label className="checkbox-row">
                                     <input
-                                      type="number"
-                                      min="0"
-                                      max="99.999"
-                                      step="0.001"
-                                      aria-label={label}
-                                      value={objectCropDraft[field]}
+                                      type="checkbox"
+                                      aria-label="Picture grayscale"
+                                      checked={objectAdjustmentDraft.grayscale}
                                       onChange={(event) =>
-                                        setObjectCropDraft((current) => ({
+                                        setObjectAdjustmentDraft((current) => ({
                                           ...current,
-                                          [field]: event.target.value,
+                                          grayscale: event.target.checked,
                                         }))
                                       }
                                       disabled={!loadedSourceId || loading}
                                     />
+                                    Grayscale
                                   </label>
-                                ))}
-                              </div>
-                              {replacementPictureCrop === null ? (
-                                <p className="muted" role="alert">
-                                  Leave a visible portion of the image in both
-                                  directions and use increments of 0.001%.
-                                </p>
-                              ) : null}
-                              <button
-                                type="button"
-                                className="secondary-button"
-                                onClick={() => void savePictureCropRevision()}
-                                disabled={
-                                  !loadedSourceId ||
-                                  loading ||
-                                  !replacementPictureCrop ||
-                                  samePictureCrop(
-                                    selectedObject.picture_crop,
-                                    replacementPictureCrop ??
-                                      selectedObject.picture_crop,
-                                  )
-                                }
-                              >
-                                Save picture crop
-                              </button>
-                              <label>
-                                Replace picture image (PNG or JPEG, up to 4 MiB)
-                                <input
-                                  ref={replacementPictureInput}
-                                  type="file"
-                                  accept="image/png,image/jpeg"
-                                  aria-label="Replacement picture image"
-                                  onChange={(event) => {
-                                    const file =
-                                      event.currentTarget.files?.[0] ?? null;
-                                    setReplacementPictureFile(null);
-                                    if (!file) return;
-                                    if (
-                                      file.size < 1 ||
-                                      file.size > MAX_REPLACEMENT_IMAGE_BYTES
-                                    ) {
-                                      event.currentTarget.value = "";
-                                      setError(
-                                        "Choose an image no larger than 4 MiB.",
-                                      );
-                                      return;
+                                  {replacementPictureAdjustment === null ? (
+                                    <p className="muted" role="alert">
+                                      Use whole percentages from -100 to 100.
+                                    </p>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={() =>
+                                      void savePictureAdjustmentRevision()
                                     }
-                                    if (
-                                      !["image/png", "image/jpeg"].includes(
-                                        file.type,
+                                    disabled={
+                                      !loadedSourceId ||
+                                      loading ||
+                                      !replacementPictureAdjustment ||
+                                      samePictureAdjustment(
+                                        selectedObject.picture_adjustment,
+                                        replacementPictureAdjustment,
                                       )
-                                    ) {
-                                      event.currentTarget.value = "";
-                                      setError("Choose a PNG or JPEG image.");
-                                      return;
                                     }
-                                    setError(null);
-                                    setReplacementPictureFile(file);
-                                  }}
-                                  disabled={!loadedSourceId || loading}
-                                />
-                              </label>
-                              {replacementPictureFile ? (
+                                  >
+                                    Apply picture adjustments
+                                  </button>
+                                </fieldset>
+                              ) : (
                                 <p className="muted">
-                                  Selected: {replacementPictureFile.name} ·{" "}
-                                  {Math.ceil(
-                                    replacementPictureFile.size / 1024,
-                                  )}{" "}
-                                  KiB
+                                  This picture uses image effects that stay
+                                  read-only.
                                 </p>
-                              ) : null}
-                              <button
-                                type="button"
-                                className="secondary-button"
-                                onClick={() =>
-                                  void replacePictureImageRevision()
-                                }
-                                disabled={
-                                  !loadedSourceId ||
-                                  loading ||
-                                  !replacementPictureFile
-                                }
-                              >
-                                Replace picture image
-                              </button>
-                            </fieldset>
+                              )}
+                            </>
                           ) : (
                             <p className="muted">
                               This picture uses a fill or relationship structure

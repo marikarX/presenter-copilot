@@ -925,6 +925,10 @@ class CoreService:
             result = self._presentation_edits.transform_object(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.adjust_picture":
+            result = self._presentation_edits.adjust_picture(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.crop_picture":
             result = self._presentation_edits.crop_picture(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

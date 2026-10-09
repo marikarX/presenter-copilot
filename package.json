@@ -54,6 +54,7 @@
     "test:ui:chatgpt-settings": "pnpm build && node apps/desktop/scripts/test-chatgpt-settings.mjs",
     "test:ui:bullet-marker": "pnpm build && node apps/desktop/scripts/test-bullet-marker.mjs",
     "test:ui:shape-outline": "pnpm build && node apps/desktop/scripts/test-shape-outline.mjs",
+    "test:ui:picture-adjust": "pnpm build && node apps/desktop/scripts/test-picture-adjust.mjs",
     "test:ui:objection-comparison": "pnpm build && node apps/desktop/scripts/test-rehearsal-objection-comparison.mjs",
     "accept:chatgpt-live": "pnpm build && node apps/desktop/scripts/accept-chatgpt-live.mjs",
     "test:codex-containment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-codex-containment.ps1",

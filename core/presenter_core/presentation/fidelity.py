@@ -171,6 +171,15 @@ class FidelityPictureCrop:
 
 
 @dataclass(frozen=True)
+class FidelityPictureAdjustment:
+    """Direct picture brightness/contrast (a:lum, whole percents) and grayscale."""
+
+    brightness: int = 0
+    contrast: int = 0
+    grayscale: bool = False
+
+
+@dataclass(frozen=True)
 class FidelityTextStyle:
     """Direct run and paragraph formatting supported by the constrained formatter."""
 
@@ -270,6 +279,7 @@ class FidelityObject:
     group_reason: str | None = None
     text_style: FidelityTextStyle | None = None
     picture_crop: FidelityPictureCrop | None = None
+    picture_adjustment: FidelityPictureAdjustment | None = None
     shape_style: FidelityShapeStyle | None = None
     semantic_source_kind: str | None = None
 
@@ -470,6 +480,15 @@ class FidelityDocument:
                             "bottom_percent": obj.picture_crop.bottom / 1_000,
                         }
                         if obj.picture_crop is not None
+                        else None
+                    ),
+                    "picture_adjustment": (
+                        {
+                            "brightness_percent": obj.picture_adjustment.brightness,
+                            "contrast_percent": obj.picture_adjustment.contrast,
+                            "grayscale": obj.picture_adjustment.grayscale,
+                        }
+                        if obj.picture_adjustment is not None
                         else None
                     ),
                     "geometry": (
@@ -966,6 +985,9 @@ def _objects_for_slide(
                 else "Alternate-content objects are read-only.",
                 text_style=text_style,
                 picture_crop=None if alternate_content else _picture_crop(candidate, kind),
+                picture_adjustment=(
+                    None if alternate_content else _picture_adjustment(candidate, kind)
+                ),
                 shape_style=shape_style,
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
@@ -1101,6 +1123,40 @@ def _picture_crop(candidate: etree._Element, kind: str) -> FidelityPictureCrop |
     ):
         return None
     return FidelityPictureCrop(left=left, right=right, top=top, bottom=bottom)
+
+
+def _picture_adjustment(candidate: etree._Element, kind: str) -> FidelityPictureAdjustment | None:
+    """Editable only for a simple embedded picture with at most grayscl and lum."""
+    if _picture_crop(candidate, kind) is None:
+        return None
+    blip = candidate.find(f"{{{PRESENTATION_NS}}}blipFill/{{{DRAWING_NS}}}blip")
+    if blip is None:
+        return None
+    names = [child.tag.removeprefix(f"{{{DRAWING_NS}}}") for child in blip]
+    if any(name not in {"grayscl", "lum"} for name in names) or len(set(names)) != len(names):
+        return None
+    grayscale = blip.find(f"{{{DRAWING_NS}}}grayscl")
+    if grayscale is not None and (grayscale.attrib or len(grayscale)):
+        return None
+    brightness = contrast = 0
+    luminance = blip.find(f"{{{DRAWING_NS}}}lum")
+    if luminance is not None:
+        if len(luminance) or not set(luminance.attrib) <= {"bright", "contrast"}:
+            return None
+        for attribute in ("bright", "contrast"):
+            raw = luminance.get(attribute, "0")
+            if not re.fullmatch(r"-?[0-9]{1,6}", raw):
+                return None
+            value = int(raw)
+            if value % 1000 or not -100_000 <= value <= 100_000:
+                return None
+            if attribute == "bright":
+                brightness = value // 1000
+            else:
+                contrast = value // 1000
+    return FidelityPictureAdjustment(
+        brightness=brightness, contrast=contrast, grayscale=grayscale is not None
+    )
 
 
 def _shape_style(
