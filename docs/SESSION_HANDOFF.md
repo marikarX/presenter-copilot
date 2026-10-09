@@ -147,6 +147,10 @@ Commits this session:
   records PowerPoint's tile size (image pixels / PNG pHYs or JPEG JFIF DPI x
   tile sx/sy) so tiles align with PowerPoint pixel for pixel. Corpus mean MAE
   3.046% -> 2.929%, median 2.562% -> 2.512% (32 slides better, none worse).
+- Picture placeholders without their own geometry now inherit the layout
+  placeholder's `custGeom`/`prstGeom` in the preview, so PowerPoint-style
+  shaped picture placeholders clip like PowerPoint (SDGS title slide MAE
+  8.39% -> 1.37%; 3 slides better, none worse; corpus mean 2.909%).
   Remaining visible gaps: 3D perspective/bevel SmartArt renders flat and
   small hanging bullets sit slightly high.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never

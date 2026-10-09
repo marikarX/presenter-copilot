@@ -119,6 +119,7 @@ export interface PreviewRendererCompatibilityReport {
   smartArtImageShapesPromoted: number;
   duotoneImageReferencesNormalized: number;
   tiledImageFillsSized?: number;
+  pictureGeometryInherited?: number;
   defaultLineSpacingLevelsFilled?: number;
   compatibilityPartsSkipped: number;
 }
@@ -1143,6 +1144,161 @@ function inheritLayoutPlaceholderSolidFills(
 
   for (const [path, updated] of changedSlides) files.slides.set(path, updated);
   return inheritedFills;
+}
+
+function picturePlaceholderIdentity(
+  picture: Element,
+): PlaceholderIdentity | null {
+  if (picture.namespaceURI !== PRESENTATION_NS) return null;
+  const nonVisual = childElement(
+    picture,
+    PRESENTATION_NS,
+    picture.localName === "pic" ? "nvPicPr" : "nvSpPr",
+  );
+  const properties = nonVisual
+    ? childElement(nonVisual, PRESENTATION_NS, "nvPr")
+    : null;
+  const placeholder = properties
+    ? childElement(properties, PRESENTATION_NS, "ph")
+    : null;
+  if (!placeholder) return null;
+  const rawIndex = placeholder.getAttribute("idx");
+  if (rawIndex !== null && !/^\d{1,8}$/.test(rawIndex)) return null;
+  const rawType = placeholder.getAttribute("type") ?? "";
+  if (rawType.length > 40 || hasControlCharacters(rawType)) return null;
+  return { index: rawIndex, type: rawType || "obj" };
+}
+
+/**
+ * A picture placeholder without its own geometry takes the layout
+ * placeholder's prstGeom/custGeom (PowerPoint clips the picture to it).
+ */
+function inheritLayoutPictureGeometry(
+  files: PptxFiles,
+  platform: XmlPlatform,
+): number {
+  let inherited = 0;
+  let scannedChars = 0;
+  const changedSlides = new Map<string, string>();
+  for (const [slidePath, slideXml] of files.slides) {
+    if (!/^ppt\/slides\/slide\d+\.xml$/.test(slidePath)) continue;
+    if (!slideXml.includes(":pic>") || !slideXml.includes(":ph")) continue;
+    if (
+      slideXml.length > MAX_XML_DOCUMENT_CHARS ||
+      scannedChars + slideXml.length > MAX_COMPATIBILITY_XML_CHARS
+    ) {
+      break;
+    }
+    scannedChars += slideXml.length;
+    const relationshipPath = packageRelationshipPartPath(slidePath);
+    const relationshipXml = relationshipPath
+      ? files.slideRels.get(relationshipPath)
+      : undefined;
+    if (
+      !relationshipXml ||
+      relationshipXml.length > MAX_RELATIONSHIP_XML_CHARS
+    ) {
+      continue;
+    }
+    const relationshipDocument = parseXml(
+      relationshipXml,
+      platform,
+      MAX_RELATIONSHIP_XML_CHARS,
+    );
+    const records = relationshipDocument
+      ? relationshipRecords(relationshipDocument)
+      : null;
+    const layouts = records
+      ? [...records.records.values()].filter(
+          (relationship) =>
+            relationship.type === SLIDE_LAYOUT_RELATIONSHIP_TYPE &&
+            isInternalTargetMode(relationship.targetMode),
+        )
+      : [];
+    if (layouts.length !== 1) continue;
+    const layoutPath = resolveInternalPackageTarget(
+      slidePath,
+      layouts[0]?.target ?? "",
+    );
+    const layoutXml = layoutPath
+      ? files.slideLayouts.get(layoutPath)
+      : undefined;
+    if (!layoutXml || layoutXml.length > MAX_XML_DOCUMENT_CHARS) continue;
+    const layoutDocument = parseXml(
+      layoutXml,
+      platform,
+      MAX_XML_DOCUMENT_CHARS,
+    );
+    const slideDocument = parseXml(slideXml, platform, MAX_XML_DOCUMENT_CHARS);
+    const layoutTree = layoutDocument
+      ? elementsWithLocalName(layoutDocument, "spTree")[0]
+      : undefined;
+    const slideTree = slideDocument
+      ? elementsWithLocalName(slideDocument, "spTree")[0]
+      : undefined;
+    if (!slideDocument || !layoutTree || !slideTree) continue;
+    const layoutPlaceholders = childElements(layoutTree).filter(
+      (shape) =>
+        shape.namespaceURI === PRESENTATION_NS &&
+        (shape.localName === "sp" || shape.localName === "pic"),
+    );
+    let changed = 0;
+    for (const picture of childElements(slideTree)) {
+      if (
+        picture.namespaceURI !== PRESENTATION_NS ||
+        picture.localName !== "pic"
+      ) {
+        continue;
+      }
+      const identity = picturePlaceholderIdentity(picture);
+      const properties = childElement(picture, PRESENTATION_NS, "spPr");
+      if (
+        !identity ||
+        !properties ||
+        childElement(properties, DRAWING_NS, "prstGeom") ||
+        childElement(properties, DRAWING_NS, "custGeom")
+      ) {
+        continue;
+      }
+      const matches = layoutPlaceholders.filter((shape) => {
+        const layoutIdentity = picturePlaceholderIdentity(shape);
+        return (
+          layoutIdentity !== null && samePlaceholder(identity, layoutIdentity)
+        );
+      });
+      const layoutProperties =
+        matches.length === 1 && matches[0]
+          ? childElement(matches[0], PRESENTATION_NS, "spPr")
+          : null;
+      const geometry = layoutProperties
+        ? (childElement(layoutProperties, DRAWING_NS, "custGeom") ??
+          childElement(layoutProperties, DRAWING_NS, "prstGeom"))
+        : null;
+      if (
+        !geometry ||
+        (geometry.localName === "prstGeom" &&
+          geometry.getAttribute("prst") === "rect")
+      ) {
+        continue;
+      }
+      const copy = slideDocument.importNode(geometry, true) as Element;
+      const transform = childElement(properties, DRAWING_NS, "xfrm");
+      properties.insertBefore(
+        copy,
+        transform ? transform.nextSibling : properties.firstChild,
+      );
+      changed += 1;
+    }
+    if (!changed) continue;
+    try {
+      changedSlides.set(slidePath, platform.serialize(slideDocument));
+      inherited += changed;
+    } catch {
+      // Keep the parsed slide unchanged if preview serialization fails.
+    }
+  }
+  for (const [path, updated] of changedSlides) files.slides.set(path, updated);
+  return inherited;
 }
 
 function relationshipSourcePath(relationshipPath: string): string | null {
@@ -4131,6 +4287,14 @@ export async function applyPreviewRendererCompatibility(
     }
   }
   if (options.normalizePictureFillGeometry === true) {
+    try {
+      report.pictureGeometryInherited = inheritLayoutPictureGeometry(
+        files,
+        platform,
+      );
+    } catch {
+      report.compatibilityPartsSkipped += 1;
+    }
     try {
       const pictureGeometry = await promoteNonRectangularPicturesToShapeFills(
         files,
