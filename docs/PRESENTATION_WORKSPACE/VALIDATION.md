@@ -24,6 +24,32 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Preview `a:lum` corrected to PowerPoint's measured behavior — 2026-10-09
+
+PowerPoint rendered a 256-level grey ramp with `a:lum` variants and a
+non-trivial `a:duotone`. Probes: `.local/session2/lum_probe.py` and
+`lum_order_probe.py`. Measured behavior:
+
+- `contrast` is a percent change, default 0. The scale around mid-grey is
+  1/(1-c) for c > 0 and 1+c for c < 0. `contrast="0"` is the identity, +50%
+  doubles the slope and -50% halves it.
+- `bright` is additive (`bright` x 255), default 0. For example, +30% maps
+  128 to 204.
+- `lum` is applied after the `duotone` color mapping.
+
+The preview treated contrast as a raw multiplier with default 100000, which
+reversed the direction of increases and flattened `contrast="0"` to grey. It
+also blended brightness toward white. `luminanceAdjust` now implements the
+measured formula. A unit test pins it to the PowerPoint samples within ±2
+levels, and the measured predictions match within ±1.
+
+The record 90000004 clear-material picture alpha had been fitted under the old
+formula, so it was re-fitted by a sweep against PowerPoint (0.05/0.1/0.15/0.2/
+0.3/0.45/0.6) and is now 0.1. Record 90000004 median RGB MAE went from 7.030%
+to 6.853% (mean from 7.228% to 7.087%) and PSNR from 15.822 to 15.840 dB.
+A full 33-deck rerun showed no slide changing by more than one MAE point and
+unchanged corpus medians. The fidelity release gate remains open.
+
 ### List numbering and bullet markers on the local corpus — 2026-10-09
 
 Read-only inventory of the 33 cached corpus decks

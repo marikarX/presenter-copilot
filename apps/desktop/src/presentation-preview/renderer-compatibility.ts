@@ -36,7 +36,9 @@ const MAX_DUOTONE_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_DUOTONE_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_DUOTONE_TOTAL_PIXELS = 8_000_000;
 const MAX_DUOTONE_SINGLE_IMAGE_PIXELS = 4_000_000;
-const OBSERVED_CLEAR_MATERIAL_PREVIEW_ALPHA = 0.2;
+// Re-fit against PowerPoint after a:lum was corrected to PowerPoint's measured
+// brightness/contrast behavior (record 90000004 median RGB MAE minimum).
+const OBSERVED_CLEAR_MATERIAL_PREVIEW_ALPHA = 0.1;
 const PRESENTATION_DRAWABLE_NAMES = new Set([
   "sp",
   "cxnSp",
@@ -2353,13 +2355,13 @@ function parseDuotoneEffect(
   if (!dark || !light) return null;
 
   let brightness = 0;
-  let contrast = 100_000;
+  let contrast = 0;
   const luminance = children[1];
   if (luminance) {
     if (childElements(luminance).length > 0) return null;
     for (const [attribute, fallback] of [
       ["bright", 0],
-      ["contrast", 100_000],
+      ["contrast", 0],
     ] as const) {
       const raw = luminance.getAttribute(attribute);
       const parsed =
@@ -2384,20 +2386,30 @@ function parseDuotoneEffect(
   };
 }
 
+/**
+ * DrawingML a:lum as measured in PowerPoint: bright adds bright x 255, and
+ * contrast is a percent change around mid-grey with scale 1/(1-c) for c > 0 and
+ * 1+c for c < 0. Both default to 0 (no change).
+ */
+export function luminanceAdjust(
+  value: number,
+  bright: number,
+  contrast: number,
+): number {
+  const brightened = value + (bright / 100_000) * 255;
+  const change = contrast / 100_000;
+  const scale = change >= 0 ? 1 / Math.max(1 - change, 0.001) : 1 + change;
+  return clampByte(127.5 + (brightened - 127.5) * scale);
+}
+
 function applyDuotonePixels(
   pixels: Uint8ClampedArray,
   effect: DuotoneImageEffect,
 ): void {
-  const brightness = effect.brightness / 100_000;
-  const contrast = effect.contrast / 100_000;
   const applyChannel = (source: number, dark: number, light: number) => {
     const luminance = source / 255;
-    let value = dark + (light - dark) * luminance;
-    value =
-      brightness >= 0
-        ? value + (255 - value) * brightness
-        : value * (1 + brightness);
-    return clampByte(127.5 + (value - 127.5) * contrast);
+    const value = dark + (light - dark) * luminance;
+    return luminanceAdjust(value, effect.brightness, effect.contrast);
   };
   for (let index = 0; index < pixels.length; index += 4) {
     const sourceRed = pixels[index] ?? 0;

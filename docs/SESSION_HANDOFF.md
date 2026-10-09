@@ -56,6 +56,10 @@ Preview fidelity re-baseline (33-deck corpus vs PowerPoint): no regression
 since 2026-10-02 on 28 common decks (median RGB MAE 2.522%, PSNR 18.686 dB;
 4 slides improved, 0 regressed); 3 OLE-embedding decks are now refused by
 the active-content policy. Details in `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
+Preview `a:lum` now matches PowerPoint's measured brightness/contrast (the
+old formula inverted contrast increases and blended brightness toward white);
+the dependent clear-material alpha was re-fitted to 0.1. Record 90000004 median
+RGB MAE 7.030% -> 6.853%; no other slide moved by more than one point.
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

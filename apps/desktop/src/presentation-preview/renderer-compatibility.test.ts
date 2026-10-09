@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PptxFiles } from "@aiden0z/pptx-renderer";
 
-import { applyPreviewRendererCompatibility } from "./renderer-compatibility";
+import {
+  applyPreviewRendererCompatibility,
+  luminanceAdjust,
+} from "./renderer-compatibility";
 
 const PRESENTATION_NS =
   "http://schemas.openxmlformats.org/presentationml/2006/main";
@@ -990,7 +993,10 @@ describe("preview renderer compatibility", () => {
       /^ppt\/media\/_presenter-preview-duotone-.*\.png$/,
     );
     expect(mediaBytes).toEqual(new Uint8Array([1, 2, 3]));
-    expect(renderedPixels.slice(0, 4)).not.toEqual([0, 0, 0, 255]);
+    // +77% contrast (as PowerPoint renders it) keeps the dark end black and
+    // recolors the bright source pixel through the duotone light color.
+    expect(renderedPixels.slice(0, 4)).toEqual([0, 0, 0, 255]);
+    expect(renderedPixels.slice(4, 8)).not.toEqual([255, 255, 0, 255]);
     expect([renderedPixels[3], renderedPixels[7]]).toEqual([255, 255]);
     expect(new Uint8Array(sourceBytes)).toEqual(originalBytes);
   });
@@ -1015,7 +1021,7 @@ describe("preview renderer compatibility", () => {
 
     expect(report.duotoneImageReferencesNormalized).toBe(2);
     expect(report.compatibilityPartsSkipped).toBe(0);
-    expect([renderedPixels[3], renderedPixels[7]]).toEqual([51, 51]);
+    expect([renderedPixels[3], renderedPixels[7]]).toEqual([26, 26]);
     expect(new Uint8Array(sourceBytes)).toEqual(originalBytes);
   });
 
@@ -1306,4 +1312,27 @@ describe("preview renderer compatibility", () => {
       relationshipXml(),
     );
   });
+});
+
+describe("luminanceAdjust", () => {
+  // Values measured from PowerPoint renders of a grey ramp with a:lum.
+  const inputs = [0, 32, 64, 96, 128, 160, 192, 224, 255];
+  const measured: Array<[number, number, number[]]> = [
+    [0, 0, [0, 32, 64, 96, 128, 160, 192, 224, 255]],
+    [0, 50_000, [0, 0, 0, 65, 128, 193, 255, 255, 255]],
+    [0, 77_000, [0, 0, 0, 0, 130, 255, 255, 255, 255]],
+    [0, -50_000, [63, 79, 95, 111, 127, 143, 159, 175, 191]],
+    [30_000, 0, [76, 108, 140, 172, 204, 236, 255, 255, 255]],
+  ];
+  it.each(measured)(
+    "matches PowerPoint for bright %i and contrast %i",
+    (bright, contrast, expected) => {
+      const actual = inputs.map((value) =>
+        Math.round(luminanceAdjust(value, bright, contrast)),
+      );
+      actual.forEach((value, index) =>
+        expect(Math.abs(value - (expected[index] ?? 0))).toBeLessThanOrEqual(2),
+      );
+    },
+  );
 });
