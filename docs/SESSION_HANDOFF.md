@@ -291,9 +291,13 @@ Remaining human-gated items:
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: remaining gaps (equations by design), held revision-change GUI replies,
-fidelity corpus review and human acceptance gates. Signing and clean Windows
-validation remain accepted debt.
+Next: further Workspace authoring (e.g. shape effects such as shadows, table
+cell text emphasis parity, link targets to other slides), then the open
+fidelity gaps (image bevel rim geometry, glyph rasterization) and the
+human-gated items above. Last full check 1981 passed; Workspace GUI 117/117;
+focused harnesses for rotation, picture adjustment, emphasis/font/highlight,
+links, background, transparency and find/replace all pass. Signing and clean
+Windows validation remain accepted debt.
 
 ## Current continuation - identity GUI accepted and comparison contract started (2026-10-08)
 
