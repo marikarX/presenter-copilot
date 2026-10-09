@@ -108,7 +108,7 @@ type Active = {
   cancelled: boolean;
 };
 
-async function request<T>(
+export async function request<T>(
   method: RendererCoreMethod,
   params: Record<string, unknown>,
 ): Promise<T> {
@@ -116,7 +116,7 @@ async function request<T>(
     await window.presenterCopilot.core.request<T>(method, params),
   );
 }
-function errorText(caught: unknown): string {
+export function errorText(caught: unknown): string {
   const value =
     caught !== null && typeof caught === "object"
       ? (caught as { message?: unknown; code?: unknown })

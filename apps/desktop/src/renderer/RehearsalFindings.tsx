@@ -4,6 +4,7 @@ import { RehearsalComparison } from "./RehearsalComparison";
 import { RehearsalCoverage } from "./RehearsalCoverage";
 import { RecurringObjections } from "./RecurringObjections";
 import { RehearsalSemanticReview } from "./RehearsalSemanticReview";
+import { RehearsalObjectionComparison } from "./RehearsalObjectionComparison";
 import { RehearsalObjectionReview } from "./RehearsalObjectionReview";
 
 export type RehearsalFinding = {
@@ -164,6 +165,13 @@ export function RehearsalFindings({
         selectedTextEditable={selectedTextEditable}
         onPrepare={onPrepare}
         onOpenSlide={onOpenSlide}
+      />
+      <RehearsalObjectionComparison
+        projectId={projectId}
+        documentId={documentId}
+        revisionId={revisionId}
+        visible={visible}
+        disabled={disabled}
       />
       <RehearsalSemanticReview
         projectId={projectId}
