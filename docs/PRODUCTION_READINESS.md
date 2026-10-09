@@ -53,7 +53,8 @@ Commits this session:
   passes 3/3 (apply, color kept, undo).
 - Picture brightness and contrast (whole percents, -100..100, written as
   `a:lum`) and grayscale (`a:grayscl`) are reviewed edits in the Objects
-  panel (`presentation.workspace.adjust_picture`). Only plain embedded
+  panel (`presentation.workspace.adjust_picture`) and Copilot plans
+  (`adjust_picture`, bound to the current adjustment). Only plain embedded
   pictures with no other blip effects are editable; crop is preserved. The
   preview renderer patch now applies PowerPoint's measured contrast curve
   (slope 1/(1-c) for positive contrast, about mid-grey after brightness).

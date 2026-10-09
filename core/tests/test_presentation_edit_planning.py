@@ -878,3 +878,94 @@ def test_attached_picture_is_core_bound_without_provider_image_bytes(
         assert restored["revision_id"] == picture["revision_id"]
     finally:
         core.close()
+
+
+def test_provider_picture_adjustment_binds_current_adjustment_and_applies(
+    tmp_path: Path,
+) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        slide_id = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": params["expected_revision_id"], "slide_number": 1},
+        )["slide_id"]
+        picture = call(
+            core,
+            "presentation.workspace.create_picture",
+            {**scope, "expected_revision_id": params["expected_revision_id"]}
+            | {
+                "slide_id": slide_id,
+                "geometry": {
+                    "x_emu": 10000,
+                    "y_emu": 10000,
+                    "width_emu": 100000,
+                    "height_emu": 100000,
+                },
+                "alt_text": "Source",
+                "image_base64": (
+                    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGMU"
+                    "VDJmYGBgYgADAATQAGoNqSJLAAAAAElFTkSuQmCC"
+                ),
+            },
+        )
+        params["expected_revision_id"] = picture["revision_id"]
+
+        def objects(revision: str) -> list[dict[str, Any]]:
+            return call(
+                core,
+                "presentation.workspace.list_text_targets",
+                {**scope, "revision_id": revision, "slide_number": 1},
+            )["objects"]
+
+        target = next(obj for obj in objects(picture["revision_id"]) if obj["kind"] == "pic")
+        wanted = {"brightness_percent": 15, "contrast_percent": 25, "grayscale": True}
+
+        def modify(output: dict[str, Any], _invocation: Any) -> None:
+            output["operations"] = [
+                {
+                    "type": "adjust_picture",
+                    "params": {
+                        "slide_id": slide_id,
+                        "object_id": target["object_id"],
+                        "replacement_adjustment": wanted,
+                    },
+                    "rationale": "Mute the picture behind the text",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        params["instruction"] = "Make the picture grayscale and a little brighter."
+        proposal = call(core, "presentation.workspace.propose_edit_plan", params)
+        bound = proposal["operations"][0]["params"]
+        assert bound["expected_adjustment"] == target["picture_adjustment"]
+        assert bound["expected_geometry"] == target["geometry"]
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        adjusted = next(
+            obj for obj in objects(result["revision_id"]) if obj["object_id"] == target["object_id"]
+        )
+        assert adjusted["picture_adjustment"] == wanted
+    finally:
+        core.close()

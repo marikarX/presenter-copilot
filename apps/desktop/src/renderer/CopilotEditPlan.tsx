@@ -76,6 +76,7 @@ const labels: Record<string, string> = {
   ungroup_object: "Ungroup native objects",
   change_object_layer: "Change object layer",
   crop_picture: "Crop a picture",
+  adjust_picture: "Adjust picture brightness, contrast or grayscale",
   reorder_slides: "Reorder the presentation",
   apply_slide_layout: "Change slide layout",
   create_slide: "Insert a blank slide",

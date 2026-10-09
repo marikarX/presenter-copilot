@@ -892,6 +892,7 @@ class PresentationEditPlanningService:
             "delete_object",
             "duplicate_object",
             "crop_picture",
+            "adjust_picture",
             "ungroup_object",
         }:
             if obj.geometry is None:
@@ -907,5 +908,13 @@ class PresentationEditPlanningService:
                 params["replacement_crop"] = {
                     f"{key}_percent": value / 1000
                     for key, value in params["replacement_crop"].items()
+                }
+            if kind == "adjust_picture":
+                if obj.picture_adjustment is None:
+                    raise invalid_request("The proposed picture cannot be adjusted safely.")
+                params["expected_adjustment"] = {
+                    "brightness_percent": obj.picture_adjustment.brightness,
+                    "contrast_percent": obj.picture_adjustment.contrast,
+                    "grayscale": obj.picture_adjustment.grayscale,
                 }
         return params

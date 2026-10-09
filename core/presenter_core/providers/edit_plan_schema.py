@@ -38,6 +38,13 @@ _GEOMETRY = _object(
     }
 )
 _CROP = _object({name: _integer(0, 99_999) for name in ("left", "right", "top", "bottom")})
+_ADJUSTMENT = _object(
+    {
+        "brightness_percent": _integer(-100, 100),
+        "contrast_percent": _integer(-100, 100),
+        "grayscale": {"type": "boolean"},
+    }
+)
 _STYLE_PROPERTIES = {
     "bold": {"type": "boolean"},
     "italic": {"type": "boolean"},
@@ -172,6 +179,7 @@ PARAMETER_SCHEMAS = {
         {**_TARGET, "direction": _choice("forward", "backward", "front", "back")}
     ),
     "crop_picture": _object({**_TARGET, "replacement_crop": _CROP}),
+    "adjust_picture": _object({**_TARGET, "replacement_adjustment": _ADJUSTMENT}),
     "reorder_slides": _object(
         {"ordered_slide_ids": {"type": "array", "minItems": 1, "maxItems": 5000, "items": _ID}}
     ),
