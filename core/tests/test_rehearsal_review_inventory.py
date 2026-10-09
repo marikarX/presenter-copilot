@@ -55,7 +55,7 @@ def test_sessions_page_beyond_ten_and_no_debrief_requirement(rehearsal):
         )
         fields = list(row)
         for index in range(25):
-            later = row | {"id": str(uuid.uuid4()), "started_at": f"2026-10-09T12:{index:02d}:00Z"}
+            later = row | {"id": str(uuid.uuid4()), "started_at": f"2099-10-09T12:{index:02d}:00Z"}
             db.execute(
                 f"INSERT INTO sessions ({','.join(fields)}) "
                 f"VALUES ({','.join('?' for _ in fields)})",

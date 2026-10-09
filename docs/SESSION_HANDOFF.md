@@ -50,7 +50,11 @@ Commits this session:
   replaced; corpus format-editable objects 2173 -> 2416; 9 real-deck edits
   open in PowerPoint. Only equations (26 shapes) remain structurally blocked.
 
-Validation: latest full `pnpm check` green on `c9a0889` (1912 Core tests,
+Validation: latest full `pnpm check` green after fixing a date time bomb in
+rehearsal tests (session clones used fixed 2026-10-09T12:xx start times, so
+ordering flipped once the real clock passed them; moved to 2099): 1913 Core
+tests, with the comparison GUI 8/8 and objection review GUI 20/20. Before
+that, `c9a0889` (1912 Core tests,
 desktop 312, lint/types/format) with `test-workspace.mjs` 117/117. Before
 that, `7de3127` (1910 Core tests,
 desktop 312, lint/types/format) with `test-workspace.mjs` 117/117; earlier

@@ -231,7 +231,7 @@ db.execute('DELETE FROM run_debriefs WHERE session_id=?',(first,))
 db.execute('DELETE FROM utterances WHERE session_id=?',(first,))
 row=dict(db.execute('SELECT * FROM sessions WHERE id=?',(first,)).fetchone());fields=list(row)
 second=str(uuid.uuid4())
-clone=row|{'id':second,'started_at':'2026-10-09T12:00:00Z'}
+clone=row|{'id':second,'started_at':'2099-10-09T12:00:00Z'}
 db.execute(f"INSERT INTO sessions ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",[clone[k] for k in fields])
 speech={first:[('unknown_audience','Who approves this pilot before launch?'),('unknown_audience','What will the rollout cost us?')],
  second:[('user','Which team signs off on the pilot?'),('unknown_audience','How long will onboarding take?')]}

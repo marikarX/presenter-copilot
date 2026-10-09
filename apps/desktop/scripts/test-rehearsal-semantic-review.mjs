@@ -227,7 +227,7 @@ for number in range(9):
  connection.execute("INSERT INTO utterances (id,session_id,actor,text,created_at,start_ms,end_ms,asr_confidence,slide_ordinal,is_final) VALUES (?,?,'user',?,'2026-10-08T10:00:00Z',?,?,NULL,1,1)",(str(uuid.uuid4()),session,f'Recorded pilot explanation {number}: revenue rose twenty percent.',number*2000,number*2000+1800))
 row=dict(connection.execute('SELECT * FROM sessions WHERE id=?',(session,)).fetchone());fields=list(row)
 for number in range(25):
- clone=row|{'id':str(uuid.uuid4()),'started_at':f'2026-10-09T12:{number:02d}:00Z'}
+ clone=row|{'id':str(uuid.uuid4()),'started_at':f'2099-10-09T12:{number:02d}:00Z'}
  connection.execute(f"INSERT INTO sessions ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",[clone[key] for key in fields])
 connection.commit();connection.close()
 `,

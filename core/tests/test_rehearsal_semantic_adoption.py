@@ -73,7 +73,7 @@ def test_exact_semantic_resolution_bypasses_debrief_and_latest_ten_cap(rehearsal
         )
         columns = list(row)
         for index in range(12):
-            later = row | {"id": str(uuid.uuid4()), "started_at": f"2026-10-09T12:{index:02d}:00Z"}
+            later = row | {"id": str(uuid.uuid4()), "started_at": f"2099-10-09T12:{index:02d}:00Z"}
             db.execute(
                 f"INSERT INTO sessions ({','.join(columns)}) "
                 f"VALUES ({','.join('?' for _ in columns)})",
