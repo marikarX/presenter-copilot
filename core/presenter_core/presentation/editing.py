@@ -2109,6 +2109,11 @@ class PresentationEditService:
             ),
         )
 
+    def set_slide_background(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_background import set_slide_background
+
+        return set_slide_background(self, params)
+
     def change_object_layer(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.layering import change_object_layer
 

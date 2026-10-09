@@ -1035,3 +1035,63 @@ def test_provider_rotation_binds_current_rotation_and_applies(tmp_path: Path) ->
         assert rotated["geometry"] == target["geometry"]
     finally:
         core.close()
+
+
+def test_provider_slide_background_binds_current_background_and_applies(
+    tmp_path: Path,
+) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": params["expected_revision_id"], "slide_number": 1},
+        )
+
+        def modify(output: dict[str, Any], _invocation: Any) -> None:
+            output["operations"] = [
+                {
+                    "type": "set_slide_background",
+                    "params": {"slide_id": inventory["slide_id"], "replacement_color": "#0B1F33"},
+                    "rationale": "Darken the title slide",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(core, "presentation.workspace.propose_edit_plan", params)
+        bound = proposal["operations"][0]["params"]
+        assert bound["expected_background"] == {
+            "state": inventory["background"]["state"],
+            "color": inventory["background"]["color"],
+        }
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        after = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": result["revision_id"], "slide_number": 1},
+        )
+        assert after["background"]["color"] == "#0B1F33"
+    finally:
+        core.close()

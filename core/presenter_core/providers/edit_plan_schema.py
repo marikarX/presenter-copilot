@@ -191,6 +191,9 @@ PARAMETER_SCHEMAS = {
     "crop_picture": _object({**_TARGET, "replacement_crop": _CROP}),
     "adjust_picture": _object({**_TARGET, "replacement_adjustment": _ADJUSTMENT}),
     "rotate_object": _object({**_TARGET, "replacement_rotation": _ROTATION}),
+    "set_slide_background": _object(
+        {"slide_id": _ID, "replacement_color": {"anyOf": [_text(7, 7), {"type": "null"}]}}
+    ),
     "reorder_slides": _object(
         {"ordered_slide_ids": {"type": "array", "minItems": 1, "maxItems": 5000, "items": _ID}}
     ),

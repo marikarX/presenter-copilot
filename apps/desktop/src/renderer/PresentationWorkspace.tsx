@@ -317,6 +317,26 @@ type PictureCrop = {
   bottom_percent: number;
 };
 
+type SlideBackground = {
+  state: "inherited" | "theme_reference" | "solid" | "unsupported";
+  color: string | null;
+  editable: boolean;
+};
+
+function isSlideBackground(value: unknown): value is SlideBackground {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<SlideBackground>;
+  return (
+    typeof candidate.editable === "boolean" &&
+    (candidate.state === "solid"
+      ? typeof candidate.color === "string" &&
+        /^#[0-9A-F]{6}$/.test(candidate.color)
+      : ["inherited", "theme_reference", "unsupported"].includes(
+          candidate.state ?? "",
+        ) && candidate.color === null)
+  );
+}
+
 type ObjectRotation = {
   rotation_degrees: number;
   flip_horizontal: boolean;
@@ -459,6 +479,7 @@ type TextTargetInventory = {
   slide_height_emu: number;
   has_more: boolean;
   objects_have_more: boolean;
+  background?: SlideBackground;
   speaker_notes: {
     current_text: string | null;
     text_truncated: boolean;
@@ -1260,6 +1281,9 @@ export function PresentationWorkspace({
   const [speakerNotesTarget, setSpeakerNotesTarget] =
     useState<SpeakerNotesTarget | null>(null);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
+  const [slideBackground, setSlideBackground] =
+    useState<SlideBackground | null>(null);
+  const [slideBackgroundDraft, setSlideBackgroundDraft] = useState("#FFFFFF");
   const [newTextBoxDraft, setNewTextBoxDraft] = useState("");
   const [workspaceObjects, setWorkspaceObjects] = useState<
     PresentationObject[]
@@ -2260,6 +2284,7 @@ export function PresentationWorkspace({
       setMockPng(null);
       setSpeakerNotesTarget(null);
       setSpeakerNotesDraft("");
+      setSlideBackground(null);
       setWorkspaceObjects([]);
       setSelectedObjectId("");
       setDeleteConfirmationObjectId("");
@@ -2536,6 +2561,11 @@ export function PresentationWorkspace({
         };
         setSpeakerNotesTarget(notesTarget);
         setSpeakerNotesDraft(notesTarget.current_text ?? "");
+        const background = isSlideBackground(inventory.background)
+          ? inventory.background
+          : null;
+        setSlideBackground(background);
+        setSlideBackgroundDraft(background?.color ?? "#FFFFFF");
         const firstTarget =
           mappedTargets.find(
             (target) => target.object_id === preferredObjectId,
@@ -4380,6 +4410,106 @@ export function PresentationWorkspace({
     selectedSlide,
     selectedSource,
   ]);
+
+  const saveSlideBackgroundRevision = useCallback(
+    async (color: string | null) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const background = slideBackground;
+      if (
+        !source ||
+        !revision ||
+        !UUID_PATTERN.test(activeSlideId) ||
+        !background?.editable ||
+        background.state === "unsupported" ||
+        loadedSourceId !== source.id ||
+        loading
+      ) {
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      setMockSvg(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_slide_background",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            expected_background: {
+              state: background.state,
+              color: background.color,
+            },
+            replacement_color: color,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number) ||
+          result.revision_number < 1 ||
+          !/^[0-9a-f]{64}$/.test(result.sha256) ||
+          !Number.isSafeInteger(result.byte_size) ||
+          result.byte_size < 1 ||
+          (result.changed && result.parent_revision_id !== revision.revision_id)
+        ) {
+          throw new Error(
+            "The slide background revision could not be verified.",
+          );
+        }
+        if (!result.changed) {
+          setNotice("The slide background is unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        let indexedRevision = false;
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+          indexedRevision = true;
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, selectedObjectId || undefined);
+        setNotice(
+          indexedRevision
+            ? `Saved revision ${result.revision_number} and refreshed the slide background.`
+            : `Saved revision ${result.revision_number}. Re-index this presentation before using its content in rehearsal.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide background could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObjectId,
+      selectedSlide,
+      selectedSource,
+      slideBackground,
+    ],
+  );
 
   const saveObjectRotationRevision = useCallback(async () => {
     const source = selectedSource;
@@ -8680,6 +8810,73 @@ export function PresentationWorkspace({
                 >
                   Add text box
                 </button>
+                {slideBackground ? (
+                  <fieldset className="pw-picture-crop">
+                    <legend>Slide background</legend>
+                    {slideBackground.editable ? (
+                      <>
+                        <p className="muted">
+                          {slideBackground.state === "solid"
+                            ? `This slide uses its own color ${slideBackground.color}.`
+                            : slideBackground.state === "theme_reference"
+                              ? "This slide uses a theme background style."
+                              : "This slide uses its layout background."}
+                        </p>
+                        <div className="pw-shape-color-control">
+                          <label>
+                            Background color
+                            <input
+                              type="color"
+                              aria-label="Slide background color"
+                              value={slideBackgroundDraft}
+                              onChange={(event) =>
+                                setSlideBackgroundDraft(
+                                  event.target.value.toUpperCase(),
+                                )
+                              }
+                              disabled={!loadedSourceId || loading}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              void saveSlideBackgroundRevision(
+                                slideBackgroundDraft,
+                              )
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              slideBackgroundDraft === slideBackground.color
+                            }
+                          >
+                            Apply background color
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() =>
+                              void saveSlideBackgroundRevision(null)
+                            }
+                            disabled={
+                              !loadedSourceId ||
+                              loading ||
+                              slideBackground.state === "inherited"
+                            }
+                          >
+                            Use layout background
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="muted">
+                        This slide uses a picture, gradient or pattern
+                        background that stays read-only.
+                      </p>
+                    )}
+                  </fieldset>
+                ) : null}
                 {workspaceObjects.length ? (
                   <>
                     <label>

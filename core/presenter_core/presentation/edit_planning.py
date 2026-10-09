@@ -649,6 +649,13 @@ class PresentationEditPlanningService:
             params["expected_text"] = slide.speaker_notes
         if kind == "change_object_layer":
             params["expected_object_ids"] = [item.object_id for item in slide.objects]
+        if kind == "set_slide_background":
+            if slide.background is None:
+                raise invalid_request("The proposed slide background is not editable.")
+            params["expected_background"] = {
+                "state": slide.background.state,
+                "color": slide.background.color,
+            }
         if kind == "group_objects":
             objects = params.get("objects")
             if not isinstance(objects, list) or not 2 <= len(objects) <= 20:

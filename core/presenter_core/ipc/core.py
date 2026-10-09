@@ -925,6 +925,10 @@ class CoreService:
             result = self._presentation_edits.transform_object(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.set_slide_background":
+            result = self._presentation_edits.set_slide_background(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.rotate_object":
             result = self._presentation_edits.rotate_object(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

@@ -298,6 +298,14 @@ class FidelityObject:
 
 
 @dataclass(frozen=True)
+class FidelityBackground:
+    """A slide's own background: inherited from its layout, a theme style or solid RGB."""
+
+    state: str
+    color: str | None = None
+
+
+@dataclass(frozen=True)
 class FidelitySlide:
     """Slide ordering and stable objects derived from the immutable import."""
 
@@ -308,6 +316,7 @@ class FidelitySlide:
     objects: tuple[FidelityObject, ...]
     speaker_notes: str | None = None
     speaker_notes_editable: bool = False
+    background: FidelityBackground | None = None
 
 
 @dataclass(frozen=True)
@@ -393,6 +402,15 @@ class FidelityDocument:
                 }
                 for obj in semantic[:limit]
             ],
+            "background": (
+                {
+                    "state": slide.background.state,
+                    "color": slide.background.color,
+                    "editable": True,
+                }
+                if slide.background is not None
+                else {"state": "unsupported", "color": None, "editable": False}
+            ),
             "speaker_notes": {
                 "current_text": (
                     slide.speaker_notes[:MAX_SPEAKER_NOTES_CHARS]
@@ -656,6 +674,7 @@ def inspect_pptx_snapshot(
                         objects=objects,
                         speaker_notes=speaker_notes,
                         speaker_notes_editable=notes_editable,
+                        background=slide_background(slide_root),
                     )
                 )
             result = FidelityDocument(
@@ -1329,6 +1348,48 @@ def _solid_rgb_color(container: etree._Element, fill_tags: set[str]) -> tuple[bo
             return True, f"#{value.upper()}"
         return False, None
     return True, None
+
+
+_BACKGROUND_FILLS = frozenset(
+    f"{{{DRAWING_NS}}}{name}"
+    for name in ("noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill")
+)
+
+
+def slide_background(slide_root: etree._Element) -> FidelityBackground | None:
+    """Editable background states; picture, gradient and pattern fills return None."""
+    common = slide_root.find(f"{{{PRESENTATION_NS}}}cSld")
+    if common is None:
+        return None
+    backgrounds = common.findall(f"{{{PRESENTATION_NS}}}bg")
+    if not backgrounds:
+        return FidelityBackground(state="inherited")
+    if len(backgrounds) != 1 or backgrounds[0].attrib or len(backgrounds[0]) != 1:
+        return None
+    child = backgrounds[0][0]
+    if child.tag == f"{{{PRESENTATION_NS}}}bgRef":
+        return FidelityBackground(state="theme_reference")
+    if child.tag != f"{{{PRESENTATION_NS}}}bgPr" or set(child.attrib) - {"shadeToTitle"}:
+        return None
+    fills = [item for item in child if item.tag in _BACKGROUND_FILLS]
+    others = [item for item in child if item.tag not in _BACKGROUND_FILLS]
+    if len(fills) != 1 or any(
+        item.tag != f"{{{DRAWING_NS}}}effectLst" or len(item) for item in others
+    ):
+        return None
+    fill = fills[0]
+    if fill.tag != f"{{{DRAWING_NS}}}solidFill" or len(fill) != 1:
+        return None
+    color = fill[0]
+    value = color.get("val", "")
+    if (
+        color.tag != f"{{{DRAWING_NS}}}srgbClr"
+        or len(color)
+        or set(color.attrib) != {"val"}
+        or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
+    ):
+        return None
+    return FidelityBackground(state="solid", color=f"#{value.upper()}")
 
 
 _FLIP_VALUES = {"0": False, "false": False, "1": True, "true": True}

@@ -77,6 +77,12 @@ Commits this session:
   replaces the typeface in place, drops stale panose/charset metadata and
   inserts `latin` in schema order. PowerPoint reads back single underline,
   single strike and Georgia. `test-text-emphasis.mjs` 5/5.
+- Slide background: a solid `#RRGGBB` color or "Use layout background" is a
+  reviewed edit (`presentation.workspace.set_slide_background`, Objects panel
+  and Copilot plans). Inherited, theme-style (`bgRef`) and solid RGB
+  backgrounds are editable; picture, gradient and pattern backgrounds stay
+  read-only. PowerPoint reads back the color with master following off.
+  `test-slide-background.mjs` 4/4.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
