@@ -96,6 +96,7 @@ async function openPresentation(buffer: ArrayBuffer): Promise<void> {
       repairSmartArtRelationships: true,
       normalizePictureFillGeometry: true,
       normalizeDuotoneImages: true,
+      fillDefaultLineSpacing: true,
     });
     ensureOpen();
     const presentation = buildPresentation(files, { lazySlides: true });

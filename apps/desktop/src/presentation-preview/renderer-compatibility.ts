@@ -118,6 +118,7 @@ export interface PreviewRendererCompatibilityReport {
   smartArtRelationshipPartsUpdated: number;
   smartArtImageShapesPromoted: number;
   duotoneImageReferencesNormalized: number;
+  defaultLineSpacingLevelsFilled?: number;
   compatibilityPartsSkipped: number;
 }
 
@@ -132,6 +133,7 @@ export interface PreviewRendererCompatibilityOptions {
   inheritLayoutPlaceholderFills?: boolean;
   repairSmartArtRelationships?: boolean;
   normalizeDuotoneImages?: boolean;
+  fillDefaultLineSpacing?: boolean;
 }
 
 interface RGBColor {
@@ -3735,6 +3737,94 @@ async function promoteNonRectangularPicturesToShapeFills(
   return result;
 }
 
+const DEFAULT_TEXT_LEVELS = new Set([
+  "defPPr",
+  ...Array.from({ length: 9 }, (_, index) => `lvl${index + 1}pPr`),
+]);
+
+/**
+ * PowerPoint's single spacing is 100% of its line height. Without any lnSpc the
+ * renderer leaves CSS `normal`, measured about 6% tighter than PowerPoint, while
+ * explicit percentages use the PowerPoint-calibrated multiplier. Fill 100% only
+ * into the lowest-priority defaults (presentation default text style and master
+ * text styles) that declare no spacing, so every explicit or inherited value
+ * still wins. Preview-only; source bytes are untouched.
+ */
+function fillDefaultLineSpacing(
+  files: PptxFiles,
+  platform: XmlPlatform,
+): { levelsFilled: number; partsSkipped: number } {
+  let levelsFilled = 0;
+  let partsSkipped = 0;
+  const fill = (container: Element): number => {
+    let filled = 0;
+    for (const level of childElements(container)) {
+      if (
+        level.namespaceURI !== DRAWING_NS ||
+        !DEFAULT_TEXT_LEVELS.has(level.localName) ||
+        childElement(level, DRAWING_NS, "lnSpc")
+      ) {
+        continue;
+      }
+      const document = level.ownerDocument;
+      const spacing = document.createElementNS(DRAWING_NS, "a:lnSpc");
+      const percent = document.createElementNS(DRAWING_NS, "a:spcPct");
+      percent.setAttribute("val", "100000");
+      spacing.appendChild(percent);
+      level.insertBefore(spacing, level.firstChild);
+      filled += 1;
+    }
+    return filled;
+  };
+  const presentation = parseXml(
+    files.presentation,
+    platform,
+    MAX_XML_DOCUMENT_CHARS,
+  );
+  const defaults = presentation?.documentElement
+    ? childElement(
+        presentation.documentElement,
+        PRESENTATION_NS,
+        "defaultTextStyle",
+      )
+    : null;
+  if (presentation && defaults) {
+    const filled = fill(defaults);
+    if (filled) {
+      try {
+        files.presentation = platform.serialize(presentation);
+        levelsFilled += filled;
+      } catch {
+        partsSkipped += 1;
+      }
+    }
+  } else if (!presentation) {
+    partsSkipped += 1;
+  }
+  for (const [path, source] of files.slideMasters) {
+    const document = parseXml(source, platform, MAX_XML_DOCUMENT_CHARS);
+    const root = document?.documentElement;
+    if (!document || !root) {
+      partsSkipped += 1;
+      continue;
+    }
+    const styles = childElement(root, PRESENTATION_NS, "txStyles");
+    if (!styles) continue;
+    let filled = 0;
+    for (const style of childElements(styles)) {
+      if (style.namespaceURI === PRESENTATION_NS) filled += fill(style);
+    }
+    if (!filled) continue;
+    try {
+      files.slideMasters.set(path, platform.serialize(document));
+      levelsFilled += filled;
+    } catch {
+      partsSkipped += 1;
+    }
+  }
+  return { levelsFilled, partsSkipped };
+}
+
 export async function applyPreviewRendererCompatibility(
   sourceBytes: ArrayBuffer,
   files: PptxFiles,
@@ -3758,6 +3848,16 @@ export async function applyPreviewRendererCompatibility(
   };
   const platform = browserXmlPlatform();
   if (!platform) return report;
+
+  if (options.fillDefaultLineSpacing === true) {
+    try {
+      const spacing = fillDefaultLineSpacing(files, platform);
+      report.defaultLineSpacingLevelsFilled = spacing.levelsFilled;
+      report.compatibilityPartsSkipped += spacing.partsSkipped;
+    } catch {
+      report.compatibilityPartsSkipped += 1;
+    }
+  }
 
   if (options.suppressHiddenDrawingObjects !== false) {
     const hiddenObjects = suppressHiddenDrawingObjects(files, platform);

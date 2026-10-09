@@ -36,6 +36,7 @@ MAX_RENDER_SLIDES = 5_000
 PREVIEW_COMPATIBILITY_MODES = {
     "all",
     "all-no-image-effects",
+    "line-spacing-only",
     "baseline",
     "background-only",
     "theme-background-only",

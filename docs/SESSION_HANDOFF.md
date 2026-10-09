@@ -69,6 +69,9 @@ Text-layout probe: line breaking matches PowerPoint; the preview's default
 single line height is ~6% tighter (~8% under autofit line reduction) inside
 `@aiden0z/pptx-renderer`. Closing the text fidelity gap needs renderer work
 (patch or fork); evidence in `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
+A preview-only default line-spacing pass then closed most of that gap without
+forking (corpus mean slide RGB MAE 3.064% -> 2.964%, median PSNR +0.18 dB;
+10 decks better, 3 slightly worse).
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

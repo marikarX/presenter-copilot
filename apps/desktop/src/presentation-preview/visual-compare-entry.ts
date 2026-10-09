@@ -23,6 +23,7 @@ const MAX_RENDER_DIMENSION = 2_048;
 type PreviewCompatibilityMode =
   | "all"
   | "all-no-image-effects"
+  | "line-spacing-only"
   | "baseline"
   | "background-only"
   | "theme-background-only"
@@ -47,6 +48,7 @@ window.openDeck = async (compatibilityMode = "all") => {
     ![
       "all",
       "all-no-image-effects",
+      "line-spacing-only",
       "baseline",
       "background-only",
       "theme-background-only",
@@ -85,6 +87,8 @@ window.openDeck = async (compatibilityMode = "all") => {
     normalizePictureFillGeometry:
       allCompatibility || compatibilityMode === "picture-geometry-only",
     normalizeDuotoneImages: compatibilityMode === "all",
+    fillDefaultLineSpacing:
+      allCompatibility || compatibilityMode === "line-spacing-only",
   };
   globalThis.previewCompatibilityReport =
     compatibilityMode === "baseline"

@@ -38,6 +38,7 @@ async function main() {
     ![
       "all",
       "all-no-image-effects",
+      "line-spacing-only",
       "baseline",
       "background-only",
       "theme-background-only",

@@ -47,6 +47,26 @@ Explicit spacing matches within about 1 px. That line-height logic is inside
 work (patching or forking the dependency). This is the starting evidence for
 that project.
 
+Follow-up the same day, without forking: the renderer scales explicit
+percentages by a PowerPoint-calibrated factor (1.19). With no `lnSpc` at all
+it leaves CSS `normal`, the source of the 6% gap. An explicit 100% on the probe
+deck measured 35 px against PowerPoint's 34 (previously 32). A preview-only
+compatibility pass (`fillDefaultLineSpacing`) now adds 100% spacing only to
+the lowest-priority defaults that declare none: the presentation
+`defaultTextStyle` and the master `txStyles` levels. Every explicit or
+inherited value still wins, and source bytes are untouched.
+
+- Probe after the pass: single spacing 35 vs 34 px, first line within 1 px,
+  space-before 35 vs 35, autofit 24 vs 25 (previously 23).
+- Full 33-deck rerun against the previous run: mean slide RGB MAE fell from
+  3.064% to 2.964% and median PSNR rose from 18.686 to 18.869 dB. 10 decks
+  improved (best -0.72 points mean MAE), 3 worsened by at most 0.19 points,
+  and 15 were unchanged. 24 slides improved by more than 1 point and 3
+  regressed by about 1 point. The median of deck medians moved from 2.522% to
+  2.582%, a median artifact of a few decks shifting.
+- Full check, desktop unit tests and `test-workspace.mjs` 117/117 pass.
+  `line-spacing-only` mode allows isolated reruns.
+
 ### Preview `a:lum` corrected to PowerPoint's measured behavior — 2026-10-09
 
 PowerPoint rendered a 256-level grey ramp with `a:lum` variants and a

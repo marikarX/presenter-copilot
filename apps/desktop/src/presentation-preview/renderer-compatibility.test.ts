@@ -1336,3 +1336,41 @@ describe("luminanceAdjust", () => {
     },
   );
 });
+
+describe("default line spacing", () => {
+  it("fills 100% only into default and master levels without spacing", async () => {
+    const files = makeFiles(new Map());
+    files.presentation = `<p:presentation xmlns:p="${PRESENTATION_NS}" xmlns:a="${DRAWING_NS}"><p:defaultTextStyle><a:defPPr/><a:lvl1pPr marL="0"><a:defRPr sz="1800"/></a:lvl1pPr><a:lvl2pPr><a:lnSpc><a:spcPct val="90000"/></a:lnSpc></a:lvl2pPr></p:defaultTextStyle></p:presentation>`;
+    files.slideMasters.set(
+      "ppt/slideMasters/slideMaster1.xml",
+      `<p:sldMaster xmlns:p="${PRESENTATION_NS}" xmlns:a="${DRAWING_NS}"><p:txStyles><p:titleStyle><a:lvl1pPr><a:lnSpc><a:spcPct val="85000"/></a:lnSpc></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr marL="0"/></p:bodyStyle><p:otherStyle><a:defPPr/></p:otherStyle></p:txStyles></p:sldMaster>`,
+    );
+    const report = await applyPreviewRendererCompatibility(
+      await new JSZip().generateAsync({ type: "arraybuffer" }),
+      files,
+      { fillDefaultLineSpacing: true, repairSmartArtRelationships: false },
+    );
+    expect(report.defaultLineSpacingLevelsFilled).toBe(4);
+    expect(files.presentation).toContain('<a:spcPct val="90000"/>');
+    expect(files.presentation.match(/val="100000"/g)).toHaveLength(2);
+    const master =
+      files.slideMasters.get("ppt/slideMasters/slideMaster1.xml") ?? "";
+    expect(master).toContain('<a:spcPct val="85000"/>');
+    expect(master.match(/val="100000"/g)).toHaveLength(2);
+    // lnSpc must be the first child of each filled level (schema order).
+    expect(master).toMatch(/<a:lvl1pPr marL="0"><a:lnSpc>/);
+  });
+
+  it("is off unless requested", async () => {
+    const files = makeFiles(new Map());
+    files.presentation = `<p:presentation xmlns:p="${PRESENTATION_NS}" xmlns:a="${DRAWING_NS}"><p:defaultTextStyle><a:lvl1pPr/></p:defaultTextStyle></p:presentation>`;
+    const before = files.presentation;
+    const report = await applyPreviewRendererCompatibility(
+      await new JSZip().generateAsync({ type: "arraybuffer" }),
+      files,
+      { repairSmartArtRelationships: false },
+    );
+    expect(report.defaultLineSpacingLevelsFilled).toBeUndefined();
+    expect(files.presentation).toBe(before);
+  });
+});
