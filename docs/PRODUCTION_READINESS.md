@@ -22,8 +22,10 @@ Commits this session:
   desktop allowlists and examples.
 - `ff1d9f5` Comparison GUI (`RehearsalObjectionComparison.tsx`, in the
   Rehearsal panel) and `test-rehearsal-objection-comparison.mjs` (7/7 actual
-  Electron/Core checks; model adapter is the only fixture; now 8/8 including
-  a real detail reply held past panel closure being discarded). A rejected Start
+  Electron/Core checks; model adapter is the only fixture; now 9/9 including
+  real detail replies held past panel closure and past a GUI native revision
+  change being discarded, with the comparison then reopening verified on the
+  new head against its original baseline). A rejected Start
   clears the stale preparation (bug found in the GUI run).
 - `e1bfd65` List numbering `1)`, `a.`, `A.`, `i.`, `I.` across detection,
   apply, text-fit markers and the GUI; fixes Copilot edit plans offering

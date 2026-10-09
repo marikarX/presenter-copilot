@@ -41,6 +41,7 @@ presentation=Presentation()
 for text in ('Pilot approval plan.','Rollout budget.'):
  slide=presentation.slides.add_slide(presentation.slide_layouts[6])
  slide.shapes.add_textbox(Inches(.5),Inches(.5),Inches(8),Inches(2)).text=text
+ slide.notes_slide.notes_text_frame.text='Initial speaker notes.'
 presentation.save(sys.argv[1])
 `,
     fixture,
@@ -165,7 +166,7 @@ try {
     await page
       .getByRole("button", { name: "Open preview", exact: true })
       .click();
-    await page.getByText("Current · Revision 1", { exact: true }).waitFor();
+    await page.getByText(/^Current · Revision \d+$/).waitFor();
   };
   await workspace();
   const ask = async (method, params) =>
@@ -508,6 +509,73 @@ db.commit();print(second)
   assert.deepEqual(errors, []);
   checks.push(
     "A real comparison detail reply held past panel closure is discarded; reopening shows saved history without stale detail or selection",
+  );
+
+  // Hold a reply again, then change the deck revision through a real GUI edit.
+  await app.evaluate(() => {
+    globalThis.comparisonHold = true;
+    globalThis.comparisonHeld = false;
+    globalThis.comparisonRelease = false;
+    globalThis.comparisonReturned = false;
+  });
+  await panel
+    .getByRole("button", { name: "Review saved comparison", exact: true })
+    .click();
+  await waitMain("comparisonHeld");
+  await studioButton("Notes").click();
+  await page
+    .getByRole("textbox", { name: "Speaker notes", exact: true })
+    .fill("Revision change while a comparison reply is held.");
+  await page
+    .getByRole("button", { name: "Save speaker notes", exact: true })
+    .click();
+  await page
+    .locator(".presentation-workspace")
+    .getByText("Current · Revision 2", { exact: true })
+    .waitFor();
+  await app.evaluate(() => {
+    globalThis.comparisonHold = false;
+    globalThis.comparisonRelease = true;
+  });
+  await waitMain("comparisonReturned");
+  const revisedHead = (
+    await ask("presentation.workspace.list_revisions", {
+      project_id: project.id,
+      document_id: source.id,
+    })
+  ).current_revision_id;
+  assert.notEqual(revisedHead, scope.expected_revision_id);
+  scope.expected_revision_id = revisedHead;
+  await studioButton("Rehearsal").click();
+  await panel.getByText("1 saved comparisons for this deck.").waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(
+    await panel
+      .getByRole("region", { name: "Verified objection comparison" })
+      .count(),
+    0,
+    "A reply for the previous revision must not appear on the new revision",
+  );
+  await panel
+    .getByRole("button", { name: "Review saved comparison", exact: true })
+    .click();
+  await panel
+    .getByRole("region", { name: "Verified objection comparison" })
+    .getByRole("heading", {
+      name: "Pair 1: Possibly the same underlying concern",
+      exact: true,
+    })
+    .waitFor();
+  const onNewHead = await ask(
+    "presentation.workspace.get_rehearsal_objection_comparison",
+    { ...scope, comparison_id: comparisonId },
+  );
+  assert.equal(onNewHead.revision_id, revisedHead);
+  assert.notEqual(onNewHead.baseline_revision_id, revisedHead);
+  assert.equal(onNewHead.context_current, true);
+  assert.deepEqual(errors, []);
+  checks.push(
+    "A real comparison reply held across a GUI native revision change is discarded; the saved comparison reopens verified on the new head with its original baseline",
   );
   await pick(first, "First Run", firstRun, leftAnalysis.analysis_id, [1, 2]);
   await pick(second, "Second Run", secondRun, rightAnalysis.analysis_id, [1]);
