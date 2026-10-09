@@ -46,6 +46,23 @@ After the change the Aptos right edge is 652 vs 645 px, with the same line
 count. No corpus deck uses Aptos, so corpus metrics are unaffected. Full check
 and `test-workspace.mjs` 117/117 pass.
 
+Second font probe (fonts the corpus references that are not installed here):
+
+- Helvetica, Nunito Sans and Calibri Light match PowerPoint within 2 px.
+- `ArialMT` (Arial's PostScript name, used in 2 decks) rendered at 639 vs
+  602 px. `local("ArialMT")` succeeds, so the availability probe treated it as
+  installed. CSS `font-family` only matches family names, so the browser used
+  its default font. Referenced families must now also resolve as CSS families
+  (canvas width check against generic fonts). PostScript-only names then take
+  the normal fallback, so `ArialMT` maps to Arial, now 601 vs 602 px.
+- Oswald, Source Sans Pro and Roboto are not installed. PowerPoint's own
+  substitution for them differs from the preview's generic fallback (Oswald
+  wraps 3 vs 4 lines). Matching that would require guessing Office's internal
+  substitution table, so it is left as a known gap; installing the fonts
+  removes it in both renderers.
+- The full corpus rerun showed no slide changing by more than one point. Full
+  check and `test-workspace.mjs` 117/117 pass.
+
 ### Shape and table probe — 2026-10-09
 
 Synthetic probe (`.local/session2/shape_probe.py`): a 3x3 text table, a

@@ -41,6 +41,8 @@ export interface PreviewFontResolution {
 }
 
 export type LocalFontProbe = (family: string) => Promise<boolean>;
+/** Whether CSS `font-family` resolves the name (local() also accepts PostScript names). */
+export type CssFamilyProbe = (family: string) => boolean;
 
 interface FontScanResult {
   families: string[];
@@ -250,6 +252,7 @@ export async function resolvePreviewFonts(
   presentation: PresentationData,
   probeLocalFont: LocalFontProbe,
   signal?: AbortSignal,
+  probeCssFamily?: CssFamilyProbe,
 ): Promise<PreviewFontResolution> {
   if (signal?.aborted) throw new Error("Presentation preview was closed.");
   const scan = collectReferencedFamilies(files);
@@ -273,7 +276,14 @@ export async function resolvePreviewFonts(
   };
 
   await runBounded(familiesToCheck, MAX_FONT_PROBES_AT_ONCE, async (family) => {
-    availability.set(family.toLowerCase(), await checkLocalFont(family));
+    // A PostScript name such as "ArialMT" loads through local() but is not a CSS
+    // family, so the browser would silently use its default font. Treat it as
+    // missing so the normal fallback (for example Arial) applies.
+    const local = await checkLocalFont(family);
+    availability.set(
+      family.toLowerCase(),
+      local && (probeCssFamily ? probeCssFamily(family) : true),
+    );
   });
   if (signal?.aborted) throw new Error("Presentation preview was closed.");
 
@@ -365,6 +375,32 @@ export async function resolvePreviewFonts(
 }
 
 const browserFontProbeCache = new Map<string, Promise<boolean>>();
+
+const cssFamilyProbeCache = new Map<string, boolean>();
+
+/** Detect CSS family resolution by comparing canvas widths against generic fonts. */
+export function probeBrowserCssFamily(family: string): boolean {
+  const key = family.toLowerCase();
+  const cached = cssFamilyProbeCache.get(key);
+  if (cached !== undefined) return cached;
+  let available = true;
+  try {
+    const context = document.createElement("canvas").getContext("2d");
+    if (context) {
+      const sample = "mmmmmmmmmmlli1WQ@#0";
+      available = ["monospace", "serif", "sans-serif"].some((generic) => {
+        context.font = `72px ${generic}`;
+        const baseline = context.measureText(sample).width;
+        context.font = `72px "${escapeCssString(family)}", ${generic}`;
+        return Math.abs(context.measureText(sample).width - baseline) > 0.5;
+      });
+    }
+  } catch {
+    available = true;
+  }
+  cssFamilyProbeCache.set(key, available);
+  return available;
+}
 
 export function probeBrowserLocalFont(family: string): Promise<boolean> {
   const key = family.toLowerCase();

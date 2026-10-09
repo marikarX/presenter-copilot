@@ -16,7 +16,11 @@ import type {
   PresentationPreviewHostResponse,
   PresentationPreviewHostTextCandidate,
 } from "../shared/presentation-preview-protocol";
-import { probeBrowserLocalFont, resolvePreviewFonts } from "./font-fallbacks";
+import {
+  probeBrowserCssFamily,
+  probeBrowserLocalFont,
+  resolvePreviewFonts,
+} from "./font-fallbacks";
 import { applyPreviewRendererCompatibility } from "./renderer-compatibility";
 import { textEscapesShapeBounds } from "./layout-risk";
 import { PREVIEW_PDFJS } from "./pdfjs-assets";
@@ -106,6 +110,7 @@ async function openPresentation(buffer: ArrayBuffer): Promise<void> {
       presentation,
       probeBrowserLocalFont,
       controller.signal,
+      probeBrowserCssFamily,
     );
     ensureOpen();
     currentViewer = new PptxViewer(previewStage, {

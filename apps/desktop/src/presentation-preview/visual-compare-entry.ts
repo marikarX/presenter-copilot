@@ -7,7 +7,11 @@ import {
   type SlideHandle,
 } from "@aiden0z/pptx-renderer";
 
-import { probeBrowserLocalFont, resolvePreviewFonts } from "./font-fallbacks";
+import {
+  probeBrowserCssFamily,
+  probeBrowserLocalFont,
+  resolvePreviewFonts,
+} from "./font-fallbacks";
 import {
   applyPreviewRendererCompatibility,
   type PreviewRendererCompatibilityOptions,
@@ -120,6 +124,8 @@ window.openDeck = async (compatibilityMode = "all") => {
     files,
     presentation,
     probeBrowserLocalFont,
+    undefined,
+    probeBrowserCssFamily,
   );
   viewer?.destroy();
   stage.replaceChildren();

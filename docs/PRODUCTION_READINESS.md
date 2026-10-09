@@ -79,6 +79,8 @@ upgrades must re-check this patch. Image bevels remain a renderer gap.
 Aptos (Office's default font, cloud-only so browsers cannot load it) now
 falls back to width-matched Segoe UI/Calibri/Georgia via CSS size-adjust;
 probe right edge 652 vs 645 px (was 601).
+PostScript-only font names (for example `ArialMT`) no longer silently render
+in the browser default font; they take the normal fallback (Arial).
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

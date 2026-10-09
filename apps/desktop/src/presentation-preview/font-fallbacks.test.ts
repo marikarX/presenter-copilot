@@ -158,3 +158,17 @@ describe("width-matched Office cloud font fallback", () => {
     expect(resolution.fontFaces).toEqual([]);
   });
 });
+
+describe("PostScript font names", () => {
+  it("falls back when a name loads via local() but is not a CSS family", async () => {
+    const localNames = new Set(["arialmt", "arial", "arial bold"]);
+    const resolution = await resolvePreviewFonts(
+      pptxFiles('<a:latin typeface="ArialMT"/>'),
+      presentationData(),
+      async (family) => localNames.has(family.toLowerCase()),
+      undefined,
+      (family) => family.toLowerCase() !== "arialmt",
+    );
+    expect(resolution.substitutions).toEqual(["ArialMT → Arial"]);
+  });
+});
