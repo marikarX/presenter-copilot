@@ -24,6 +24,28 @@ the 33-deck corpus against local PowerPoint. The comparison is with the
   from this week's editing changes, not acceptable fidelity. Report:
   `.local/preview-compare-33-20261009.json`.
 
+### Width-matched fallback for Office cloud fonts — 2026-10-09
+
+A font probe (`.local/session2/font_probe.py`) rendered the same wrapped
+paragraph in eight fonts. Calibri, Times New Roman, Segoe UI, Georgia, Verdana
+and the theme fonts matched PowerPoint's line breaks and right edge within
+2 px. Aptos did not (right edge 601 px in the preview vs 645 px in
+PowerPoint). Aptos, Office's default font since 2023, ships only in Office's
+per-user cloud font cache. The browser cannot load it with `local()`, so the
+preview used a generic fallback with different widths.
+
+Advance widths measured from the cached Office files against installed fonts
+gave width-matched fallbacks applied with the CSS `size-adjust` descriptor,
+only when the font is not locally available:
+
+- Aptos and Aptos Display map to Segoe UI at 97.2% (bold 95.5%).
+- Aptos Narrow maps to Calibri at 97%.
+- Aptos Serif maps to Georgia at 101.8%.
+
+After the change the Aptos right edge is 652 vs 645 px, with the same line
+count. No corpus deck uses Aptos, so corpus metrics are unaffected. Full check
+and `test-workspace.mjs` 117/117 pass.
+
 ### Shape and table probe — 2026-10-09
 
 Synthetic probe (`.local/session2/shape_probe.py`): a 3x3 text table, a

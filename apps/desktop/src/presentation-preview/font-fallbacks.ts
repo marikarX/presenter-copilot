@@ -59,6 +59,28 @@ const FALLBACK_FAMILIES: Record<FallbackKind, readonly string[]> = {
   monospace: ["Courier New", "Consolas", "Liberation Mono", "Noto Sans Mono"],
 };
 
+/**
+ * Width-matched fallbacks for Office cloud fonts that browsers cannot load
+ * with local(): the local face is scaled with CSS size-adjust so advance widths
+ * (and therefore wrapping) match. Ratios were measured from the cached Office
+ * font files against the installed fallback at the same size.
+ */
+interface MetricFallback {
+  family: string;
+  regular: string;
+  bold: string;
+}
+const METRIC_FALLBACKS: ReadonlyMap<string, readonly MetricFallback[]> =
+  new Map([
+    ["aptos", [{ family: "Segoe UI", regular: "97.2%", bold: "95.5%" }]],
+    [
+      "aptos display",
+      [{ family: "Segoe UI", regular: "97.2%", bold: "95.5%" }],
+    ],
+    ["aptos narrow", [{ family: "Calibri", regular: "97%", bold: "97%" }]],
+    ["aptos serif", [{ family: "Georgia", regular: "101.8%", bold: "101.8%" }]],
+  ]);
+
 const FALLBACK_STYLES = [
   { suffix: "", descriptors: { weight: "400", style: "normal" } },
   { suffix: " Bold", descriptors: { weight: "700", style: "normal" } },
@@ -277,12 +299,46 @@ export async function resolvePreviewFonts(
     return result;
   };
 
+  const metricFallbackFaces = async (
+    family: string,
+  ): Promise<{ faces: FontFaceConfig[]; localFamily: string } | null> => {
+    for (const candidate of METRIC_FALLBACKS.get(family.toLowerCase()) ?? []) {
+      if (!(await checkLocalFont(candidate.family))) continue;
+      const faces: FontFaceConfig[] = [];
+      for (const style of FALLBACK_STYLES) {
+        const localName = `${candidate.family}${style.suffix}`;
+        if (!(await checkLocalFont(localName))) continue;
+        // size-adjust is a supported FontFace descriptor missing from lib.dom.
+        const descriptors: FontFaceDescriptors & { sizeAdjust: string } = {
+          ...style.descriptors,
+          sizeAdjust:
+            style.descriptors.weight === "700"
+              ? candidate.bold
+              : candidate.regular,
+        };
+        faces.push({
+          family,
+          source: `local("${escapeCssString(localName)}")`,
+          descriptors,
+        });
+      }
+      if (faces.length) return { faces, localFamily: candidate.family };
+    }
+    return null;
+  };
+
   const fontFaces: FontFaceConfig[] = [];
   const substitutions: string[] = [];
   const unresolvedFamilies: string[] = [];
   for (const family of familiesToCheck) {
     if (availability.get(family.toLowerCase())) continue;
     if (signal?.aborted) throw new Error("Presentation preview was closed.");
+    const matched = await metricFallbackFaces(family);
+    if (matched) {
+      fontFaces.push(...matched.faces);
+      substitutions.push(`${family} → ${matched.localFamily} (width-matched)`);
+      continue;
+    }
     const fallbackFaces = await getFallbackFaces(fallbackKind(family));
     if (fallbackFaces.length === 0) {
       unresolvedFamilies.push(family);

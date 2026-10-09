@@ -76,6 +76,9 @@ With the user's approval the renderer is now patched via `pnpm patch`
 (`patches/@aiden0z__pptx-renderer@1.3.0.patch`): superscript/subscript shift
 and size match PowerPoint (probe 25 vs 24 px, 19 vs 19 px). Renderer
 upgrades must re-check this patch. Image bevels remain a renderer gap.
+Aptos (Office's default font, cloud-only so browsers cannot load it) now
+falls back to width-matched Segoe UI/Calibri/Georgia via CSS size-adjust;
+probe right edge 652 vs 645 px (was 601).
 
 Validation on `83c762c` (final state of this session): full `pnpm check`
 green (1913 Core tests, desktop 312, lint/types/format), `test-workspace.mjs`

@@ -113,3 +113,48 @@ describe("presentation preview font fallback", () => {
     expect(probes).toBe(0);
   });
 });
+
+describe("width-matched Office cloud font fallback", () => {
+  const local = (families: string[]) => {
+    const set = new Set(families.map((family) => family.toLowerCase()));
+    return async (family: string) => set.has(family.toLowerCase());
+  };
+
+  it("scales Segoe UI to Aptos advance widths when Aptos is not local", async () => {
+    const resolution = await resolvePreviewFonts(
+      pptxFiles('<a:latin typeface="Aptos"/>'),
+      presentationData(),
+      local(["Segoe UI", "Segoe UI Bold", "Arial", "Arial Bold"]),
+    );
+    expect(resolution.substitutions).toEqual([
+      "Aptos → Segoe UI (width-matched)",
+    ]);
+    const adjusts = resolution.fontFaces.map((face) => [
+      face.source,
+      (face.descriptors as { sizeAdjust?: string } | undefined)?.sizeAdjust,
+    ]);
+    expect(adjusts).toEqual([
+      ['local("Segoe UI")', "97.2%"],
+      ['local("Segoe UI Bold")', "95.5%"],
+    ]);
+  });
+
+  it("uses the generic fallback when no metric fallback is installed", async () => {
+    const resolution = await resolvePreviewFonts(
+      pptxFiles('<a:latin typeface="Aptos"/>'),
+      presentationData(),
+      local(["Arial"]),
+    );
+    expect(resolution.substitutions).toEqual(["Aptos → Arial"]);
+  });
+
+  it("leaves a locally installed Aptos alone", async () => {
+    const resolution = await resolvePreviewFonts(
+      pptxFiles('<a:latin typeface="Aptos"/>'),
+      presentationData(),
+      local(["Aptos", "Segoe UI"]),
+    );
+    expect(resolution.substitutions).toEqual([]);
+    expect(resolution.fontFaces).toEqual([]);
+  });
+});
