@@ -196,6 +196,8 @@ class FidelityTextStyle:
     fingerprint: str | None = None
     bold: bool | None = None
     italic: bool | None = None
+    underline: bool | None = None
+    strikethrough: bool | None = None
     font_size_pt: float | None = None
     font_color: str | None = None
     color_editable: bool = False
@@ -426,6 +428,8 @@ class FidelityDocument:
                             "fingerprint": obj.text_style.fingerprint,
                             "bold": obj.text_style.bold,
                             "italic": obj.text_style.italic,
+                            "underline": obj.text_style.underline,
+                            "strikethrough": obj.text_style.strikethrough,
                             "font_size_pt": obj.text_style.font_size_pt,
                             "font_color": obj.text_style.font_color,
                             "color_editable": obj.text_style.color_editable,
@@ -1740,6 +1744,8 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         fingerprint=fingerprint,
         bold=uniform("bold"),
         italic=uniform("italic"),
+        underline=uniform("underline"),
+        strikethrough=uniform("strikethrough"),
         font_size_pt=uniform("font_size_pt"),
         font_color=uniform("font_color"),
         color_editable=all(style.color_editable for style in styles),
@@ -2040,6 +2046,31 @@ def _is_plain_picture_bullet(node: etree._Element) -> bool:
     )
 
 
+# ST_TextUnderlineType; "none" is the only non-underlined value.
+TEXT_UNDERLINE_TYPES = frozenset(
+    {
+        "none",
+        "words",
+        "sng",
+        "dbl",
+        "heavy",
+        "dotted",
+        "dottedHeavy",
+        "dash",
+        "dashHeavy",
+        "dashLong",
+        "dashLongHeavy",
+        "dotDash",
+        "dotDashHeavy",
+        "dotDotDash",
+        "dotDotDashHeavy",
+        "wavy",
+        "wavyHeavy",
+        "wavyDbl",
+    }
+)
+
+
 def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
     """Describe one direct run without resolving theme or inherited formatting."""
     properties = run.find(f"{{{DRAWING_NS}}}rPr")
@@ -2068,6 +2099,14 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
 
     if ("b" in attributes and bold is None) or ("i" in attributes and italic is None):
         return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+    raw_underline = attributes.get("u")
+    raw_strike = attributes.get("strike")
+    if (raw_underline is not None and raw_underline not in TEXT_UNDERLINE_TYPES) or (
+        raw_strike is not None and raw_strike not in {"noStrike", "sngStrike", "dblStrike"}
+    ):
+        return FidelityTextStyle(editable=False, fingerprint=fingerprint)
+    underline = None if raw_underline is None else raw_underline != "none"
+    strikethrough = None if raw_strike is None else raw_strike != "noStrike"
 
     fill_tags = {
         f"{{{DRAWING_NS}}}noFill",
@@ -2097,6 +2136,8 @@ def _text_style_for_run(run: etree._Element) -> FidelityTextStyle:
         fingerprint=fingerprint,
         bold=bold,
         italic=italic,
+        underline=underline,
+        strikethrough=strikethrough,
         font_size_pt=font_size_pt,
         font_color=font_color,
         color_editable=color_editable,

@@ -56,6 +56,7 @@
     "test:ui:shape-outline": "pnpm build && node apps/desktop/scripts/test-shape-outline.mjs",
     "test:ui:picture-adjust": "pnpm build && node apps/desktop/scripts/test-picture-adjust.mjs",
     "test:ui:object-rotation": "pnpm build && node apps/desktop/scripts/test-object-rotation.mjs",
+    "test:ui:text-emphasis": "pnpm build && node apps/desktop/scripts/test-text-emphasis.mjs",
     "test:ui:objection-comparison": "pnpm build && node apps/desktop/scripts/test-rehearsal-objection-comparison.mjs",
     "accept:chatgpt-live": "pnpm build && node apps/desktop/scripts/accept-chatgpt-live.mjs",
     "test:codex-containment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-codex-containment.ps1",

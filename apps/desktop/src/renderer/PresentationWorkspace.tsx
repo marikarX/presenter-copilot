@@ -235,6 +235,8 @@ type TextStyle = {
   fingerprint: string | null;
   bold: boolean | null;
   italic: boolean | null;
+  underline?: boolean | null;
+  strikethrough?: boolean | null;
   font_size_pt: number | null;
   font_color: string | null;
   color_editable: boolean;
@@ -265,6 +267,8 @@ type TextStyleChange = Partial<
     TextStyle,
     | "bold"
     | "italic"
+    | "underline"
+    | "strikethrough"
     | "font_size_pt"
     | "font_color"
     | "alignment"
@@ -936,7 +940,10 @@ function isTextStyle(value: unknown): value is TextStyle {
   const validNullableBoolean =
     candidate.bold === null || typeof candidate.bold === "boolean";
   const validNullableItalic =
-    candidate.italic === null || typeof candidate.italic === "boolean";
+    (candidate.italic === null || typeof candidate.italic === "boolean") &&
+    (candidate.underline == null || typeof candidate.underline === "boolean") &&
+    (candidate.strikethrough == null ||
+      typeof candidate.strikethrough === "boolean");
   const validFontSize =
     candidate.font_size_pt === null ||
     (typeof candidate.font_size_pt === "number" &&
@@ -7708,6 +7715,34 @@ export function PresentationWorkspace({
                           >
                             Italic
                           </button>
+                          {(
+                            [
+                              ["underline", "Underline"],
+                              ["strikethrough", "Strikethrough"],
+                            ] as const
+                          ).map(([property, label]) => (
+                            <button
+                              key={property}
+                              type="button"
+                              className="secondary-button"
+                              aria-pressed={
+                                selectedTarget.style[property] === true
+                              }
+                              onClick={() =>
+                                void saveTextStyleRevision({
+                                  [property]:
+                                    selectedTarget.style[property] !== true,
+                                })
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !selectedTarget.style.fingerprint
+                              }
+                            >
+                              {label}
+                            </button>
+                          ))}
                         </div>
                         <label>
                           Paragraph alignment

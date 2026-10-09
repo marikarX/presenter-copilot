@@ -68,6 +68,10 @@ Commits this session:
   unrotated resize handles; grouping and new-slide layouts still require
   upright objects. PowerPoint reopens a 30.5 degree flipped edit exactly.
   `test-object-rotation.mjs` passes 4/4.
+- Underline and strikethrough are direct-run text styles (Text panel toggles,
+  `format_text_shape` and Copilot plans). Turning one on keeps an existing
+  double/wavy style; turning it off writes `u="none"` / `strike="noStrike"`;
+  unknown values keep the shape read-only. `test-text-emphasis.mjs` 4/4.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.

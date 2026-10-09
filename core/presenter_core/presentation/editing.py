@@ -7307,6 +7307,17 @@ class PresentationEditService:
                     "b" if name == "bold" else "i",
                     "1" if replacement_style[name] else "0",
                 )
+        # Turning emphasis on keeps an existing underline/strike style (double, wavy...).
+        for name, attribute, off, on in (
+            ("underline", "u", "none", "sng"),
+            ("strikethrough", "strike", "noStrike", "sngStrike"),
+        ):
+            if name in replacement_style:
+                current = run_properties.get(attribute)
+                if not replacement_style[name]:
+                    run_properties.set(attribute, off)
+                elif current is None or current == off:
+                    run_properties.set(attribute, on)
         if "font_size_pt" in replacement_style:
             run_properties.set("sz", str(replacement_style["font_size_pt"] * 100))
         if "font_color" in replacement_style:
@@ -8629,6 +8640,8 @@ class PresentationEditService:
         names = {
             "bold",
             "italic",
+            "underline",
+            "strikethrough",
             "font_size_pt",
             "font_color",
             "alignment",
@@ -8652,7 +8665,7 @@ class PresentationEditService:
             )
         result: dict[str, Any] = {}
         for name, item in value.items():
-            if name in {"bold", "italic"}:
+            if name in {"bold", "italic", "underline", "strikethrough"}:
                 if type(item) is not bool:
                     raise invalid_request(
                         f"replacement_style.{name} must be a boolean.",
