@@ -80,6 +80,18 @@ Fast Decisions live local acceptance (2026-10-09):
   Fast Decisions status, so the panel kept showing the local model as "not
   configured" and Save stayed disabled until Settings was reopened.
 
+- Calibration tooling: `pnpm calibrate:decisions export --corpus
+  .local/presentation-workspace-corpus --out .local/calibration/slide-purpose-sheet.csv`
+  wrote an unlabeled 684-slide sheet from the 33 corpus decks. After a person
+  fills `label`/`labeler`, `pnpm calibrate:decisions evaluate --sheet ...
+  --model-id ... --out ...` reports accuracy, confusion and a confidence
+  threshold table, and recommends a minimum confidence only with at least 50
+  human labels. It never edits thresholds. A live smoke on the 10 self-authored
+  cases (not human labels) ran end to end: 6/10, 4 abstentions, 83% precision
+  when decided, about 940 ms. The local provider returned no confidence values,
+  so confidence thresholds can only be calibrated for providers that report
+  confidence; a local model can be judged on accuracy and abstention only.
+
 This is integration evidence, not calibration: thresholds remain uncalibrated
 until a licensing-safe human-labeled set exists.
 

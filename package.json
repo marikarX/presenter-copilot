@@ -35,6 +35,7 @@
     "benchmark:asr": "uv run --directory core --project . --locked python -m presenter_core.tools.asr_benchmark",
     "benchmark:release": "uv run --directory core --project . --locked python -m presenter_core.tools.release_benchmark",
     "benchmark:claim-triage-local": "uv run --directory core --project . --locked python -m presenter_core.tools.claim_triage_acceptance",
+    "calibrate:decisions": "uv run --directory core --project . --locked python -m presenter_core.tools.decision_calibration",
     "benchmark:decision-local": "uv run --directory core --project . --locked python -m presenter_core.tools.decision_acceptance",
     "build:sidecar": "uv run --directory core --project . --locked python -m PyInstaller --noconfirm --clean --distpath ../artifacts/sidecar --workpath ../artifacts/sidecar-build ../packaging/presenter-core.spec",
     "prepare:codex-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-codex-runtime.ps1",
