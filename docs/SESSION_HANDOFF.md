@@ -43,6 +43,10 @@ Validation: full `pnpm check` green on `2946282` (1888 Core tests, desktop
 312, lint/types/format); `test-workspace.mjs` 117/117 after both the numbering
 and bullet-marker commits; existing objection review GUI 20/20 with the
 comparison panel mounted; `test-bullet-marker.mjs` 4/4 including start values.
+Corpus: on the 33 cached decks, direct-marker lists that are bullet-editable
+went from 0 to 14 (7 decks). One reviewed numbering/color/size edit per deck
+read back exactly and opened in PowerPoint on 5 decks; 2 were declined by the
+active/external-content safety policy. See `docs/PRESENTATION_WORKSPACE/VALIDATION.md`.
 LM Studio is installed on this host but its daemon would not start headlessly,
 so no local-model Fast Decisions run was possible this session.
 

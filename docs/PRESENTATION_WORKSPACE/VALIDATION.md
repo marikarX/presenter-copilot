@@ -4,6 +4,34 @@
 
 Validate both product usefulness and document fidelity before treating Presentation Workspace as a core product surface.
 
+### List numbering and bullet markers on the local corpus — 2026-10-09
+
+Read-only inventory of the 33 cached corpus decks
+(`.local/presentation-workspace-corpus/`), comparing `e1bfd65` (before
+text-font `buFont` tolerance) with `2f5ce70`:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Format-editable text objects | 1836 | 1836 |
+| Bullet-editable text objects | 1654 | 1683 |
+| Objects with a direct bullet marker that are bullet-editable | 0 | 14 (7 decks) |
+| Objects with editable bullet color/size | — | 1683 |
+
+Most real lists inherit bullets from layout placeholders and were already
+editable. Before this change, no paragraph that carried its own marker was
+editable, because PowerPoint writes a `buFont` beside the `buChar`.
+
+Edit acceptance: for each deck, one direct-marker list received a single
+reviewed edit through actual Core (`numbered_alpha_upper`, start 2, color
+`#1F4E79`, size 120%). Five decks (06, 21, 22, 29, 30) read the values back
+exactly from the saved revision, and Microsoft PowerPoint opened each edited
+copy read-only with the expected slide count. Two decks (08, 11) were declined
+before PowerPoint by the existing safety policy for active or external
+content. That decline is unrelated to the edit. The other 26 decks had no
+direct-marker list to exercise. Visual comparison of the rendered bullets was
+not part of this run. Script: `.local/session2/corpus_bullets.py`; receipts:
+`corpus-bullets-{before,head,edit}.json`.
+
 ### Native templates and draft authoring — 2026-10-03
 
 General voice-plan follow-up: nine Core voice tests exercise rewrite, current
