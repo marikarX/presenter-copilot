@@ -377,3 +377,54 @@ def test_new_marker_follows_text_font_instead_of_inherited_symbol_font(
         assert deck.format({"bullet_mode": "none"})["ok"]
     finally:
         deck.core.close()
+
+
+def _with_blank_lines(properties: etree._Element) -> None:
+    paragraph = properties.getparent()
+    body = paragraph.getparent()
+    if body.get("blank-lines-added"):
+        return
+    body.set("blank-lines-added", "1")
+    for index in (1, len(body)):  # one blank line inside the list and one trailing
+        blank = etree.Element(f"{A}p")
+        etree.SubElement(blank, f"{A}endParaRPr", lang="en-US")
+        body.insert(index, blank)
+    del body.attrib["blank-lines-added"]
+
+
+def test_blank_lines_keep_lists_formattable_without_receiving_properties(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _with_blank_lines)
+    try:
+        target = deck.target()[0]
+        assert target["text_format_editable"]
+        style = target["text_style"]
+        assert style["bullet_state"] == "bullet" and style["bullet_editable"]
+        before_text = target["current_text"]
+        assert "\n\n" in before_text
+        assert deck.format({"bullet_mode": "numbered", "alignment": "center"})["ok"]
+        after = deck.target()[0]
+        assert after["current_text"] == before_text
+        assert (after["text_style"]["bullet_state"], after["text_style"]["alignment"]) == (
+            "numbered",
+            "center",
+        )
+        with zipfile.ZipFile(_snapshot(deck)) as archive:
+            root = etree.fromstring(archive.read(f"ppt/slides/slide{deck.slide_number}.xml"))
+        paragraphs = root.xpath(
+            ".//p:sp[p:nvSpPr/p:cNvPr[@id=$id]]/p:txBody/a:p", namespaces=NS, id=deck.shape_id
+        )
+        blanks = [p for p in paragraphs if p.find(f"{A}r") is None]
+        assert len(blanks) == 2 and all(p.find(f"{A}pPr") is None for p in blanks)
+    finally:
+        deck.core.close()
+
+
+def _snapshot(deck: "_Deck") -> Path:
+    with deck.core._storage.project_database(deck.project) as connection:
+        row = connection.execute(
+            "SELECT local_snapshot_path FROM presentation_revisions WHERE id=?",
+            (deck.revision,),
+        ).fetchone()
+    return deck.core._storage.paths.snapshot_path(
+        deck.project, row["local_snapshot_path"], require_exists=True
+    )

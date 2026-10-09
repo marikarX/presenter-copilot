@@ -51,7 +51,17 @@ to lettered numbering from B with color and 120% size. Every edit read back
 exactly, every edited paragraph's marker uses a text font, and PowerPoint
 opened each copy. PowerPoint rendered original and edited PNGs for all 13.
 Two representative pairs (deck 26 slide 2, deck 22 slide 2) were reviewed by
-eye: markers changed as intended and text positions did not move. Renders:
+eye: markers changed as intended and text positions did not move.
+
+Blank lines (same day): run-less paragraphs no longer make a text box
+read-only for formatting. They were the only blocker for 501 of 2355 corpus
+text shapes. A blank line without direct properties neither reports nor
+receives paragraph styles, so a trailing blank line cannot make a list look
+mixed. Format-editable text objects rose from 1836 to 2068. The corpus
+PowerPoint pass then covered 19 edited decks (7 recognised lists, 12 symbol
+lists), all reading back exactly with text-font markers and opening in
+PowerPoint. Line breaks (`a:br`, 96 shapes) remain read-only because they
+interact with single-paragraph text replacement. Renders:
 `.local/session2/corpus-renders/`.
 
 ### Native templates and draft authoring — 2026-10-03

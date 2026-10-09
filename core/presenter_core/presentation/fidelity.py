@@ -1379,11 +1379,12 @@ def _formatable_text_paragraphs(
     }
     paragraph_property = f"{{{DRAWING_NS}}}pPr"
     end_paragraph_property = f"{{{DRAWING_NS}}}endParaRPr"
+    total_runs = 0
     for paragraph in paragraphs:
         runs = paragraph.xpath("./a:r", namespaces=_NS)
+        total_runs += len(runs)
         if (
-            not runs
-            or paragraph.xpath(".//a:fld | .//a:br", namespaces=_NS)
+            paragraph.xpath(".//a:fld | .//a:br", namespaces=_NS)
             or any(child.tag not in allowed_paragraph_children for child in paragraph)
             or sum(child.tag == paragraph_property for child in paragraph) > 1
             or sum(child.tag == end_paragraph_property for child in paragraph) > 1
@@ -1402,7 +1403,24 @@ def _formatable_text_paragraphs(
             text_nodes = run.xpath("./a:t", namespaces=_NS)
             if len(text_nodes) != 1:
                 return None
+    # Blank lines (run-less paragraphs) are allowed alongside styled text.
+    if not total_runs:
+        return None
     return cast(list[etree._Element], paragraphs)
+
+
+def _styled_paragraphs(paragraphs: list[etree._Element]) -> list[etree._Element]:
+    """Paragraphs that carry text or their own properties.
+
+    A blank line without direct properties neither reports nor receives paragraph
+    styles, so a trailing empty paragraph cannot make a list look mixed.
+    """
+    return [
+        paragraph
+        for paragraph in paragraphs
+        if paragraph.find(f"{{{DRAWING_NS}}}r") is not None
+        or paragraph.find(f"{{{DRAWING_NS}}}pPr") is not None
+    ]
 
 
 def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextStyle:
@@ -1428,6 +1446,10 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
     ]
     combined = b"".join(len(part).to_bytes(8, "big") + part for part in fingerprint_parts)
     fingerprint = hashlib.sha256(combined).hexdigest()
+    # The fingerprint covers every paragraph; reported values skip plain blank lines.
+    paragraph_properties = [
+        paragraph.find(f"{{{DRAWING_NS}}}pPr") for paragraph in _styled_paragraphs(paragraphs)
+    ]
 
     alignment_codes = {"l": "left", "ctr": "center", "r": "right", "just": "justify"}
     alignment_values = [

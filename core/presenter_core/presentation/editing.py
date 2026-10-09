@@ -69,6 +69,7 @@ from presenter_core.presentation.fidelity import (
     _relationships,
     _resolve_internal_part,
     _shape_style,
+    _styled_paragraphs,
     _text_style_for_shape,
     inspect_pptx_snapshot,
     plain_bullet_font,
@@ -6835,7 +6836,7 @@ class PresentationEditService:
                             "PRESENTATION_EDIT_UNSUPPORTED",
                             "This text shape no longer has supported paragraphs.",
                         )
-                    for paragraph in paragraphs:
+                    for paragraph in _styled_paragraphs(paragraphs):
                         if "alignment" in replacement_style:
                             PresentationEditService._apply_paragraph_alignment(
                                 paragraph,
