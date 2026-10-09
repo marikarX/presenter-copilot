@@ -94,6 +94,13 @@ Human-gated items (cannot be completed by an agent):
   local integration is now exercised (see above); rerun with
   `PRESENTER_DECISION_LIVE_MODEL=<id> node apps/desktop/scripts/accept-fast-decisions-local.mjs`
   after starting a loopback model server.
+- An unauthenticated probe of the app's real ChatGPT-plan authorize URL
+  (`dynamic_agent_client`, custom scope, `resource`/`ext_agent_host_id`/
+  `agent_name_hint`) reached `auth.openai.com`, but both a plain HTTP client
+  (403) and headless Chromium ("Just a moment…") stop at Cloudflare's bot
+  challenge. Whether OpenAI accepts these parameters therefore can only be
+  confirmed in a real user browser, which is the consent step the guided
+  script waits for. Probe: `.local/session2/chatgpt_authorize_probe.py`.
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
