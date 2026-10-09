@@ -192,6 +192,17 @@ try {
   const undone = await style();
   assert.deepEqual([undone.line_width_pt, undone.line_dash], [1, null]);
   checks.push("Undo restores the original 1 pt solid outline");
+  await page.getByLabel("Shape fill transparency", { exact: true }).fill("40");
+  await page
+    .getByRole("button", { name: "Apply transparency", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
+  const translucent = await style();
+  assert.deepEqual(
+    [translucent.fill_transparency_percent, translucent.fill_color],
+    [40, "#E0EDFA"],
+  );
+  checks.push("GUI sets 40% fill transparency while keeping the fill color");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

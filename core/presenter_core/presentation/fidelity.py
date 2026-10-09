@@ -239,6 +239,7 @@ class FidelityShapeStyle:
     fingerprint: str | None = None
     fill_color: str | None = None
     fill_editable: bool = False
+    fill_transparency_percent: int | None = None
     line_color: str | None = None
     line_editable: bool = False
     line_width_pt: float | None = None
@@ -505,6 +506,9 @@ class FidelityDocument:
                             "fingerprint": obj.shape_style.fingerprint,
                             "fill_color": obj.shape_style.fill_color,
                             "fill_editable": obj.shape_style.fill_editable,
+                            "fill_transparency_percent": (
+                                obj.shape_style.fill_transparency_percent
+                            ),
                             "line_color": obj.shape_style.line_color,
                             "line_editable": obj.shape_style.line_editable,
                             "line_width_pt": obj.shape_style.line_width_pt,
@@ -1273,7 +1277,10 @@ def _shape_style(
         f"{{{DRAWING_NS}}}pattFill",
         f"{{{DRAWING_NS}}}grpFill",
     }
-    fill_editable, fill_color = _solid_rgb_color(shape_properties, shape_fill_tags)
+    fill_editable, fill_color = _solid_rgb_color(
+        shape_properties, shape_fill_tags, allow_alpha=True
+    )
+    fill_transparency = _solid_fill_transparency(shape_properties) if fill_editable else None
     lines = shape_properties.findall(f"{{{DRAWING_NS}}}ln")
     if len(lines) > 1:
         line_editable, line_color = False, None
@@ -1315,6 +1322,7 @@ def _shape_style(
         fingerprint=fingerprint,
         fill_color=fill_color,
         fill_editable=fill_editable,
+        fill_transparency_percent=fill_transparency,
         line_color=line_color,
         line_editable=line_editable,
         line_width_pt=line_width_pt,
@@ -1340,7 +1348,32 @@ def _ordered_property_children_supported(
     return ranks == sorted(ranks)
 
 
-def _solid_rgb_color(container: etree._Element, fill_tags: set[str]) -> tuple[bool, str | None]:
+def _alpha_value(color: etree._Element) -> int | None:
+    """Whole-percent opacity of a color's only a:alpha child, or None when unsupported."""
+    if len(color) != 1 or color[0].tag != f"{{{DRAWING_NS}}}alpha":
+        return None
+    alpha = color[0]
+    raw = alpha.get("val", "")
+    if set(alpha.attrib) != {"val"} or len(alpha) or not re.fullmatch(r"[0-9]{1,6}", raw):
+        return None
+    value = int(raw)
+    return value // 1000 if value % 1000 == 0 and value <= 100_000 else None
+
+
+def _solid_fill_transparency(container: etree._Element) -> int | None:
+    """0-100 transparency of a direct solid fill; None without a solid fill."""
+    fill = container.find(f"{{{DRAWING_NS}}}solidFill")
+    if fill is None or len(fill) != 1:
+        return None
+    if not len(fill[0]):
+        return 0
+    opacity = _alpha_value(fill[0])
+    return None if opacity is None else 100 - opacity
+
+
+def _solid_rgb_color(
+    container: etree._Element, fill_tags: set[str], *, allow_alpha: bool = False
+) -> tuple[bool, str | None]:
     """Accept an absent fill, noFill, or one unmodified solid RGB/theme color."""
     fills = [child for child in container if child.tag in fill_tags]
     if not fills:
@@ -1360,7 +1393,7 @@ def _solid_rgb_color(container: etree._Element, fill_tags: set[str]) -> tuple[bo
             f"{{{DRAWING_NS}}}schemeClr",
         }
         or set(color.attrib) != {"val"}
-        or len(color)
+        or (len(color) and not (allow_alpha and _alpha_value(color) is not None))
     ):
         return False, None
     if color.tag == f"{{{DRAWING_NS}}}srgbClr":

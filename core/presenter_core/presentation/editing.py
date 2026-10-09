@@ -509,7 +509,18 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_STALE_TARGET",
                 "The selected shape styling changed. Refresh the preview and try again.",
             )
-        if "fill_color" in replacement_style and not style.fill_editable:
+        if (
+            "fill_transparency_percent" in replacement_style
+            and "fill_color" not in replacement_style
+            and style.fill_transparency_percent is None
+        ):
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "Give the shape a solid fill color before setting its transparency.",
+            )
+        if replacement_style.keys() & {"fill_color", "fill_transparency_percent"} and (
+            not style.fill_editable
+        ):
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This shape fill uses a style the color editor cannot safely retain.",
@@ -7703,6 +7714,8 @@ class PresentationEditService:
             editable_field = (
                 "line_format_editable"
                 if property_name in {"line_width_pt", "line_dash"}
+                else "fill_editable"
+                if property_name == "fill_transparency_percent"
                 else f"{property_name.removesuffix('_color')}_editable"
             )
             if not getattr(obj.shape_style, editable_field):
@@ -7754,6 +7767,10 @@ class PresentationEditService:
                     width_pt=replacement_style.get("line_width_pt"),
                     dash=replacement_style.get("line_dash"),
                 )
+                if "fill_transparency_percent" in replacement_style:
+                    PresentationEditService._set_fill_transparency(
+                        shape, replacement_style["fill_transparency_percent"]
+                    )
 
                 rewritten_slide = etree.tostring(
                     slide_root,
@@ -7821,9 +7838,18 @@ class PresentationEditService:
             else None
         )
         revised_style = revised_object.shape_style if revised_object is not None else None
+        implied: dict[str, Any] = {}
+        if (
+            "fill_color" in replacement_style
+            and "fill_transparency_percent" not in replacement_style
+            and obj.shape_style.fill_transparency_percent is None
+        ):
+            # A new solid fill on a previously unfilled shape is opaque.
+            implied["fill_transparency_percent"] = 0
         expected_style = replace(
             obj.shape_style,
             fingerprint=revised_style.fingerprint if revised_style is not None else None,
+            **implied,
             **replacement_style,
         )
         expected_object = replace(obj, shape_style=expected_style)
@@ -7913,15 +7939,36 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED", "The selected shape property is unsupported."
             )
 
+        # Recoloring a fill keeps its existing transparency.
+        kept_alpha = (
+            container.xpath("./a:solidFill/*/a:alpha", namespaces=_NS)
+            if property_name == "fill_color"
+            else []
+        )
         for child in list(container):
             if child.tag in fill_tags:
                 container.remove(child)
         solid_fill = etree.Element(f"{{{DRAWING_NS}}}solidFill")
         rgb = etree.SubElement(solid_fill, f"{{{DRAWING_NS}}}srgbClr")
         rgb.set("val", color[1:])
+        if len(kept_alpha) == 1:
+            rgb.append(copy.deepcopy(kept_alpha[0]))
         PresentationEditService._insert_ordered_shape_property(
             container, solid_fill, insertion_rank=insertion_rank
         )
+
+    @staticmethod
+    def _set_fill_transparency(shape: etree._Element, percent: int) -> None:
+        colors = shape.xpath("./p:spPr/a:solidFill/*", namespaces=_NS)
+        if len(colors) != 1:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "Give the shape a solid fill color before setting its transparency.",
+            )
+        for alpha in colors[0].findall(f"{{{DRAWING_NS}}}alpha"):
+            colors[0].remove(alpha)
+        if percent:
+            etree.SubElement(colors[0], f"{{{DRAWING_NS}}}alpha", val=str((100 - percent) * 1000))
 
     @staticmethod
     def _replace_shape_line_format(
@@ -8828,7 +8875,13 @@ class PresentationEditService:
 
     @staticmethod
     def _shape_style_field(value: Any) -> dict[str, Any]:
-        names = {"fill_color", "line_color", "line_width_pt", "line_dash"}
+        names = {
+            "fill_color",
+            "fill_transparency_percent",
+            "line_color",
+            "line_width_pt",
+            "line_dash",
+        }
         if not isinstance(value, dict):
             raise invalid_request("replacement_style must be an object.", field="replacement_style")
         reject_unknown_fields(value, names)
@@ -8851,6 +8904,14 @@ class PresentationEditService:
                         field="replacement_style.line_width_pt",
                     )
                 result[name] = float(color)
+                continue
+            if name == "fill_transparency_percent":
+                if type(color) is not int or not 0 <= color <= 100:
+                    raise invalid_request(
+                        "replacement_style.fill_transparency_percent must be 0 to 100.",
+                        field="replacement_style.fill_transparency_percent",
+                    )
+                result[name] = color
                 continue
             if name == "line_dash":
                 if not isinstance(color, str) or color not in SHAPE_LINE_DASHES:

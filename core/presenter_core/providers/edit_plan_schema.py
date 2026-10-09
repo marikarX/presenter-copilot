@@ -93,6 +93,7 @@ _SHAPE_STYLE = _object(
             name: {"anyOf": [_text(7, 7), {"type": "null"}]}
             for name in ("fill_color", "line_color")
         },
+        "fill_transparency_percent": {"anyOf": [_integer(0, 100), {"type": "null"}]},
         "line_width_pt": {
             "anyOf": [{"type": "number", "minimum": 0.25, "maximum": 20}, {"type": "null"}]
         },

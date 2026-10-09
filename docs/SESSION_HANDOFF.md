@@ -83,6 +83,11 @@ Commits this session:
   backgrounds are editable; picture, gradient and pattern backgrounds stay
   read-only. PowerPoint reads back the color with master following off.
   `test-slide-background.mjs` 4/4.
+- Shape fill transparency (0-100%, solid fill `a:alpha`) is a shape-style
+  property in the Objects panel and Copilot plans. Imported fills with a
+  whole-percent alpha are now editable; recoloring keeps the transparency;
+  0% removes the alpha; unfilled shapes need a color first (both can be set
+  together). PowerPoint reads back 0.4 for 40%. `test-shape-outline.mjs` 4/4.
 - Text links: one external http/https/mailto click link across a text
   shape's runs is a reviewed edit (`presentation.workspace.set_text_hyperlink`,
   Text panel and Copilot plans). Script, file and relative targets are

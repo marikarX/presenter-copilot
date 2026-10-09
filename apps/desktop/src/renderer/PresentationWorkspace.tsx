@@ -372,6 +372,7 @@ type ShapeStyle = {
   line_width_pt: number | null;
   line_dash: string | null;
   line_format_editable: boolean;
+  fill_transparency_percent?: number | null;
 };
 
 const SHAPE_LINE_DASHES: ReadonlyArray<[string, string]> = [
@@ -417,6 +418,7 @@ type PictureCropDraft = {
 };
 
 type ShapeStyleDraft = {
+  fill_transparency_percent: string;
   fill_color: string;
   line_color: string;
   line_width_pt: string;
@@ -788,6 +790,8 @@ function draftForShapeStyle(style: ShapeStyle | null): ShapeStyleDraft {
     fill_color: style?.fill_color ?? "#000000",
     line_color: style?.line_color ?? "#000000",
     line_width_pt: style?.line_width_pt?.toString() ?? "",
+    fill_transparency_percent:
+      style?.fill_transparency_percent?.toString() ?? "",
     line_dash: style?.line_dash ?? "",
   };
 }
@@ -970,6 +974,10 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       (shapeStyle.line_dash === null ||
         SHAPE_LINE_DASHES.some(([value]) => value === shapeStyle.line_dash)) &&
       typeof shapeStyle.line_format_editable === "boolean" &&
+      (shapeStyle.fill_transparency_percent == null ||
+        (Number.isInteger(shapeStyle.fill_transparency_percent) &&
+          shapeStyle.fill_transparency_percent >= 0 &&
+          shapeStyle.fill_transparency_percent <= 100)) &&
       (!shapeStyle.editable ||
         (candidate.kind === "sp" &&
           shapeStyle.fingerprint !== null &&
@@ -5139,19 +5147,30 @@ export function PresentationWorkspace({
   ]);
 
   const saveShapeColorRevision = useCallback(
-    async (property: "fill_color" | "line_color" | "outline") => {
+    async (
+      property: "fill_color" | "line_color" | "outline" | "transparency",
+    ) => {
       const source = selectedSource;
       const revision = currentRevision;
       const target = selectedObject;
       const style = target?.shape_style;
       const editable =
-        property === "fill_color"
+        property === "fill_color" || property === "transparency"
           ? style?.fill_editable
           : property === "line_color"
             ? style?.line_editable
             : style?.line_format_editable;
       const replacement: Record<string, string | number> = {};
-      if (property === "outline") {
+      if (property === "transparency") {
+        const percent = Number(objectStyleDraft.fill_transparency_percent);
+        if (
+          Number.isInteger(percent) &&
+          percent >= 0 &&
+          percent <= 100 &&
+          percent !== style?.fill_transparency_percent
+        )
+          replacement.fill_transparency_percent = percent;
+      } else if (property === "outline") {
         const width = Number(objectStyleDraft.line_width_pt);
         if (
           objectStyleDraft.line_width_pt !== "" &&
@@ -5182,7 +5201,9 @@ export function PresentationWorkspace({
       }
       if (
         Object.keys(replacement).length === 0 ||
-        (property !== "outline" && style[property] === replacement[property])
+        (property !== "outline" &&
+          property !== "transparency" &&
+          style[property] === replacement[property])
       ) {
         setNotice("The selected shape style is unchanged.");
         return;
@@ -9602,6 +9623,56 @@ export function PresentationWorkspace({
                             >
                               Apply fill color
                             </button>
+                            {selectedObject.shape_style
+                              .fill_transparency_percent != null ? (
+                              <>
+                                <label>
+                                  Fill transparency (%)
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    aria-label="Shape fill transparency"
+                                    value={
+                                      objectStyleDraft.fill_transparency_percent
+                                    }
+                                    onChange={(event) =>
+                                      setObjectStyleDraft((current) => ({
+                                        ...current,
+                                        fill_transparency_percent:
+                                          event.target.value,
+                                      }))
+                                    }
+                                    disabled={!loadedSourceId || loading}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  onClick={() =>
+                                    void saveShapeColorRevision("transparency")
+                                  }
+                                  disabled={
+                                    !loadedSourceId ||
+                                    loading ||
+                                    !/^\d{1,3}$/.test(
+                                      objectStyleDraft.fill_transparency_percent,
+                                    ) ||
+                                    Number(
+                                      objectStyleDraft.fill_transparency_percent,
+                                    ) > 100 ||
+                                    Number(
+                                      objectStyleDraft.fill_transparency_percent,
+                                    ) ===
+                                      selectedObject.shape_style
+                                        .fill_transparency_percent
+                                  }
+                                >
+                                  Apply transparency
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         ) : (
                           <p className="muted">
