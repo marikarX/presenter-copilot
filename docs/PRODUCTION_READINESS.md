@@ -42,6 +42,9 @@ Commits this session:
 - `9bd3cbb` Blank lines (run-less paragraphs) no longer block text and list
   formatting (the only blocker for 21% of corpus text shapes); corpus
   format-editable objects 1836 -> 2068.
+- Line breaks (`a:br`) no longer block formatting; such shapes are never
+  offered for text replacement. Corpus format-editable objects 2068 -> 2173;
+  16 real-deck edits open in PowerPoint.
 
 Validation: latest full `pnpm check` green on `9bd3cbb` (1908 Core tests,
 desktop 312, lint/types/format) with `test-workspace.mjs` 117/117 and

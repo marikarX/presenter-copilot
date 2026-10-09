@@ -428,3 +428,48 @@ def _snapshot(deck: "_Deck") -> Path:
     return deck.core._storage.paths.snapshot_path(
         deck.project, row["local_snapshot_path"], require_exists=True
     )
+
+
+def _with_line_break(properties: etree._Element) -> None:
+    paragraph = properties.getparent()
+    if paragraph.getparent().find(f"{A}p") is not paragraph:
+        return
+    run = paragraph.find(f"{A}r")
+    line_break = etree.Element(f"{A}br")
+    etree.SubElement(line_break, f"{A}rPr", lang="en-US")
+    second = etree.Element(f"{A}r")
+    etree.SubElement(second, f"{A}t").text = "second line"
+    run.addnext(line_break)
+    line_break.addnext(second)
+
+
+def test_line_breaks_are_formattable_but_never_replacement_targets(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _with_line_break)
+    try:
+        target = deck.target()[0]
+        assert target["text_format_editable"]
+        assert not target["single_run_editable"] and not target["uniform_run_editable"]
+        before = target["current_text"]
+        assert deck.format({"font_size_pt": 30, "bullet_mode": "numbered"})["ok"]
+        after = deck.target()[0]
+        assert after["current_text"] == before
+        assert after["text_style"]["font_size_pt"] == 30
+        for properties in deck.properties():
+            for line_break in properties.getparent().findall(f"{A}br"):
+                assert line_break.find(f"{A}rPr").get("sz") == "3000"
+        assert len(deck.properties()[0].getparent().findall(f"{A}br")) == 1
+    finally:
+        deck.core.close()
+
+
+def test_unsupported_line_break_markup_stays_read_only(tmp_path: Path) -> None:
+    def mutate(properties: etree._Element) -> None:
+        _with_line_break(properties)
+        for line_break in properties.getparent().findall(f"{A}br"):
+            line_break.set("unexpected", "1")
+
+    deck = _Deck(tmp_path, mutate)
+    try:
+        assert not deck.target()[0]["text_format_editable"]
+    finally:
+        deck.core.close()

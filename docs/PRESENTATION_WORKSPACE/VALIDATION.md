@@ -60,8 +60,17 @@ receives paragraph styles, so a trailing blank line cannot make a list look
 mixed. Format-editable text objects rose from 1836 to 2068. The corpus
 PowerPoint pass then covered 19 edited decks (7 recognised lists, 12 symbol
 lists), all reading back exactly with text-font markers and opening in
-PowerPoint. Line breaks (`a:br`, 96 shapes) remain read-only because they
-interact with single-paragraph text replacement. Renders:
+PowerPoint.
+
+Line breaks (same day): plain `a:br` (no attributes, at most its own `rPr`)
+no longer blocks formatting. Run styles also apply to the break's `rPr`, so
+line height follows the new size. Shapes with breaks are explicitly excluded
+from single-run and uniform-run text replacement, both in the inventory and
+on the write path, because replacement rewrites runs. Text extraction is
+unchanged. Corpus format-editable objects rose from 2068 to 2173. Bold was
+applied to one text box with breaks in each of 16 real decks; every edit read
+back and opened in PowerPoint. In the deck 25 render, breaks are preserved and
+the text reflows only because bold glyphs are wider. Renders:
 `.local/session2/corpus-renders/`.
 
 ### Native templates and draft authoring — 2026-10-03

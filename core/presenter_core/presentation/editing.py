@@ -6818,6 +6818,13 @@ class PresentationEditService:
                     )
                 for run in runs:
                     PresentationEditService._apply_text_style_to_run(run, replacement_style)
+                # Breaks keep their own run properties; style them too so line
+                # height follows the new text size.
+                if replacement_style.keys() & {"bold", "italic", "font_size_pt", "font_color"}:
+                    for line_break in shape.xpath("./p:txBody/a:p/a:br", namespaces=_NS):
+                        PresentationEditService._apply_text_style_to_run(
+                            line_break, replacement_style
+                        )
                 paragraph_style_keys = {
                     "alignment",
                     "bullet_mode",
@@ -7634,6 +7641,7 @@ class PresentationEditService:
                 if (
                     len(paragraphs) != 1
                     or runs is None
+                    or shape.xpath("./p:txBody/a:p/a:br", namespaces=_NS)
                     or (not allow_uniform_runs and len(runs) != 1)
                     or (len(runs) > 1 and not _is_uniform_run_text_shape(shape, "sp"))
                 ):

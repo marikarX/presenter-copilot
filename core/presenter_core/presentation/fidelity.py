@@ -1328,14 +1328,31 @@ def _is_single_run_text_shape(candidate: etree._Element, kind: str) -> bool:
     """Return true only for the deliberately narrow first text-write target."""
     paragraphs = _formatable_text_paragraphs(candidate, kind)
     runs = _formatable_text_runs(candidate, kind)
-    return paragraphs is not None and len(paragraphs) == 1 and runs is not None and len(runs) == 1
+    return (
+        paragraphs is not None
+        and len(paragraphs) == 1
+        and runs is not None
+        and len(runs) == 1
+        and not _has_line_break(paragraphs)
+    )
+
+
+def _has_line_break(paragraphs: list[etree._Element]) -> bool:
+    """Text replacement rewrites runs, so shapes with line breaks stay format-only."""
+    return any(paragraph.find(f"{{{DRAWING_NS}}}br") is not None for paragraph in paragraphs)
 
 
 def _is_uniform_run_text_shape(candidate: etree._Element, kind: str) -> bool:
     """Return true only when every direct run has identical complete run properties."""
     paragraphs = _formatable_text_paragraphs(candidate, kind)
     runs = _formatable_text_runs(candidate, kind)
-    if paragraphs is None or len(paragraphs) != 1 or runs is None or len(runs) < 2:
+    if (
+        paragraphs is None
+        or len(paragraphs) != 1
+        or runs is None
+        or len(runs) < 2
+        or _has_line_break(paragraphs)
+    ):
         return False
     if any(
         run.attrib or run.xpath(".//a:hlinkClick | .//a:hlinkMouseOver", namespaces=_NS)
@@ -1375,6 +1392,7 @@ def _formatable_text_paragraphs(
     allowed_paragraph_children = {
         f"{{{DRAWING_NS}}}pPr",
         f"{{{DRAWING_NS}}}r",
+        f"{{{DRAWING_NS}}}br",
         f"{{{DRAWING_NS}}}endParaRPr",
     }
     paragraph_property = f"{{{DRAWING_NS}}}pPr"
@@ -1384,8 +1402,13 @@ def _formatable_text_paragraphs(
         runs = paragraph.xpath("./a:r", namespaces=_NS)
         total_runs += len(runs)
         if (
-            paragraph.xpath(".//a:fld | .//a:br", namespaces=_NS)
+            paragraph.xpath(".//a:fld", namespaces=_NS)
             or any(child.tag not in allowed_paragraph_children for child in paragraph)
+            # Line breaks may carry only their own run properties.
+            or any(
+                br.attrib or [child.tag for child in br] not in ([], [f"{{{DRAWING_NS}}}rPr"])
+                for br in paragraph.xpath("./a:br", namespaces=_NS)
+            )
             or sum(child.tag == paragraph_property for child in paragraph) > 1
             or sum(child.tag == end_paragraph_property for child in paragraph) > 1
             or any(child.tag == paragraph_property for child in paragraph[1:])
