@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 22
+PROJECT_SCHEMA_VERSION = 23
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -1323,6 +1323,53 @@ def _migrate_project_v22(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (22,))
 
 
+def _migrate_project_v23(connection: sqlite3.Connection) -> None:
+    """Retain cross-Run objection comparisons that reference original candidates."""
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_objection_comparisons (
+            provider_run_id TEXT PRIMARY KEY REFERENCES provider_runs(id) ON DELETE CASCADE,
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            left_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            right_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            baseline_revision_id TEXT NOT NULL,
+            context_sha256 TEXT NOT NULL CHECK (length(context_sha256) = 64),
+            privacy_mode TEXT NOT NULL CHECK (
+                privacy_mode IN ('local_only', 'selected_context_cloud', 'full_context_cloud')
+            ),
+            snapshot_json TEXT NOT NULL CHECK (length(snapshot_json) BETWEEN 1 AND 262144),
+            snapshot_sha256 TEXT NOT NULL CHECK (length(snapshot_sha256) = 64),
+            created_at TEXT NOT NULL,
+            CHECK (left_session_id <> right_session_id),
+            FOREIGN KEY (baseline_revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE presentation_rehearsal_objection_comparison_candidates (
+            provider_run_id TEXT NOT NULL
+                REFERENCES presentation_rehearsal_objection_comparisons(provider_run_id)
+                ON DELETE CASCADE,
+            finding_id TEXT NOT NULL
+                REFERENCES presentation_rehearsal_objection_findings(finding_id)
+                ON DELETE CASCADE,
+            side TEXT NOT NULL CHECK (side IN ('left', 'right')),
+            position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 3),
+            PRIMARY KEY (provider_run_id, finding_id),
+            UNIQUE (provider_run_id, side, position)
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX rehearsal_objection_comparison_idx "
+        "ON presentation_rehearsal_objection_comparisons "
+        "(presentation_id, created_at DESC, provider_run_id DESC)"
+    )
+    connection.execute(
+        "CREATE INDEX rehearsal_objection_comparison_candidate_idx "
+        "ON presentation_rehearsal_objection_comparison_candidates (finding_id)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (23,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -1370,6 +1417,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (20, _migrate_project_v20),
             (21, _migrate_project_v21),
             (22, _migrate_project_v22),
+            (23, _migrate_project_v23),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

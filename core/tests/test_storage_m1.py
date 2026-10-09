@@ -86,6 +86,8 @@ def test_project_v10_database_migrates_to_revision_scoped_slide_purposes(
     latest = connect_project_database(project_path)
     latest.close()
     with sqlite3.connect(project_path) as version_ten:
+        version_ten.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+        version_ten.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         version_ten.execute("DROP TABLE presentation_rehearsal_objection_findings")
         version_ten.execute("DROP TABLE presentation_rehearsal_objection_analyses")
         version_ten.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -104,7 +106,7 @@ def test_project_v10_database_migrates_to_revision_scoped_slide_purposes(
 
     upgraded = connect_project_database(project_path)
     try:
-        assert current_schema_version(upgraded) == PROJECT_SCHEMA_VERSION == 22
+        assert current_schema_version(upgraded) == PROJECT_SCHEMA_VERSION == 23
         columns = {
             row[1] for row in upgraded.execute("PRAGMA table_info(presentation_slide_purposes)")
         }
@@ -146,6 +148,8 @@ def test_v17_upgrade_adds_outline_storage_without_replacing_existing_rows(tmp_pa
     latest.commit()
     latest.close()
     with sqlite3.connect(project_path) as old:
+        old.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+        old.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         old.execute("DROP TABLE presentation_rehearsal_objection_findings")
         old.execute("DROP TABLE presentation_rehearsal_objection_analyses")
         old.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -155,7 +159,7 @@ def test_v17_upgrade_adds_outline_storage_without_replacing_existing_rows(tmp_pa
         old.execute("PRAGMA user_version = 17")
     upgraded = connect_project_database(project_path)
     try:
-        assert current_schema_version(upgraded) == 22
+        assert current_schema_version(upgraded) == 23
         assert upgraded.execute("SELECT value FROM migration_sentinel").fetchone()[0] == "keep me"
         assert (
             upgraded.execute("SELECT COUNT(*) FROM presentation_outline_sessions").fetchone()[0]

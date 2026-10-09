@@ -115,6 +115,10 @@
             "presentation.workspace.start_rehearsal_objections_analysis",
             "presentation.workspace.get_rehearsal_objections_analysis",
             "presentation.workspace.list_rehearsal_objections_analyses",
+            "presentation.workspace.prepare_rehearsal_objection_comparison",
+            "presentation.workspace.start_rehearsal_objection_comparison",
+            "presentation.workspace.list_rehearsal_objection_comparisons",
+            "presentation.workspace.get_rehearsal_objection_comparison",
             "presentation.workspace.list_rehearsal_review_sessions",
             "presentation.workspace.list_rehearsal_review_messages",
             "presentation.workspace.list_rehearsal_review_slides",
@@ -299,7 +303,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 22
+          "project_schema_version": 23
         }
       }
     },
@@ -557,7 +561,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 22
+          "project_schema_version": 23
         }
       }
     },

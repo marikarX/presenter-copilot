@@ -261,8 +261,8 @@ def test_schema19_upgrade_preserves_all_markers_and_foreign_keys(tmp_path: Path)
         before = connection.execute("SELECT * FROM run_markers ORDER BY rowid").fetchall()
     migrated = database.connect_project_database(path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 23
         assert [
             tuple(row) for row in migrated.execute("SELECT * FROM run_markers ORDER BY rowid")
         ] == before

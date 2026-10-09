@@ -9,19 +9,28 @@ from typing import Any, Literal
 
 from presenter_core.errors import CoreDomainError, reject_unknown_fields
 from presenter_core.presentation.rehearsal_objection_analysis import RehearsalObjectionAnalysis
+from presenter_core.presentation.rehearsal_objection_comparison import (
+    RehearsalObjectionComparison,
+)
 from presenter_core.presentation.rehearsal_semantic_analysis import RehearsalSemanticAnalysis
 from presenter_core.providers.models import ProviderError
 
 MAX_ACTIVE_JOBS = 4
 MAX_RETAINED_JOBS = 32
 TERMINAL = {"completed", "cancelled", "failed"}
+Kind = Literal["coverage", "objections", "comparison"]
+RESULT_FIELDS: dict[str, tuple[str, ...]] = {
+    "coverage": ("analysis_id", "finding_id"),
+    "objections": ("analysis_id", "finding_ids"),
+    "comparison": ("comparison_id",),
+}
 
 
 @dataclass
 class _Job:
     identity: str
     params: dict[str, Any]
-    analysis_kind: Literal["coverage", "objections"] = "coverage"
+    analysis_kind: Kind = "coverage"
     state: str = "queued"
     cancellation: threading.Event = field(default_factory=threading.Event)
     worker: threading.Thread | None = None
@@ -35,10 +44,12 @@ class RehearsalAnalysisJobs:
         analysis: RehearsalSemanticAnalysis,
         *,
         objections: RehearsalObjectionAnalysis | None = None,
+        comparisons: RehearsalObjectionComparison | None = None,
         join_timeout: float = 2.0,
     ) -> None:
         self._analysis = analysis
         self._objections = objections
+        self._comparisons = comparisons
         self._lock = threading.Lock()
         self._jobs: dict[str, _Job] = {}
         self._accepting = True
@@ -57,6 +68,11 @@ class RehearsalAnalysisJobs:
                 key: job.params[key]
                 for key in ("project_id", "document_id", "expected_revision_id", "session_id")
             },
+            **(
+                {"right_session_id": job.params["right_session_id"]}
+                if job.analysis_kind == "comparison"
+                else {}
+            ),
             "state": "finishing" if live and job.state in TERMINAL else job.state,
             "terminal": not live and job.state in TERMINAL,
             "cancellation_requested": job.cancellation.is_set(),
@@ -68,18 +84,16 @@ class RehearsalAnalysisJobs:
     def start_objections(self, params: dict[str, Any]) -> dict[str, Any]:
         return self._start(params, analysis_kind="objections")
 
+    def start_comparison(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._start(params, analysis_kind="comparison")
+
     def start(self, params: dict[str, Any]) -> dict[str, Any]:
         return self._start(params, analysis_kind="coverage")
 
-    def _start(
-        self,
-        params: dict[str, Any],
-        *,
-        analysis_kind: Literal["coverage", "objections"],
-    ) -> dict[str, Any]:
-        # Both kinds share live capacity, retention, cancellation and resource barriers.
+    def _start(self, params: dict[str, Any], *, analysis_kind: Kind) -> dict[str, Any]:
+        # All kinds share live capacity, retention, cancellation and resource barriers.
         analysis = self._service(analysis_kind)
-        # Read-only preparation rejects foreign/stale/invalid windows before allocating.
+        # Read-only preparation rejects foreign/stale/invalid input before allocating.
         _, prepared, _ = analysis.prepare_analysis(params)
         canonical = {
             **params,
@@ -87,8 +101,12 @@ class RehearsalAnalysisJobs:
             "document_id": prepared["document_id"],
             "expected_revision_id": prepared["revision_id"],
             "session_id": prepared["session_id"],
-            "slide_id": prepared["slide_id"],
         }
+        if analysis_kind == "comparison":
+            # A comparison owns both Runs: deleting either one must wait for it.
+            canonical["right_session_id"] = prepared["right_session_id"]
+        else:
+            canonical["slide_id"] = prepared["slide_id"]
         if analysis_kind == "coverage":
             canonical["object_id"] = prepared["point"]["object_id"]
         with self._lock:
@@ -131,10 +149,16 @@ class RehearsalAnalysisJobs:
             return self._snapshot(job)
 
     def _service(
-        self, kind: Literal["coverage", "objections"]
-    ) -> RehearsalSemanticAnalysis | RehearsalObjectionAnalysis:
+        self, kind: Kind
+    ) -> RehearsalSemanticAnalysis | RehearsalObjectionAnalysis | RehearsalObjectionComparison:
         if kind == "coverage":
             return self._analysis
+        if kind == "comparison":
+            if self._comparisons is None:
+                raise CoreDomainError(
+                    "REHEARSAL_ANALYSIS_UNAVAILABLE", "Objection comparison is unavailable."
+                )
+            return self._comparisons
         if self._objections is None:
             raise CoreDomainError(
                 "REHEARSAL_ANALYSIS_UNAVAILABLE", "Objection analysis is unavailable."
@@ -196,12 +220,7 @@ class RehearsalAnalysisJobs:
                 job.params, cancellation_check=job.cancellation.is_set, before_persist=committing
             )
             with self._lock:
-                fields = (
-                    ("analysis_id", "finding_id")
-                    if job.analysis_kind == "coverage"
-                    else ("analysis_id", "finding_ids")
-                )
-                job.result = {key: result[key] for key in fields}
+                job.result = {key: result[key] for key in RESULT_FIELDS[job.analysis_kind]}
                 job.state = "completed"
         except (CoreDomainError, ProviderError) as error:
             code = (
@@ -245,8 +264,11 @@ class RehearsalAnalysisJobs:
                     for key, value in (
                         ("project_id", project_id),
                         ("document_id", document_id),
-                        ("session_id", session_id),
                     )
+                )
+                and (
+                    session_id is None
+                    or session_id in {job.params["session_id"], job.params.get("right_session_id")}
                 )
             ]
             for job in jobs:

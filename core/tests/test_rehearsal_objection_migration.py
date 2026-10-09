@@ -35,6 +35,8 @@ def test_populated_schema21_upgrade_preserves_reviews_audits_recording_and_nativ
         "presentation_rehearsal_reviews",
     )
     with sqlite3.connect(paths.database) as db:
+        db.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+        db.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         db.execute("DROP TABLE presentation_rehearsal_objection_findings")
         db.execute("DROP TABLE presentation_rehearsal_objection_analyses")
         db.execute("PRAGMA user_version=21")
@@ -45,8 +47,8 @@ def test_populated_schema21_upgrade_preserves_reviews_audits_recording_and_nativ
         }
     migrated = connect_project_database(paths.database)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 23
         for table in tables:
             assert [
                 tuple(r) for r in migrated.execute(f"SELECT * FROM {table} ORDER BY rowid")
@@ -79,8 +81,8 @@ def test_schema22_collision_rolls_back_both_versions_and_preserves_previous_hist
         assert db.execute("PRAGMA user_version").fetchone()[0] == 21
         assert db.execute("SELECT schema_version FROM project").fetchone()[0] == 21
         assert db.execute("SELECT COUNT(*) FROM presentation_rehearsal_analyses").fetchone()[0] == 1
-        db.execute("PRAGMA user_version=22")
-        db.execute("UPDATE project SET schema_version=22")
+        db.execute("PRAGMA user_version=23")
+        db.execute("UPDATE project SET schema_version=23")
 
 
 def test_candidate_slots_are_unique_bounded_and_cascade_with_their_analysis(rehearsal):

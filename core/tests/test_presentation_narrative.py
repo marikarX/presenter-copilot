@@ -287,6 +287,8 @@ def test_v15_narrative_migration_preserves_claim_rows(tmp_path: Path):
         scope, target, evidence = setup(core, tmp_path)
         saved = save_claim(core, scope, target, evidence)
         with core._storage.project_database(scope["project_id"]) as connection:
+            connection.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+            connection.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
             connection.execute("DROP TABLE presentation_rehearsal_objection_findings")
             connection.execute("DROP TABLE presentation_rehearsal_objection_analyses")
             connection.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -299,7 +301,7 @@ def test_v15_narrative_migration_preserves_claim_rows(tmp_path: Path):
             connection.execute("UPDATE project SET schema_version = 15")
             connection.commit()
         with core._storage.project_database(scope["project_id"]) as migrated:
-            assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
+            assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
             assert migrated.execute("SELECT COUNT(*) FROM presentation_claims").fetchone()[0] == 1
             assert (
                 migrated.execute("SELECT COUNT(*) FROM presentation_narratives").fetchone()[0] == 0

@@ -126,6 +126,8 @@ def test_v13_to_v14_preserves_existing_project_rows(tmp_path: Path) -> None:
         "default_style_policy, schema_version) "
         "VALUES ('old', 'Preserved', 'now', 'now', 'local_only', 'preserve_voice', 13)"
     )
+    connection.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+    connection.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
     connection.execute("DROP TABLE presentation_rehearsal_objection_findings")
     connection.execute("DROP TABLE presentation_rehearsal_objection_analyses")
     connection.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -141,7 +143,7 @@ def test_v13_to_v14_preserves_existing_project_rows(tmp_path: Path) -> None:
     connection.close()
     migrated = connect_project_database(path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
         assert migrated.execute("SELECT name FROM project").fetchone()[0] == "Preserved"
         assert not migrated.execute("SELECT * FROM project_picture_assets").fetchall()
     finally:

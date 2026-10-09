@@ -151,6 +151,8 @@ def test_v16_migration_keeps_intent_claims_and_new_takeaway_empty(tmp_path: Path
         scope, _, _ = setup(core, tmp_path)
         intent = save_narrative(core, scope)
         with core._storage.project_database(scope["project_id"]) as connection:
+            connection.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+            connection.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
             connection.execute("DROP TABLE presentation_rehearsal_objection_findings")
             connection.execute("DROP TABLE presentation_rehearsal_objection_analyses")
             connection.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -162,7 +164,7 @@ def test_v16_migration_keeps_intent_claims_and_new_takeaway_empty(tmp_path: Path
             connection.execute("UPDATE project SET schema_version=16")
             connection.commit()
         with core._storage.project_database(scope["project_id"]) as connection:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
             assert (
                 connection.execute("SELECT COUNT(*) FROM presentation_slide_takeaways").fetchone()[
                     0

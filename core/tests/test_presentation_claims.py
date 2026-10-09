@@ -228,6 +228,8 @@ def test_invalid_claim_links_and_confirmation_leave_no_claims(tmp_path: Path) ->
 def test_v14_claim_migration_preserves_library(tmp_path: Path) -> None:
     path = tmp_path / "project.db"
     connection = connect_project_database(path)
+    connection.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+    connection.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
     connection.execute("DROP TABLE presentation_rehearsal_objection_findings")
     connection.execute("DROP TABLE presentation_rehearsal_objection_analyses")
     connection.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -246,7 +248,7 @@ def test_v14_claim_migration_preserves_library(tmp_path: Path) -> None:
     connection.commit()
     connection.close()
     with connect_project_database(path) as migrated:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
         assert (
             migrated.execute("SELECT name FROM project_picture_assets").fetchone()[0]
             == "Preserved.png"

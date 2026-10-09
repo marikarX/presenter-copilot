@@ -43,6 +43,9 @@ from presenter_core.presentation.planning import PresentationPlanningService
 from presenter_core.presentation.rehearsal import PresentationRehearsalService
 from presenter_core.presentation.rehearsal_analysis_jobs import RehearsalAnalysisJobs
 from presenter_core.presentation.rehearsal_objection_analysis import RehearsalObjectionAnalysis
+from presenter_core.presentation.rehearsal_objection_comparison import (
+    RehearsalObjectionComparison,
+)
 from presenter_core.presentation.rehearsal_semantic_analysis import RehearsalSemanticAnalysis
 from presenter_core.presentation.revisions import (
     PresentationRevisionService,
@@ -252,6 +255,9 @@ class CoreService:
                 self._presentation_semantics, self._providers, self._provider_execution
             ),
             objections=RehearsalObjectionAnalysis(
+                self._presentation_semantics, self._providers, self._provider_execution
+            ),
+            comparisons=RehearsalObjectionComparison(
                 self._presentation_semantics, self._providers, self._provider_execution
             ),
         )
@@ -731,6 +737,24 @@ class CoreService:
             return make_response(
                 request_id, result=self._rehearsal_analysis_jobs.start_objections(params)
             )
+        if method == "presentation.workspace.start_rehearsal_objection_comparison":
+            return make_response(
+                request_id, result=self._rehearsal_analysis_jobs.start_comparison(params)
+            )
+        if method in {
+            "presentation.workspace.prepare_rehearsal_objection_comparison",
+            "presentation.workspace.list_rehearsal_objection_comparisons",
+            "presentation.workspace.get_rehearsal_objection_comparison",
+        }:
+            comparison = RehearsalObjectionComparison(self._presentation_semantics)
+            handler = {
+                "presentation.workspace.prepare_rehearsal_objection_comparison": (
+                    comparison.prepare
+                ),
+                "presentation.workspace.list_rehearsal_objection_comparisons": comparison.list,
+                "presentation.workspace.get_rehearsal_objection_comparison": comparison.read,
+            }[method]
+            return make_response(request_id, result=handler(params))
         if method == "presentation.workspace.analyze_rehearsal_coverage":
             from presenter_core.presentation.rehearsal_semantic_analysis import (
                 RehearsalSemanticAnalysis,

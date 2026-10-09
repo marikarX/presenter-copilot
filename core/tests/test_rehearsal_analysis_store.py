@@ -216,6 +216,8 @@ def test_real_schema20_upgrade_preserves_run_native_and_app_metadata(rehearsal):
     )
     path = core._storage.project_paths(scope["project_id"]).database
     with sqlite3.connect(path) as db:
+        db.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
+        db.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         db.execute("DROP TABLE presentation_rehearsal_objection_findings")
         db.execute("DROP TABLE presentation_rehearsal_objection_analyses")
         db.execute("DROP TABLE presentation_rehearsal_analyses")
@@ -235,8 +237,8 @@ def test_real_schema20_upgrade_preserves_run_native_and_app_metadata(rehearsal):
     app_before = core._storage.paths.app_database.read_bytes()
     upgraded = connect_project_database(path)
     try:
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 22
-        assert upgraded.execute("SELECT schema_version FROM project").fetchone()[0] == 22
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert upgraded.execute("SELECT schema_version FROM project").fetchone()[0] == 23
         for table, expected in rows.items():
             assert [tuple(row) for row in upgraded.execute(f"SELECT * FROM {table}")] == expected
         assert not upgraded.execute("SELECT * FROM presentation_rehearsal_analyses").fetchall()

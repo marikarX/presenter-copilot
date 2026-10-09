@@ -1047,8 +1047,8 @@ def test_v4_to_v5_migration_retains_m4_state_and_is_forward_only(tmp_path: Path)
         connection.commit()
     migrated = connect_project_database(project_path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 22
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 22
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 23
         assert (
             migrated.execute(
                 "SELECT id FROM audience_profiles WHERE id = ?", (profile_id,)
