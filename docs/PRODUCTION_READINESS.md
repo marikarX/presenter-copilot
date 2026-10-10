@@ -204,6 +204,27 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Reuse Slides (`presentation.workspace.reuse_slide`, "Reuse slides" under
+  Slide actions & layout): copies a slide from another presentation in the
+  project (from an immutable revision) to any position, PowerPoint's "use
+  destination theme" behaviour: the slide takes the destination layout of
+  the same type, else the same name, else Title and Content. Pictures (incl.
+  HD Photo), native charts, SmartArt (data, layout, style, colours and the
+  cached drawing, with their pictures), external links and speaker notes come
+  with it; a deck without a notes master takes the source's. Inherited
+  placeholder positions are written onto the slide so they survive the
+  layout change. Refused: different slide sizes, links to other slides, media,
+  embedded objects and custom table styles the destination lacks; review
+  comments stay behind. Validation checks the slide list, that every existing
+  object is unchanged, and that the new slide's objects match the source's
+  names, text, geometry, alt text and rotation. PowerPoint reads back the
+  layout, positions, chart and notes. Corpus (each deck receives up to 3
+  slides from a same-size donor): 84 reused, 7 refused (media/embedded
+  objects 4, slide links 1, other parts 1, chart dependency 1), no errors;
+  all 27 checkable decks open in PowerPoint and reused SmartArt renders like
+  the source in the destination theme (`.local/session2/corpus_reuse.py`).
+  `list_text_targets` now reports `slide_count`. `test_slide_reuse.py`;
+  `test-reuse-slides.mjs` 3/3.
 - Replace Fonts (`presentation.workspace.list_fonts` / `replace_fonts`,
   "Replace fonts" under Slide actions & layout): lists every typeface named in
   slides, layouts, masters, notes, charts, diagrams and every theme (including

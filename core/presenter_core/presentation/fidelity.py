@@ -531,6 +531,7 @@ class FidelityDocument:
         return {
             "slide_id": slide.slide_id,
             "ordinal": slide.ordinal,
+            "slide_count": len(self.slides),
             "slide_width_emu": self.slide_width_emu,
             "slide_height_emu": self.slide_height_emu,
             "has_more": len(targets) > limit,

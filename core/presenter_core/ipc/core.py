@@ -1053,6 +1053,10 @@ class CoreService:
             result = self._presentation_edits.create_slide(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.reuse_slide":
+            result = self._presentation_edits.reuse_slide(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.duplicate_slide":
             result = self._presentation_edits.duplicate_slide(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

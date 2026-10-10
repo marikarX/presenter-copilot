@@ -49,6 +49,7 @@ import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
 import { ReplaceFonts, type DeckFont } from "./ReplaceFonts";
+import { ReuseSlides, type ReuseRequest } from "./ReuseSlides";
 import {
   ComponentLibrary,
   type ComponentSelection,
@@ -5402,6 +5403,68 @@ export function PresentationWorkspace({
     themeFonts,
   ]);
 
+  const reuseSlide = useCallback(
+    async (reuse: ReuseRequest) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      if (!source || !revision || loading) return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<
+          TextEditResult & {
+            created_slide_id: string;
+            layout_name: string;
+            notes_copied: boolean;
+          }
+        >("presentation.workspace.reuse_slide", {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          source_document_id: reuse.source_document_id,
+          source_revision_id: reuse.source_revision_id,
+          source_slide_id: reuse.source_slide_id,
+          position: reuse.position,
+        });
+        if (
+          !UUID_PATTERN.test(result.revision_id) ||
+          !UUID_PATTERN.test(result.created_slide_id)
+        ) {
+          throw new Error("The reused slide could not be verified.");
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(reuse.position);
+        setNotice(
+          `Saved revision ${result.revision_number}: reused ${reuse.label} as slide ${reuse.position} with the ${result.layout_name} layout${result.notes_copied ? " and its speaker notes" : ""}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide could not be reused.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentRevision, loadPresentation, loading, project.id, selectedSource],
+  );
+
   const replaceDeckFont = useCallback(
     async (font: DeckFont, replacement: string) => {
       const source = selectedSource;
@@ -8929,6 +8992,25 @@ export function PresentationWorkspace({
                       Apply theme fonts
                     </button>
                   </fieldset>
+                ) : null}
+                {selectedSource &&
+                currentRevision &&
+                fidelityReport &&
+                loadedSourceId === selectedSource.id ? (
+                  <ReuseSlides
+                    projectId={project.id}
+                    decks={decks
+                      .filter((item) => item.id !== selectedSource.id)
+                      .map((item) => ({
+                        id: item.id,
+                        name: item.original_name,
+                      }))}
+                    slideCount={fidelityReport.slide_count}
+                    currentSlide={selectedSlide}
+                    disabled={loading || voiceWorkflowActive}
+                    request={requestCore}
+                    onReuse={(reuse) => void reuseSlide(reuse)}
+                  />
                 ) : null}
                 {selectedSource &&
                 currentRevision &&

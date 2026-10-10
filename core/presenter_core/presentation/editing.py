@@ -1617,6 +1617,11 @@ class PresentationEditService:
             ),
         }
 
+    def reuse_slide(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_reuse import reuse_slide
+
+        return reuse_slide(self, params)
+
     def duplicate_slide(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(
             params,

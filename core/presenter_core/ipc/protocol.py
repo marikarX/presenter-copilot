@@ -175,6 +175,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "presentation.workspace.list_native_layouts",
     "presentation.workspace.apply_slide_layout",
     "presentation.workspace.create_slide",
+    "presentation.workspace.reuse_slide",
     "presentation.workspace.duplicate_slide",
     "presentation.workspace.create_text_box",
     "presentation.workspace.create_picture",
