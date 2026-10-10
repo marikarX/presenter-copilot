@@ -220,7 +220,18 @@ Commits this session:
   never invented picture content.
   "Ask Copilot to add alt text" in the Accessibility panel opens the Copilot
   request prefilled for the whole presentation; nothing is sent until the
-  user submits it. `test-picture-adjust.mjs` 7/7.
+  user submits it. Untitled slides can get a title from the panel
+  (`presentation.workspace.set_slide_title`): an empty title placeholder
+  receives the text, otherwise a title placeholder is added first in reading
+  order. PowerPoint gives a placeholder no position unless the layout has a
+  matching one (a title added to a Blank-layout slide reported a 0x0 box), so
+  in that case the master title position is written explicitly; PowerPoint
+  then places both kinds of added title exactly where the app reports. The
+  same finding corrected placeholder inheritance: a slide placeholder without
+  a matching layout placeholder no longer borrows the master position (no
+  corpus placeholder was affected). Of the corpus's 227 untitled slides, 8
+  have an empty title placeholder, 131 a layout title and 88 neither.
+  `test-picture-adjust.mjs` 8/8.
 - Grouping and graphic-frame moves no longer treat PowerPoint's per-object
   identity (`a16:creationId`) or decorative extensions as unsupported
   content: group-eligible objects across the corpus went from 573 to 1135 of
@@ -644,7 +655,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.845% (median 2.714% -> 2.479%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2022 Core + 329
+edit acceptance passes on all 33 decks. Last full check 2023 Core + 329
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 

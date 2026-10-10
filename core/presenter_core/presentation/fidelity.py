@@ -749,7 +749,7 @@ def inspect_pptx_snapshot(
                     slide_part_ids[_resolve_internal_part("ppt", relation[1])] = _stable_id(
                         f"{document_id}\0identity-v1\0slide\0{slide_ref.get('id')}"
                     )
-            layout_geometry: dict[str, dict[str, dict[str, FidelityGeometry]]] = {}
+            layout_geometry: dict[str, dict[str, dict[str, Any]]] = {}
             for ordinal, slide_ref in enumerate(slide_ids, start=1):
                 ooxml_slide_id = slide_ref.get("id")
                 relationship_id = slide_ref.get(f"{{{REL_NS}}}id")
@@ -1020,7 +1020,7 @@ def _objects_for_slide(
     chart_text: dict[str, str] | None = None,
     group_picture_ids: set[str] | None = None,
     hyperlink_targets: dict[str, tuple[str, str]] | None = None,
-    inherited_geometry: dict[str, dict[str, FidelityGeometry]] | None = None,
+    inherited_geometry: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[FidelityObject, ...]:
     shape_tree = root.find(f".//{{{PRESENTATION_NS}}}spTree")
     if shape_tree is None:
@@ -1850,10 +1850,10 @@ def placeholder_geometry_map(
     archive: zipfile.ZipFile,
     members: dict[str, zipfile.ZipInfo],
     slide_part: str,
-    cache: dict[str, dict[str, dict[str, FidelityGeometry]]] | None = None,
-) -> dict[str, dict[str, FidelityGeometry]]:
-    """Explicit layout placeholder geometry by idx and type, then master geometry by type."""
-    result: dict[str, dict[str, FidelityGeometry]] = {"idx": {}, "type": {}, "master": {}}
+    cache: dict[str, dict[str, dict[str, Any]]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Layout placeholders by idx and type (geometry or None), and master geometry by type."""
+    result: dict[str, dict[str, Any]] = {"idx": {}, "idx_kind": {}, "type": {}, "master": {}}
 
     def related(part: str, kind: str) -> str | None:
         directory, name = posixpath.split(part)
@@ -1890,31 +1890,46 @@ def placeholder_geometry_map(
             continue
         for node in tree:
             identity = _placeholder_identity(node)
-            geometry = _explicit_geometry(node)
-            if identity is None or geometry is None:
+            if identity is None:
                 continue
+            geometry = _explicit_geometry(node)
             idx, kind = identity
             if bucket == "layout":
-                result["idx"].setdefault(idx, geometry)
+                # Record every layout placeholder: a match without a transform still
+                # inherits from the master, while no match means no inherited position.
+                if idx not in result["idx"]:
+                    result["idx"][idx] = geometry
+                    result["idx_kind"][idx] = kind
                 result["type"].setdefault(kind, geometry)
-            else:
+            elif geometry is not None:
                 result["master"].setdefault(_MASTER_PLACEHOLDER_KINDS.get(kind, kind), geometry)
     return result
 
 
 def _inherited_placeholder_geometry(
-    candidate: etree._Element, inherited: dict[str, dict[str, FidelityGeometry]]
+    candidate: etree._Element, inherited: dict[str, dict[str, Any]]
 ) -> FidelityGeometry | None:
-    """The layout (or master) position a slide placeholder without its own transform uses."""
+    """The position a slide placeholder without its own transform inherits.
+
+    PowerPoint resolves it through the matching layout placeholder (by idx, then type);
+    that placeholder may inherit from the master. Without a layout match there is none.
+    """
     identity = _placeholder_identity(candidate)
     if identity is None or not inherited:
         return None
     idx, kind = identity
-    return (
-        inherited.get("idx", {}).get(idx)
-        or inherited.get("type", {}).get(kind)
-        or inherited.get("master", {}).get(_MASTER_PLACEHOLDER_KINDS.get(kind, kind))
+    if idx in inherited.get("idx", {}):
+        geometry, layout_kind = inherited["idx"][idx], inherited["idx_kind"][idx]
+    elif kind in inherited.get("type", {}):
+        geometry, layout_kind = inherited["type"][kind], kind
+    else:
+        return None
+    if geometry is not None:
+        return cast(FidelityGeometry, geometry)
+    master = inherited.get("master", {}).get(
+        _MASTER_PLACEHOLDER_KINDS.get(layout_kind, layout_kind)
     )
+    return cast(FidelityGeometry | None, master)
 
 
 def _geometry_for_object(

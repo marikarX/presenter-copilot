@@ -4894,6 +4894,87 @@ export function PresentationWorkspace({
     }
   }, [currentRevision, loadedSourceId, loading, project.id, selectedSource]);
 
+  const addSlideTitle = useCallback(
+    async (issue: AccessibilityIssue, title: string) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      if (
+        !source ||
+        !revision ||
+        loadedSourceId !== source.id ||
+        loading ||
+        !title
+      )
+        return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_slide_title",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: issue.slide_id,
+            title,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number)
+        ) {
+          throw new Error("The slide title revision could not be verified.");
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(issue.slide_number);
+        const refreshed = await requestCore<unknown>(
+          "presentation.workspace.check_accessibility",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            revision_id: result.revision_id,
+          },
+        );
+        if (isAccessibilityResult(refreshed)) setAccessibility(refreshed);
+        setNotice(
+          `Saved revision ${result.revision_number} with a title on slide ${issue.slide_number}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide title could not be added.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedSource,
+    ],
+  );
+
   const goToAccessibilityIssue = useCallback(
     (issue: AccessibilityIssue) => {
       if (issue.object_id) setInspectorPanel("objects");
@@ -8346,6 +8427,9 @@ export function PresentationWorkspace({
                   disabled={loading || !currentRevision || !loadedSourceId}
                   onCheck={() => void checkAccessibility()}
                   onGo={goToAccessibilityIssue}
+                  onAddTitle={(issue, title) =>
+                    void addSlideTitle(issue, title)
+                  }
                   onAskCopilot={() =>
                     setCopilotPrefill({
                       instruction:

@@ -284,6 +284,25 @@ try {
   checks.push(
     "Ask Copilot prefills a whole-presentation alt-text request without sending it",
   );
+  // Close the prefilled (unsent) Copilot request before editing the slide.
+  await page.keyboard.press("Escape");
+  await page
+    .getByLabel("Copilot edit request", { exact: true })
+    .waitFor({ state: "hidden" });
+  await page
+    .getByLabel("Title for slide 1", { exact: true })
+    .fill("Pilot revenue");
+  await page
+    .getByRole("button", { name: "Add title to slide 1", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 7", { exact: true }).waitFor();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "1 missing alt text · 0 slides without a title" })
+    .waitFor();
+  checks.push(
+    "Add title gives the untitled slide a title and the check clears it",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

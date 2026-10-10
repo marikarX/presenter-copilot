@@ -2640,3 +2640,18 @@ h1 {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+.pw-accessibility-title {
+  display: flex;
+  flex: 1 1 12rem;
+  gap: 6px;
+}
+
+.pw-accessibility-title input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pw-accessibility-list li {
+  flex-wrap: wrap;
+}

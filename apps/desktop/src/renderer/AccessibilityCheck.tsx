@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export type AccessibilityIssue = {
   issue: "missing_alt_text" | "missing_slide_title";
   slide_id: string;
@@ -43,6 +45,7 @@ export function AccessibilityCheck({
   onCheck,
   onGo,
   onAskCopilot,
+  onAddTitle,
 }: {
   result: AccessibilityResult | null;
   current: boolean;
@@ -50,7 +53,9 @@ export function AccessibilityCheck({
   onCheck: () => void;
   onGo: (issue: AccessibilityIssue) => void;
   onAskCopilot?: () => void;
+  onAddTitle?: (issue: AccessibilityIssue, title: string) => void;
 }) {
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const missingAlt =
     result?.issues.filter((item) => item.issue === "missing_alt_text") ?? [];
   const missingTitles =
@@ -98,6 +103,37 @@ export function AccessibilityCheck({
                       ? `${item.name ?? "Object"} (${item.object_type ?? "object"}) has no alt text`
                       : "no slide title"}
                   </span>
+                  {item.issue === "missing_slide_title" && onAddTitle ? (
+                    <span className="pw-accessibility-title">
+                      <input
+                        type="text"
+                        maxLength={255}
+                        aria-label={`Title for slide ${item.slide_number}`}
+                        placeholder="Slide title"
+                        value={titles[item.slide_id] ?? ""}
+                        onChange={(event) =>
+                          setTitles((current) => ({
+                            ...current,
+                            [item.slide_id]: event.target.value,
+                          }))
+                        }
+                        disabled={disabled}
+                      />
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-label={`Add title to slide ${item.slide_number}`}
+                        onClick={() =>
+                          onAddTitle(item, (titles[item.slide_id] ?? "").trim())
+                        }
+                        disabled={
+                          disabled || !(titles[item.slide_id] ?? "").trim()
+                        }
+                      >
+                        Add title
+                      </button>
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     className="secondary-button"
