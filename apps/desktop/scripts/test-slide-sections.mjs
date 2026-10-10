@@ -238,6 +238,61 @@ try {
   checks.push(
     "Dragging slide 3 onto slide 1 in the slide strip moves it first as one revision",
   );
+
+  await page
+    .getByRole("group", { name: "Slide studio panels" })
+    .getByRole("button", { name: "Objects", exact: true })
+    .click();
+  const objectPicker = page.getByRole("combobox", {
+    name: "Object to edit",
+    exact: true,
+  });
+  const titleOption = await objectPicker
+    .locator("option")
+    .filter({ hasText: /^Title/ })
+    .first()
+    .getAttribute("value");
+  await objectPicker.selectOption(titleOption);
+  await page
+    .getByLabel("Click action", { exact: true })
+    .selectOption({ label: "Go to a slide" });
+  await page
+    .getByLabel("Click action slide", { exact: true })
+    .selectOption({ label: "Slide 3" });
+  await page
+    .getByRole("button", { name: "Apply click action", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 6", { exact: true }).waitFor();
+  const linked = await ask("presentation.workspace.list_text_targets", {
+    project_id: project,
+    document_id: document,
+    revision_id: (
+      await ask("presentation.workspace.list_revisions", {
+        project_id: project,
+        document_id: document,
+      })
+    ).current_revision_id,
+    slide_number: 1,
+  });
+  const lastSlide = (
+    await ask("presentation.workspace.list_text_targets", {
+      project_id: project,
+      document_id: document,
+      revision_id: linked.revision_id,
+      slide_number: 3,
+    })
+  ).slide_id;
+  const titleObject = linked.objects.find(
+    (item) => item.object_id === titleOption,
+  );
+  assert.deepEqual(titleObject.click_action, {
+    kind: "slide",
+    url: null,
+    slide_id: lastSlide,
+  });
+  checks.push(
+    "GUI makes slide 1's title jump to slide 3 as one native revision",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

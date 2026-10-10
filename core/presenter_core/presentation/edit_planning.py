@@ -740,6 +740,7 @@ class PresentationEditPlanningService:
                 obj["alt_text_missing"] = True
             obj.pop("geometry_inherited", None)
             obj.pop("group_id", None)
+            obj.pop("click_action", None)
             # Present edit capabilities in the units the plan schema uses.
             rotation = obj.get("rotation")
             if rotation is not None:

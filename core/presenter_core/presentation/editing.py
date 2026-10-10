@@ -2171,6 +2171,11 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def set_click_action(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.click_actions import set_click_action
+
+        return set_click_action(self, params)
+
     def set_slide_title(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_title import set_slide_title
 

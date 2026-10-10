@@ -204,6 +204,16 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Click actions on shapes, pictures and groups
+  (`presentation.workspace.set_click_action`, "Click action" in the Objects
+  panel): nothing, open a web link (http/https/mailto only), go to a slide,
+  or next / previous / first / last slide, replacing the object's
+  `hlinkClick` and cleaning up the relationship it used. Media, macro,
+  program and hover actions stay read-only. PowerPoint reads back the slide
+  jump (sub-address `258,3,` for slide 3), the web address, and the
+  previous/last actions. The corpus has 39 shape-level links in 4 decks
+  (30 slide jumps, 2 web links, next/previous, 5 media); all but the media
+  ones are editable. `test-slide-sections.mjs` 7/7.
 - Accessibility check (`presentation.workspace.check_accessibility`,
   "Accessibility" in slide actions): lists pictures, charts, other graphics
   and top-level groups without alt text (decorative objects and tables
@@ -655,7 +665,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.845% (median 2.714% -> 2.479%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2023 Core + 329
+edit acceptance passes on all 33 decks. Last full check 2024 Core + 329
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 

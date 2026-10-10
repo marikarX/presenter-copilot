@@ -179,6 +179,18 @@ class FidelityHyperlink:
 
 
 @dataclass(frozen=True)
+class FidelityClickAction:
+    """What clicking an object does in a slide show.
+
+    kind: none, url, slide, next, previous, first or last.
+    """
+
+    kind: str = "none"
+    url: str | None = None
+    slide_id: str | None = None
+
+
+@dataclass(frozen=True)
 class FidelityRotation:
     """Direct slide-level rotation (60000ths of a degree, normalized) and flips."""
 
@@ -302,6 +314,41 @@ def refresh_creation_ids(node: etree._Element) -> None:
         identity.set("id", "{" + str(uuid.uuid4()).upper() + "}")
 
 
+SHOW_JUMP_ACTION = "ppaction://hlinkshowjump?jump="
+SHOW_JUMPS = {
+    "nextslide": "next",
+    "previousslide": "previous",
+    "firstslide": "first",
+    "lastslide": "last",
+}
+
+
+def object_click_action(
+    nonvisual: etree._Element, targets: dict[str, tuple[str, str]]
+) -> FidelityClickAction | None:
+    """The object's click action, or None when it is one this editor leaves alone
+    (media, macros, programs, hover links, sounds)."""
+    if nonvisual.find(f"{{{DRAWING_NS}}}hlinkHover") is not None:
+        return None
+    links = nonvisual.findall(f"{{{DRAWING_NS}}}hlinkClick")
+    if not links:
+        return FidelityClickAction()
+    link = links[0]
+    if len(links) != 1 or len(link) or not set(link.attrib) <= _HYPERLINK_ATTRIBUTES:
+        return None
+    action = link.get("action")
+    relationship = targets.get(link.get(f"{{{REL_NS}}}id") or "")
+    if action is None and relationship is not None and relationship[0] == "url":
+        return FidelityClickAction(kind="url", url=relationship[1])
+    if action == SLIDE_JUMP_ACTION and relationship is not None and relationship[0] == "slide":
+        return FidelityClickAction(kind="slide", slide_id=relationship[1])
+    if action is not None and action.startswith(SHOW_JUMP_ACTION):
+        jump = SHOW_JUMPS.get(action[len(SHOW_JUMP_ACTION) :])
+        if jump is not None:
+            return FidelityClickAction(kind=jump)
+    return None
+
+
 def object_alt_text(nonvisual: etree._Element) -> tuple[str, bool]:
     """An object's alt text (cNvPr@descr) and PowerPoint's "Mark as decorative" flag."""
     flags = nonvisual.xpath(
@@ -390,6 +437,7 @@ class FidelityObject:
     geometry_inherited: bool = False
     group_child: bool = False
     group_id: str | None = None
+    click_action: FidelityClickAction | None = None
 
 
 @dataclass(frozen=True)
@@ -598,6 +646,15 @@ class FidelityDocument:
                     "geometry_inherited": obj.geometry_inherited,
                     "group_child": obj.group_child,
                     "group_id": obj.group_id,
+                    "click_action": (
+                        {
+                            "kind": obj.click_action.kind,
+                            "url": obj.click_action.url,
+                            "slide_id": obj.click_action.slide_id,
+                        }
+                        if obj.click_action is not None
+                        else None
+                    ),
                     "shape_style": (
                         {
                             "editable": obj.shape_style.editable,
@@ -1043,6 +1100,11 @@ def _objects_for_slide(
         seen_ooxml_ids.add(ooxml_id)
         name = nonvisual[0].get("name") or f"{kind} {ooxml_id}"
         alt_text, decorative = object_alt_text(nonvisual[0])
+        click_action = (
+            object_click_action(nonvisual[0], hyperlink_targets or {})
+            if kind in {"sp", "pic", "grpSp"} and not alternate_content
+            else None
+        )
         paragraphs = candidate.xpath("./p:txBody/a:p", namespaces=_NS)
         text = "\n".join(
             "".join(part.text or "" for part in paragraph.xpath(".//a:t", namespaces=_NS))
@@ -1239,6 +1301,7 @@ def _objects_for_slide(
                 decorative=decorative,
                 geometry_inherited=geometry_inherited,
                 group_child=group_child,
+                click_action=click_action,
                 group_id=(
                     _stable_id(
                         f"{document_id}\0identity-v1\0slide\0{ooxml_slide_id}\0object\0{group_ooxml_id}"

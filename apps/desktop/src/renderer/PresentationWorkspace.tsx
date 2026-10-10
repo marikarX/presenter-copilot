@@ -48,6 +48,7 @@ import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
+import { ClickActionEditor, type ClickAction } from "./ClickActionEditor";
 import {
   AccessibilityCheck,
   isAccessibilityResult,
@@ -511,6 +512,7 @@ type PresentationObject = {
   decorative?: boolean;
   group_child?: boolean;
   group_id?: string | null;
+  click_action?: ClickAction | null;
 };
 
 type GeometryDraft = {
@@ -4981,6 +4983,89 @@ export function PresentationWorkspace({
       void loadPresentation(issue.slide_number, issue.object_id ?? undefined);
     },
     [loadPresentation],
+  );
+
+  const saveClickAction = useCallback(
+    async (action: ClickAction) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const object = selectedObject;
+      if (
+        !source ||
+        !revision ||
+        !object?.click_action ||
+        !UUID_PATTERN.test(activeSlideId) ||
+        loadedSourceId !== source.id ||
+        loading
+      )
+        return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_click_action",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            object_id: object.object_id,
+            expected_click_action: object.click_action,
+            click_action: action,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number)
+        ) {
+          throw new Error("The click action revision could not be verified.");
+        }
+        if (!result.changed) {
+          setNotice("The click action is unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, object.object_id);
+        setNotice(
+          `Saved revision ${result.revision_number} with the click action for ${object.name}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The click action could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObject,
+      selectedSlide,
+      selectedSource,
+    ],
   );
 
   const saveAltText = useCallback(
@@ -10817,6 +10902,15 @@ export function PresentationWorkspace({
                         ))}
                       </select>
                     </label>
+                    {selectedObject?.click_action ? (
+                      <ClickActionEditor
+                        objectId={selectedObject.object_id}
+                        action={selectedObject.click_action}
+                        slides={fidelityReport?.slides ?? []}
+                        disabled={loading || !currentRevision}
+                        onApply={(action) => void saveClickAction(action)}
+                      />
+                    ) : null}
                     {selectedObject &&
                     typeof selectedObject.alt_text === "string" ? (
                       <AltTextEditor
