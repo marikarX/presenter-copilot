@@ -379,6 +379,15 @@ type ShapeStyle = {
   shadow_editable?: boolean;
 };
 
+const SLIDE_TRANSITIONS: ReadonlyArray<[string, string]> = [
+  ["none", "No transition"],
+  ["fade", "Fade"],
+  ["push", "Push"],
+  ["wipe", "Wipe"],
+  ["split", "Split"],
+  ["cut", "Cut"],
+];
+
 const SHAPE_LINE_DASHES: ReadonlyArray<[string, string]> = [
   ["solid", "Solid"],
   ["dash", "Dash"],
@@ -490,6 +499,7 @@ type TextTargetInventory = {
   objects_have_more: boolean;
   background?: SlideBackground;
   hidden?: boolean;
+  transition?: string | null;
   speaker_notes: {
     current_text: string | null;
     text_truncated: boolean;
@@ -1330,6 +1340,9 @@ export function PresentationWorkspace({
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [linkDraft, setLinkDraft] = useState({ objectId: "", value: "" });
   const [slideHidden, setSlideHidden] = useState<boolean | null>(null);
+  const [slideTransition, setSlideTransition] = useState<
+    string | null | undefined
+  >(undefined);
   const [slideBackground, setSlideBackground] =
     useState<SlideBackground | null>(null);
   const [slideBackgroundDraft, setSlideBackgroundDraft] = useState("#FFFFFF");
@@ -2336,6 +2349,7 @@ export function PresentationWorkspace({
       setSpeakerNotesDraft("");
       setSlideBackground(null);
       setSlideHidden(null);
+      setSlideTransition(undefined);
       setWorkspaceObjects([]);
       setSelectedObjectId("");
       setDeleteConfirmationObjectId("");
@@ -2618,6 +2632,15 @@ export function PresentationWorkspace({
         setSlideBackground(background);
         setSlideHidden(
           typeof inventory.hidden === "boolean" ? inventory.hidden : null,
+        );
+        setSlideTransition(
+          inventory.transition === null ||
+            (typeof inventory.transition === "string" &&
+              SLIDE_TRANSITIONS.some(
+                ([value]) => value === inventory.transition,
+              ))
+            ? inventory.transition
+            : undefined,
         );
         setSlideBackgroundDraft(background?.color ?? "#FFFFFF");
         const firstTarget =
@@ -4576,6 +4599,94 @@ export function PresentationWorkspace({
       selectedSource,
       selectedTarget,
       selectedTextLink,
+    ],
+  );
+
+  const saveSlideTransitionRevision = useCallback(
+    async (transition: string) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const current = slideTransition;
+      if (
+        !source ||
+        !revision ||
+        typeof current !== "string" ||
+        current === transition ||
+        !UUID_PATTERN.test(activeSlideId) ||
+        loadedSourceId !== source.id ||
+        loading
+      ) {
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_slide_transition",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            expected_transition: current,
+            transition,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number) ||
+          result.revision_number < 1 ||
+          !/^[0-9a-f]{64}$/.test(result.sha256) ||
+          !Number.isSafeInteger(result.byte_size) ||
+          result.byte_size < 1 ||
+          (result.changed && result.parent_revision_id !== revision.revision_id)
+        ) {
+          throw new Error(
+            "The slide transition revision could not be verified.",
+          );
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, selectedObjectId || undefined);
+        setNotice(
+          `Saved revision ${result.revision_number} and refreshed the slide transition.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide transition could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObjectId,
+      selectedSlide,
+      selectedSource,
+      slideTransition,
     ],
   );
 
@@ -7343,6 +7454,31 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                <label>
+                  Slide transition
+                  <select
+                    aria-label="Slide transition"
+                    value={slideTransition ?? ""}
+                    onChange={(event) =>
+                      void saveSlideTransitionRevision(event.target.value)
+                    }
+                    disabled={
+                      !loadedSourceId ||
+                      !currentRevision ||
+                      typeof slideTransition !== "string" ||
+                      loading
+                    }
+                  >
+                    {slideTransition === null ? (
+                      <option value="">Effect kept as is (read-only)</option>
+                    ) : null}
+                    {SLIDE_TRANSITIONS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
                   className="secondary-button"

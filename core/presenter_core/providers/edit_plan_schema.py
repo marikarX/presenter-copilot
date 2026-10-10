@@ -203,6 +203,9 @@ PARAMETER_SCHEMAS = {
         }
     ),
     "set_slide_hidden": _object({"slide_id": _ID, "hidden": {"type": "boolean"}}),
+    "set_slide_transition": _object(
+        {"slide_id": _ID, "transition": _choice("none", "fade", "push", "wipe", "split", "cut")}
+    ),
     "set_slide_background": _object(
         {"slide_id": _ID, "replacement_color": {"anyOf": [_text(7, 7), {"type": "null"}]}}
     ),

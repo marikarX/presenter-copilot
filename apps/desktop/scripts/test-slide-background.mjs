@@ -220,6 +220,23 @@ try {
     .getByRole("button", { name: "Show slide in slide show", exact: true })
     .waitFor();
   checks.push("GUI hides slide 1 from the slide show as one native revision");
+  await page
+    .getByLabel("Slide transition", { exact: true })
+    .selectOption("fade");
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  const transition = await ask("presentation.workspace.list_text_targets", {
+    project_id: project,
+    document_id: document,
+    revision_id: (
+      await ask("presentation.workspace.list_revisions", {
+        project_id: project,
+        document_id: document,
+      })
+    ).current_revision_id,
+    slide_number: 1,
+  });
+  assert.deepEqual([transition.transition, transition.hidden], ["fade", true]);
+  checks.push("GUI sets a fade transition while keeping the slide hidden");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

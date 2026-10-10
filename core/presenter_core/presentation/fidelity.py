@@ -331,6 +331,7 @@ class FidelitySlide:
     speaker_notes_editable: bool = False
     background: FidelityBackground | None = None
     hidden: bool = False
+    transition: str | None = "none"
 
 
 @dataclass(frozen=True)
@@ -417,6 +418,7 @@ class FidelityDocument:
                 for obj in semantic[:limit]
             ],
             "hidden": slide.hidden,
+            "transition": slide.transition,
             "background": (
                 {
                     "state": slide.background.state,
@@ -713,6 +715,7 @@ def inspect_pptx_snapshot(
                         speaker_notes_editable=notes_editable,
                         background=slide_background(slide_root),
                         hidden=slide_hidden(slide_root),
+                        transition=slide_transition(slide_root),
                     )
                 )
             result = FidelityDocument(
@@ -1450,6 +1453,28 @@ _BACKGROUND_FILLS = frozenset(
     f"{{{DRAWING_NS}}}{name}"
     for name in ("noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill")
 )
+
+
+SLIDE_TRANSITIONS = frozenset({"none", "fade", "push", "wipe", "split", "cut"})
+
+
+def slide_transition(slide_root: etree._Element) -> str | None:
+    """Basic transition name; None for alternate-content or unsupported effects."""
+    if any(etree.QName(child).localname == "AlternateContent" for child in slide_root):
+        return None
+    transitions = slide_root.findall(f"{{{PRESENTATION_NS}}}transition")
+    if not transitions:
+        return "none"
+    effects = list(transitions[0])
+    if len(transitions) != 1 or len(effects) > 1:
+        return None
+    if not effects:
+        return "none"
+    effect = effects[0]
+    name = str(etree.QName(effect).localname)
+    if effect.tag != f"{{{PRESENTATION_NS}}}{name}" or name not in SLIDE_TRANSITIONS:
+        return None
+    return name
 
 
 def slide_hidden(slide_root: etree._Element) -> bool:

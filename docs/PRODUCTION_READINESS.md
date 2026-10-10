@@ -96,6 +96,11 @@ Commits this session:
   slides like a PowerPoint slide show, reading them from the session's bound
   revision; an explicit jump can still land on one, and live PowerPoint
   tracking already follows the show.
+- Basic slide transitions (none, fade, push, wipe, split, cut; medium speed)
+  are a reviewed edit (`presentation.workspace.set_slide_transition`, "Slide
+  transition" picker and Copilot plans); `p:transition` is placed before
+  timing, and alternate-content (newer) effects stay read-only. PowerPoint
+  reads back the push effect at medium speed. `test-slide-background.mjs` 6/6.
   `test-slide-background.mjs` 5/5.
 - Shape fill transparency (0-100%, solid fill `a:alpha`) is a shape-style
   property in the Objects panel and Copilot plans. Imported fills with a
