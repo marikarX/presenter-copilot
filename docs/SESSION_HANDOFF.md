@@ -132,6 +132,8 @@ Commits this session:
   stay read-only because they are usually system colors tied to text and
   background contrast. Decks whose masters carry different palettes are
   reported as not editable rather than flattened to one palette.
+  PowerPoint reports the new Accent 1, the untouched Accent 2, and a
+  theme-styled shape still bound to Accent 1 rendering in the new color.
   `test-slide-footers.mjs` 5/5. Real-deck acceptance (33 decks, chained after
   the edits below): theme fonts 33, theme colors 30 (3 multi-palette decks
   skipped), no edit errors, all 28 PowerPoint-eligible decks open.
