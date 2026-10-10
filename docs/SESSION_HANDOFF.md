@@ -174,7 +174,8 @@ Commits this session:
   duplicate. `test-slide-sections.mjs` 5/5.
   Real-deck acceptance (33 decks): sections applied on 32 (one single-slide
   deck skipped); duplicate + delete inside the new sections kept every
-  section consistent on all 26 decks where the slide can be duplicated.
+  section consistent on 31 decks (after the media/notes fixes below; the one
+  refusal is an OLE/VML slide), and all 28 PowerPoint-eligible decks open.
 - Duplicate and delete now accept speaker notes whose notes part omits the
   notes-to-slide back reference (3 corpus decks' producer); the duplicate
   gains the back reference PowerPoint writes. Previously both were refused as
