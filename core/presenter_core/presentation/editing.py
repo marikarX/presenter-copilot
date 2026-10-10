@@ -2156,6 +2156,11 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def set_alt_text(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.alt_text import set_alt_text
+
+        return set_alt_text(self, params)
+
     def get_slide_sections(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_sections import get_slide_sections
 

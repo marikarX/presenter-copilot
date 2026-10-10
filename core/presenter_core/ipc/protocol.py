@@ -147,6 +147,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "presentation.workspace.find_text",
     "presentation.workspace.replace_text_all",
     "presentation.workspace.set_text_hyperlink",
+    "presentation.workspace.set_alt_text",
     "presentation.workspace.get_slide_sections",
     "presentation.workspace.set_slide_sections",
     "presentation.workspace.get_slide_animations",

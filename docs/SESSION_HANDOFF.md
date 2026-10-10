@@ -195,6 +195,17 @@ Commits this session:
   22-ethiopia-energy-modelling; PowerPoint shows the movie on both slides
   after duplicating and on the copy after deleting the original. Slides with
   OLE objects and legacy VML drawings stay refused.
+- Alt text: every object reports its alt text (`cNvPr@descr`) and
+  PowerPoint's "Mark as decorative" flag (`adec:decorative`), and
+  `presentation.workspace.set_alt_text` / the "Alt text" controls in the
+  Objects panel change them as one revision, guarded by the previous values.
+  PowerPoint reads back the written alt text and `Shape.Decorative`. The
+  planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Grouping and graphic-frame moves no longer treat PowerPoint's per-object
+  identity (`a16:creationId`) or decorative extensions as unsupported
+  content: group-eligible objects across the corpus went from 573 to 1135 of
+  5492, and PowerPoint shows the new groups on 12 sampled decks. Any other
+  extension still keeps an object out of groups.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

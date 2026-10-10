@@ -728,6 +728,9 @@ class PresentationEditPlanningService:
             result["speaker_notes_editable"] = False
         for obj in result["objects"]:
             obj.pop("ooxml_id")
+            # Accessibility metadata is edited in the Objects panel, not by plans.
+            obj.pop("alt_text", None)
+            obj.pop("decorative", None)
             # Present edit capabilities in the units the plan schema uses.
             rotation = obj.get("rotation")
             if rotation is not None:

@@ -18,6 +18,7 @@ from presenter_core.presentation.fidelity import (
     _parse_xml_part,
     _relationships,
     _resolve_internal_part,
+    has_unsafe_extensions,
 )
 
 
@@ -97,7 +98,7 @@ def group_reason(node: Any, root: Any, picture_ids: set[str], depth: int = 0) ->
         namespaces=_NS,
     ):
         return "Groups with inherited visibility or click actions are read-only."
-    if node.xpath(".//p:ph | .//p:extLst | .//a:extLst", namespaces=_NS):
+    if has_unsafe_extensions(node):
         return "Placeholders and extended objects cannot join a native group."
     identity = node.xpath("./*/p:cNvPr/@id", namespaces=_NS)
     targets = root.xpath("./p:timing//@spid | .//a:stCxn/@id | .//a:endCxn/@id", namespaces=_NS)

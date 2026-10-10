@@ -47,6 +47,7 @@ import {
 import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
+import { AltTextEditor } from "./AltTextEditor";
 import {
   SlideSections,
   isSlideSectionState,
@@ -500,6 +501,8 @@ type PresentationObject = {
   rotation?: ObjectRotation | null;
   hyperlink?: { url: string | null; slide_id?: string | null } | null;
   shape_style: ShapeStyle | null;
+  alt_text?: string | null;
+  decorative?: boolean;
 };
 
 type GeometryDraft = {
@@ -4841,6 +4844,92 @@ export function PresentationWorkspace({
     }
     return starts;
   }, [currentRevision?.revision_id, slideSections]);
+
+  const saveAltText = useCallback(
+    async (text: string, decorative: boolean) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const object = selectedObject;
+      if (
+        !source ||
+        !revision ||
+        !object ||
+        typeof object.alt_text !== "string" ||
+        !UUID_PATTERN.test(activeSlideId) ||
+        loadedSourceId !== source.id ||
+        loading
+      )
+        return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_alt_text",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            object_id: object.object_id,
+            expected_alt_text: object.alt_text,
+            expected_decorative: object.decorative === true,
+            alt_text: text,
+            decorative,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number)
+        ) {
+          throw new Error("The alt text revision could not be verified.");
+        }
+        if (!result.changed) {
+          setNotice("The alt text is unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, object.object_id);
+        setNotice(
+          `Saved revision ${result.revision_number} with the ${decorative ? "decorative flag" : "alt text"} for ${object.name}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The alt text could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObject,
+      selectedSlide,
+      selectedSource,
+    ],
+  );
 
   const saveSlideSections = useCallback(
     async (sections: SlideSectionDraft[]) => {
@@ -10521,6 +10610,18 @@ export function PresentationWorkspace({
                         ))}
                       </select>
                     </label>
+                    {selectedObject &&
+                    typeof selectedObject.alt_text === "string" ? (
+                      <AltTextEditor
+                        objectId={selectedObject.object_id}
+                        altText={selectedObject.alt_text}
+                        decorative={selectedObject.decorative === true}
+                        disabled={loading || !currentRevision}
+                        onApply={(text, decorative) =>
+                          void saveAltText(text, decorative)
+                        }
+                      />
+                    ) : null}
                     {selectedObject?.geometry_editable &&
                     selectedObject.geometry ? (
                       <>

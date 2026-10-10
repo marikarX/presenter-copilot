@@ -215,6 +215,30 @@ try {
   await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
   assert.equal((await target()).shape_style.line_color, "#1F3A5F");
   checks.push("GUI adds a navy picture border as one native revision");
+  const altApply = page.getByRole("button", {
+    name: "Apply alt text",
+    exact: true,
+  });
+  await page
+    .getByLabel("Alt text", { exact: true })
+    .fill("Orange block standing in for the pilot chart");
+  await altApply.click();
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  assert.deepEqual(
+    [(await target()).alt_text, (await target()).decorative],
+    ["Orange block standing in for the pilot chart", false],
+  );
+  assert.equal(await altApply.isDisabled(), true, "Alt text reads back");
+  await page.getByLabel("Mark as decorative", { exact: true }).check();
+  await altApply.click();
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  assert.deepEqual(
+    [(await target()).alt_text, (await target()).decorative],
+    ["", true],
+  );
+  checks.push(
+    "GUI writes alt text, then marks the picture decorative, as native revisions",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

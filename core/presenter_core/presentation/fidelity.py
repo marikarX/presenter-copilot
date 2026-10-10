@@ -254,6 +254,47 @@ class FidelityShapeStyle:
     line_format_editable: bool = False
 
 
+DECORATIVE_EXT_URI = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
+DECORATIVE_NS = "http://schemas.microsoft.com/office/drawing/2017/decorative"
+
+
+# cNvPr extensions that carry identity or accessibility only (a16:creationId,
+# adec:decorative); they move with the object and never change its rendering.
+BENIGN_NONVISUAL_EXTENSIONS = frozenset(
+    {"{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}", DECORATIVE_EXT_URI}
+)
+
+
+def has_unsafe_extensions(node: etree._Element) -> bool:
+    """Placeholders or extension lists other than benign cNvPr metadata."""
+    if node.xpath(".//p:ph", namespaces=_NS):
+        return True
+    for extensions in node.xpath(".//p:extLst | .//a:extLst", namespaces=_NS):
+        parent = extensions.getparent()
+        if (
+            parent is None
+            or etree.QName(parent).localname != "cNvPr"
+            or any(
+                child.tag != f"{{{DRAWING_NS}}}ext"
+                or child.get("uri") not in BENIGN_NONVISUAL_EXTENSIONS
+                for child in extensions
+                if isinstance(child.tag, str)
+            )
+        ):
+            return True
+    return False
+
+
+def object_alt_text(nonvisual: etree._Element) -> tuple[str, bool]:
+    """An object's alt text (cNvPr@descr) and PowerPoint's "Mark as decorative" flag."""
+    flags = nonvisual.xpath(
+        "./a:extLst/a:ext[@uri=$uri]/*[local-name()='decorative']/@val",
+        namespaces=_NS,
+        uri=DECORATIVE_EXT_URI,
+    )
+    return nonvisual.get("descr", ""), bool(flags) and flags[0] in {"1", "true"}
+
+
 # Preset shape types offered for "change shape" (a:prstGeom@prst).
 SHAPE_GEOMETRIES = frozenset(
     {
@@ -327,6 +368,8 @@ class FidelityObject:
     hyperlink: FidelityHyperlink | None = None
     shape_style: FidelityShapeStyle | None = None
     semantic_source_kind: str | None = None
+    alt_text: str | None = None
+    decorative: bool = False
 
 
 @dataclass(frozen=True)
@@ -530,6 +573,8 @@ class FidelityDocument:
                     "delete_editable": obj.delete_editable,
                     "group_editable": obj.group_editable,
                     "group_reason": obj.group_reason,
+                    "alt_text": obj.alt_text,
+                    "decorative": obj.decorative,
                     "shape_style": (
                         {
                             "editable": obj.shape_style.editable,
@@ -969,6 +1014,7 @@ def _objects_for_slide(
             raise _invalid_package()
         seen_ooxml_ids.add(ooxml_id)
         name = nonvisual[0].get("name") or f"{kind} {ooxml_id}"
+        alt_text, decorative = object_alt_text(nonvisual[0])
         paragraphs = candidate.xpath("./p:txBody/a:p", namespaces=_NS)
         text = "\n".join(
             "".join(part.text or "" for part in paragraph.xpath(".//a:t", namespaces=_NS))
@@ -1108,6 +1154,8 @@ def _objects_for_slide(
                     else None
                 ),
                 shape_style=shape_style,
+                alt_text=None if alternate_content else alt_text,
+                decorative=decorative,
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
                 else semantic_kind,
@@ -1735,7 +1783,7 @@ def _geometry_for_object(
 def _graphic_frame_geometry_supported(
     candidate: etree._Element, geometry: FidelityGeometry
 ) -> bool:
-    if candidate.xpath(".//p:ph | .//p:extLst | .//a:extLst", namespaces=_NS):
+    if has_unsafe_extensions(candidate):
         return False
     data = candidate.findall("a:graphic/a:graphicData", _NS)
     if len(data) != 1 or len(data[0]) != 1:
