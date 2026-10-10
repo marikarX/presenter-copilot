@@ -218,7 +218,10 @@ Commits this session:
   Corpus: 78 paints across 28 decks, 6 alternate-content refusals, no
   errors; all 28 eligible decks open in PowerPoint
   (`.local/session2/corpus_format_painter.py`). `test_format_painter.py`;
-  `test-format-painter.mjs` 3/3.
+  `test-format-painter.mjs` 3/3. Copilot plans can propose
+  `copy_object_format` ("make these match that card"); targets must be in the
+  selection, the source may be any shape or picture on the slide, and the
+  review names the source and targets.
 - Reusable components (project schema 24, `presentation_components`):
   `presentation.workspace.save_component` stores a named selection of 1-20
   top-level objects that pass the paste checks, as a reference to one slide

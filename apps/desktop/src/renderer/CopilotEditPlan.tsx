@@ -83,6 +83,7 @@ const labels: Record<string, string> = {
   set_slide_transition: "Change the slide transition",
   set_slide_animations: "Change the slide animations",
   set_alt_text: "Change the alt text",
+  copy_object_format: "Copy one object's format onto others",
   set_theme_fonts: "Change the theme fonts",
   set_theme_colors: "Change the theme colors",
   set_slide_sections: "Change the slide sections",
@@ -143,6 +144,17 @@ function GroupTargets({ data }: { data: Record<string, unknown> | undefined }) {
       </div>
     );
   }
+  if (
+    typeof data.format_source === "string" &&
+    Array.isArray(data.format_targets)
+  )
+    return (
+      <p>
+        Copy the format of {data.format_source} onto{" "}
+        {data.format_targets.map(String).join(", ")}. Text and placement stay
+        the same.
+      </p>
+    );
   if (typeof data.group_name === "string")
     return (
       <p>
@@ -1380,7 +1392,8 @@ export function CopilotEditPlan({
                             />
                             {operation.previous_data &&
                             operation.type !== "group_objects" &&
-                            operation.type !== "ungroup_object" ? (
+                            operation.type !== "ungroup_object" &&
+                            operation.type !== "copy_object_format" ? (
                               <details>
                                 <summary>
                                   {[

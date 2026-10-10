@@ -294,6 +294,16 @@ class PresentationEditPlanningService:
                     raise invalid_request(
                         "The proposed edit targets an object outside your selection."
                     )
+                # The format source may be any object on the slide; targets stay selected.
+                if any(
+                    (values["slide_id"], target) in all_objects
+                    and (values["slide_id"], target) not in allowed_objects
+                    for target in values.get("target_object_ids", [])
+                    if isinstance(target, str)
+                ):
+                    raise invalid_request(
+                        "The proposed edit targets an object outside your selection."
+                    )
                 if "layout_source_slide_id" in values and values["layout_source_slide_id"] not in {
                     slide.slide_id
                     for slide in self._read(editor, project_id, document_id, revision_id).slides
@@ -839,6 +849,17 @@ class PresentationEditPlanningService:
                     if obj.object_id == item["object_id"]
                 ]
             params["objects"] = bound
+            return params
+        if kind == "copy_object_format":
+            ids = [params.get("source_object_id"), *params.get("target_object_ids", [])]
+            found = {item.object_id: item for item in slide.objects}
+            if any(found.get(i) is None or found[i].kind not in {"sp", "pic"} for i in ids):
+                raise invalid_request(
+                    "Format can be copied only between shapes, text boxes and pictures."
+                )
+            if review_before is not None:
+                review_before["format_source"] = found[ids[0]].name
+                review_before["format_targets"] = [found[i].name for i in ids[1:]]
             return params
         if "object_id" not in params:
             return params

@@ -1457,3 +1457,101 @@ def test_provider_alt_text_sees_missing_flag_binds_and_applies(tmp_path: Path) -
         assert described["alt_text"] == "Revenue rose 12% during the pilot"
     finally:
         core.close()
+
+
+def test_provider_copy_object_format_binds_and_applies(tmp_path: Path) -> None:
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+    from test_presentation_workspace_source import _import_presentation, _open
+
+    source = tmp_path / "paint.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    painter = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1), Inches(1), Inches(2), Inches(1)
+    )
+    painter.name = "Painter"
+    painter.fill.solid()
+    painter.fill.fore_color.rgb = RGBColor(0x12, 0x80, 0x40)
+    painter.text_frame.text = "Pilot results"  # the fake provider drafts a text edit first
+    for index in range(2):
+        slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1 + 3 * index), Inches(3), Inches(2), Inches(1)
+        ).name = f"Box {index + 1}"
+    deck.save(source)
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project = call(core, "project.create", {"name": "Paint", "privacy_mode": "local_only"})[
+            "project"
+        ]["id"]
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )
+        named = {o["name"]: o["object_id"] for o in inventory["objects"]}
+
+        def modify(output: dict[str, Any], _invocation: Any) -> None:
+            output["operations"] = [
+                {
+                    "type": "copy_object_format",
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "source_object_id": named["Painter"],
+                        "target_object_ids": [named["Box 1"], named["Box 2"]],
+                    },
+                    "rationale": "Match the boxes to the highlighted card",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(
+            core,
+            "presentation.workspace.propose_edit_plan",
+            {
+                **scope,
+                "expected_revision_id": revision,
+                "instruction": "Make the boxes look like the green card.",
+                "slide_numbers": [1],
+            },
+        )
+        assert proposal["operations"][0]["type"] == "copy_object_format"
+        assert proposal["review_operations"][0]["previous_data"] == {
+            "format_source": "Painter",
+            "format_targets": ["Box 1", "Box 2"],
+        }
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        after = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": result["revision_id"], "slide_number": 1},
+        )
+        fills = {o["name"]: o["shape_style"]["fill_color"] for o in after["objects"]}
+        assert fills == {"Painter": "#128040", "Box 1": "#128040", "Box 2": "#128040"}
+    finally:
+        core.close()

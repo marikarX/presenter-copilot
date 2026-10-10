@@ -208,6 +208,18 @@ PARAMETER_SCHEMAS = {
         }
     ),
     "ungroup_object": _object(_TARGET),
+    "copy_object_format": _object(
+        {
+            "slide_id": _ID,
+            "source_object_id": _ID,
+            "target_object_ids": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "items": _ID,
+            },
+        }
+    ),
     "change_object_layer": _object(
         {**_TARGET, "direction": _choice("forward", "backward", "front", "back")}
     ),

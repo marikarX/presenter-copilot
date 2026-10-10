@@ -37,6 +37,7 @@ PLAN_OPERATIONS = frozenset(
         "set_slide_sections",
         "set_text_hyperlink",
         "set_alt_text",
+        "copy_object_format",
         "replace_picture_image",
         "reorder_slides",
         "apply_slide_layout",
@@ -229,7 +230,12 @@ class PresentationTransactionService:
                 if {"project_id", "document_id", "expected_revision_id"}.intersection(params):
                     raise invalid_request("Operation parameters cannot override the plan's scope.")
                 params = dict(params)
-                for field in ("slide_id", "layout_source_slide_id", "object_id"):
+                for field in (
+                    "slide_id",
+                    "layout_source_slide_id",
+                    "object_id",
+                    "source_object_id",
+                ):
                     if field in params:
                         params[field] = reference(params[field], field)
                 if kind == "group_objects" and isinstance(params.get("objects"), list):
@@ -238,6 +244,10 @@ class PresentationTransactionService:
                         if isinstance(item, dict)
                         else item
                         for item in params["objects"]
+                    ]
+                if isinstance(params.get("target_object_ids"), list):
+                    params["target_object_ids"] = [
+                        reference(value, "object_id") for value in params["target_object_ids"]
                     ]
                 if isinstance(params.get("ordered_slide_ids"), list):
                     params["ordered_slide_ids"] = [
