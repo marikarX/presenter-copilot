@@ -97,6 +97,15 @@ _PRESENTATION_SLIDE_REL_TYPE = f"{REL_NS}/slide"
 _NOTES_MASTER_REL_TYPE = f"{REL_NS}/notesMaster"
 _SLIDE_LAYOUT_REL_TYPE = f"{REL_NS}/slideLayout"
 _IMAGE_REL_TYPE = f"{REL_NS}/image"
+_SHARED_MEDIA_REL_TYPES = frozenset(
+    {
+        _IMAGE_REL_TYPE,
+        f"{REL_NS}/audio",
+        f"{REL_NS}/video",
+        "http://schemas.microsoft.com/office/2007/relationships/hdphoto",
+        "http://schemas.microsoft.com/office/2007/relationships/media",
+    }
+)
 _HYPERLINK_REL_TYPE = f"{REL_NS}/hyperlink"
 _SLIDE_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
 _NOTES_SLIDE_CONTENT_TYPE = (
@@ -4410,14 +4419,15 @@ class PresentationEditService:
                                 "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
                                 "The slide layout relationship is invalid.",
                             )
-                    elif relationship_type == _IMAGE_REL_TYPE:
+                    elif relationship_type in _SHARED_MEDIA_REL_TYPES:
+                        # Media parts stay in the package for other slides that share them.
                         if (
                             target_mode.casefold() != "internal"
                             or _resolve_internal_part("ppt/slides", target) not in members
                         ):
                             raise CoreDomainError(
                                 "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
-                                "The slide image relationship is invalid.",
+                                "The slide media relationship is invalid.",
                             )
                     elif relationship_type == _HYPERLINK_REL_TYPE:
                         if target_mode.casefold() == "internal":
@@ -4561,10 +4571,17 @@ class PresentationEditService:
                         and relation[2].casefold() == "internal"
                         and _resolve_internal_part("ppt/notesSlides", relation[1]) in members
                     ]
+                    note_links = [
+                        relation
+                        for relation in notes_relationships_map.values()
+                        if relation[0] == _HYPERLINK_REL_TYPE
+                        and relation[2].casefold() == "external"
+                    ]
                     # Some producers omit the notes-to-slide back reference.
                     if (
                         len(note_master_relations) != 1
-                        or len(notes_relationships_map) != 1 + len(note_slide_relations)
+                        or len(notes_relationships_map)
+                        != 1 + len(note_slide_relations) + len(note_links)
                         or len(note_slide_relations) > 1
                     ):
                         raise CoreDomainError(
@@ -4824,6 +4841,8 @@ class PresentationEditService:
                 referenced_relationship_ids = set(
                     slide_root.xpath(".//@r:id | .//@r:embed | .//@r:link", namespaces=_NS)
                 )
+                # PowerPoint writes r:id="" on click-to-play media actions.
+                referenced_relationship_ids.discard("")
                 if not referenced_relationship_ids.issubset(slide_relationships):
                     raise CoreDomainError(
                         "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
@@ -4847,17 +4866,18 @@ class PresentationEditService:
                                 "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
                                 "The slide layout relationship is invalid.",
                             )
-                    elif relationship_type == _IMAGE_REL_TYPE:
+                    elif relationship_type in _SHARED_MEDIA_REL_TYPES:
+                        # Pictures, HD photos, audio and video parts are shared by both slides.
                         if target_mode.casefold() != "internal":
                             raise CoreDomainError(
                                 "PRESENTATION_EDIT_UNSUPPORTED",
-                                "This slide uses an unsupported external image relationship.",
+                                "This slide uses an unsupported external media relationship.",
                             )
                         related_part = _resolve_internal_part("ppt/slides", target)
                         if related_part not in members:
                             raise CoreDomainError(
                                 "PRESENTATION_FIDELITY_STRUCTURE_INVALID",
-                                "The slide image relationship is invalid.",
+                                "The slide media relationship is invalid.",
                             )
                     elif relationship_type == f"{REL_NS}/chart":
                         if (
@@ -5075,6 +5095,11 @@ class PresentationEditService:
                                     "The notes-master relationship is invalid.",
                                 )
                             notes_master_relationships.append(relation_id)
+                        elif (
+                            relationship_type == _HYPERLINK_REL_TYPE
+                            and target_mode.casefold() == "external"
+                        ):
+                            continue  # External links in the notes are copied unchanged.
                         else:
                             raise CoreDomainError(
                                 "PRESENTATION_EDIT_UNSUPPORTED",

@@ -1,4 +1,4 @@
-"""Slides whose notes part omits the notes-to-slide back reference."""
+"""Duplicate and delete of slides with irregular notes parts or shared media."""
 
 import re
 import zipfile
@@ -73,6 +73,62 @@ def test_duplicate_and_delete_without_notes_back_reference(tmp_path: Path) -> No
             "x",
             "presentation.workspace.delete_slide",
             {**scope, "expected_revision_id": revision, "slide_id": first["slide_id"]},
+        )
+        assert deleted["ok"], deleted
+    finally:
+        core.close()
+
+
+def test_duplicate_and_delete_slide_with_video_and_linked_notes(tmp_path: Path) -> None:
+    import io
+
+    from PIL import Image
+    from pptx.util import Inches
+
+    source = tmp_path / "video.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[5])
+    slide.shapes.title.text = "Clip"
+    poster = io.BytesIO()
+    Image.new("RGB", (16, 9), (10, 10, 10)).save(poster, "PNG")
+    poster.seek(0)
+    movie = tmp_path / "clip.mp4"
+    movie.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+    slide.shapes.add_movie(
+        str(movie), Inches(1), Inches(2), Inches(4), Inches(3), poster_frame_image=poster
+    )
+    notes = slide.notes_slide.notes_text_frame
+    notes.text = "See the source"
+    notes.paragraphs[0].runs[0].hyperlink.address = "https://example.org/source"
+    deck.save(source)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        first = _call(
+            core,
+            "t",
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )["result"]["slide_id"]
+        duplicated = _call(
+            core,
+            "d",
+            "presentation.workspace.duplicate_slide",
+            {**scope, "expected_revision_id": revision, "slide_id": first},
+        )
+        assert duplicated["ok"], duplicated
+        deleted = _call(
+            core,
+            "x",
+            "presentation.workspace.delete_slide",
+            {
+                **scope,
+                "expected_revision_id": duplicated["result"]["revision_id"],
+                "slide_id": first,
+            },
         )
         assert deleted["ok"], deleted
     finally:

@@ -179,6 +179,14 @@ Commits this session:
   notes-to-slide back reference (3 corpus decks' producer); the duplicate
   gains the back reference PowerPoint writes. Previously both were refused as
   an unsupported notes structure. PowerPoint opens the results.
+- Duplicate and delete also accept slides with video/audio, HD Photo and
+  media relationships (shared by both slides, kept on delete), PowerPoint's
+  empty `r:id` on click-to-play media actions, and external hyperlinks in the
+  speaker notes. On the corpus this unblocks the video slide of
+  11-mobile-network-research and the HD Photo slide of
+  22-ethiopia-energy-modelling; PowerPoint shows the movie on both slides
+  after duplicating and on the copy after deleting the original. Slides with
+  OLE objects and legacy VML drawings stay refused.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null
