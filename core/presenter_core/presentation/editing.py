@@ -2226,6 +2226,16 @@ class PresentationEditService:
 
         return set_theme_colors(self, params)
 
+    def list_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.replace_fonts import list_fonts
+
+        return list_fonts(self, params)
+
+    def replace_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.replace_fonts import replace_fonts
+
+        return replace_fonts(self, params)
+
     def get_theme_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.theme_fonts import get_theme_fonts
 

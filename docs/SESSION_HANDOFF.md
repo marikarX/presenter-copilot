@@ -662,7 +662,7 @@ Remaining human-gated items:
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
 Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
-sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, click actions, slide titles, an accessibility check, a reusable component library (schema 24), a format painter, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
+sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, click actions, slide titles, an accessibility check, a reusable component library (schema 24), a format painter, Replace Fonts, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.845% (median 2.714% -> 2.479%) on the same 563 slides; real-deck
 edit acceptance passes on all 33 decks. Last full check 2025 Core + 329

@@ -940,6 +940,11 @@ class CoreService:
             result = self._presentation_edits.set_text_hyperlink(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.list_fonts":
+            return make_response(request_id, result=self._presentation_edits.list_fonts(params))
+        if method == "presentation.workspace.replace_fonts":
+            result = self._presentation_edits.replace_fonts(params)
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.copy_object_format":
             result = self._presentation_edits.copy_object_format(params)
             return make_response(request_id, result=result)

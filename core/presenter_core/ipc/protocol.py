@@ -158,6 +158,8 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "presentation.workspace.set_slide_animations",
     "presentation.workspace.get_theme_colors",
     "presentation.workspace.set_theme_colors",
+    "presentation.workspace.list_fonts",
+    "presentation.workspace.replace_fonts",
     "presentation.workspace.get_theme_fonts",
     "presentation.workspace.set_theme_fonts",
     "presentation.workspace.get_slide_footers",

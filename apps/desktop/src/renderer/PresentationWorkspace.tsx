@@ -48,6 +48,7 @@ import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
+import { ReplaceFonts, type DeckFont } from "./ReplaceFonts";
 import {
   ComponentLibrary,
   type ComponentSelection,
@@ -5401,6 +5402,76 @@ export function PresentationWorkspace({
     themeFonts,
   ]);
 
+  const replaceDeckFont = useCallback(
+    async (font: DeckFont, replacement: string) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      if (!source || !revision || loading) return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.replace_fonts",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            font: font.name,
+            expected_uses: font.uses,
+            replacement_font: replacement,
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id)
+        ) {
+          throw new Error("The font replacement could not be verified.");
+        }
+        if (!result.changed) {
+          setNotice("The fonts are unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, selectedObjectId || undefined);
+        setNotice(
+          `Saved revision ${result.revision_number}: replaced ${font.name} with ${replacement} in ${font.uses} place${font.uses === 1 ? "" : "s"}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The font could not be replaced.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      currentRevision,
+      loadPresentation,
+      loading,
+      project.id,
+      selectedObjectId,
+      selectedSlide,
+      selectedSource,
+    ],
+  );
+
   const saveSlideFooters = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -8858,6 +8929,20 @@ export function PresentationWorkspace({
                       Apply theme fonts
                     </button>
                   </fieldset>
+                ) : null}
+                {selectedSource &&
+                currentRevision &&
+                loadedSourceId === selectedSource.id ? (
+                  <ReplaceFonts
+                    projectId={project.id}
+                    documentId={selectedSource.id}
+                    revisionId={currentRevision.revision_id}
+                    disabled={loading || voiceWorkflowActive}
+                    request={requestCore}
+                    onReplace={(font, replacement) =>
+                      void replaceDeckFont(font, replacement)
+                    }
+                  />
                 ) : null}
                 {footerState ? (
                   <fieldset className="pw-picture-crop">

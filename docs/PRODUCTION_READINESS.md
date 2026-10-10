@@ -204,6 +204,20 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Replace Fonts (`presentation.workspace.list_fonts` / `replace_fonts`,
+  "Replace fonts" under Slide actions & layout): lists every typeface named in
+  slides, layouts, masters, notes, charts, diagrams and every theme (including
+  the notes master's), with use counts, theme membership and how many uses
+  are inside equations. Replacing one renames it everywhere as one revision
+  and drops the old font's PANOSE/charset hints; theme references (+mn-lt)
+  are left alone. Guarded by the expected use count; validation re-counts
+  the fonts and checks that every object is unchanged apart from the font
+  family. Corpus: replaced on all 33 decks; on the 27 PowerPoint-checkable
+  decks where a font without equation uses was picked, PowerPoint's
+  `Presentation.Fonts` no longer lists the old font and lists no font we
+  missed. Equations always render in a math font, so PowerPoint keeps
+  listing Cambria Math after it is replaced; the GUI warns when a font is
+  used in equations. `test_replace_fonts.py`; `test-replace-fonts.mjs` 3/3.
 - Format painter (`presentation.workspace.copy_object_format`, "Copy
   format" / "Paste format" in the slide toolbar): copies one shape's fill,
   outline, effects, 3-D, theme style reference and first-run text
