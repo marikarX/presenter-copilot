@@ -345,12 +345,14 @@ Remaining human-gated items:
 - Codex "Sign in with ChatGPT" lasting only for the app session is documented
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
-Next: further Workspace authoring as needed, then the open
-fidelity gaps (image bevel rim geometry, glyph rasterization) and the
-human-gated items above. Last full check 1981 passed; Workspace GUI 117/117;
-focused harnesses for rotation, picture adjustment, emphasis/font/highlight,
-links, background, transparency and find/replace all pass. Signing and clean
-Windows validation remain accepted debt.
+Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt, small
+hanging bullet baseline, about a point of paragraph spacing on numbered
+lists, glyph rasterization), further Workspace authoring as needed, and the
+human-gated items above. Corpus mean slide RGB MAE this session went from
+3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
+edit acceptance passes on all 33 decks. Last full check 1983 Core + 327
+renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
+and clean Windows validation remain accepted debt.
 
 ## Current continuation - identity GUI accepted and comparison contract started (2026-10-08)
 
