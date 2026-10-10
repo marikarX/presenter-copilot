@@ -381,7 +381,21 @@ type ShapeStyle = {
   fill_transparency_percent?: number | null;
   shadow?: boolean | null;
   shadow_editable?: boolean;
+  shape_geometry?: string | null;
 };
+
+const SHAPE_GEOMETRIES: ReadonlyArray<[string, string]> = [
+  ["rect", "Rectangle"],
+  ["roundRect", "Rounded rectangle"],
+  ["ellipse", "Oval"],
+  ["triangle", "Triangle"],
+  ["diamond", "Diamond"],
+  ["hexagon", "Hexagon"],
+  ["rightArrow", "Right arrow"],
+  ["chevron", "Chevron"],
+  ["homePlate", "Pentagon arrow"],
+  ["wedgeRoundRectCallout", "Callout"],
+];
 
 type SlideFooterState = {
   slide_numbers: "all" | "some" | "none";
@@ -5516,14 +5530,16 @@ export function PresentationWorkspace({
         | "outline"
         | "transparency"
         | "shadow_on"
-        | "shadow_off",
+        | "shadow_off"
+        | `geometry:${string}`,
     ) => {
       const source = selectedSource;
       const revision = currentRevision;
       const target = selectedObject;
       const style = target?.shape_style;
-      const editable =
-        property === "shadow_on" || property === "shadow_off"
+      const editable = property.startsWith("geometry:")
+        ? style?.shape_geometry != null
+        : property === "shadow_on" || property === "shadow_off"
           ? style?.shadow_editable
           : property === "fill_color" || property === "transparency"
             ? style?.fill_editable
@@ -5531,7 +5547,11 @@ export function PresentationWorkspace({
               ? style?.line_editable
               : style?.line_format_editable;
       const replacement: Record<string, string | number | boolean> = {};
-      if (property === "shadow_on" || property === "shadow_off") {
+      if (property.startsWith("geometry:")) {
+        const geometry = property.slice("geometry:".length);
+        if (style?.shape_geometry !== geometry)
+          replacement.shape_geometry = geometry;
+      } else if (property === "shadow_on" || property === "shadow_off") {
         const enabled = property === "shadow_on";
         if (style?.shadow !== enabled) replacement.shadow = enabled;
       } else if (property === "transparency") {
@@ -5556,7 +5576,10 @@ export function PresentationWorkspace({
           objectStyleDraft.line_dash !== (style?.line_dash ?? "")
         )
           replacement.line_dash = objectStyleDraft.line_dash;
-      } else if (/^#[0-9A-F]{6}$/.test(objectStyleDraft[property])) {
+      } else if (
+        (property === "fill_color" || property === "line_color") &&
+        /^#[0-9A-F]{6}$/.test(objectStyleDraft[property])
+      ) {
         replacement[property] = objectStyleDraft[property];
       }
       if (
@@ -5574,10 +5597,7 @@ export function PresentationWorkspace({
       }
       if (
         Object.keys(replacement).length === 0 ||
-        (property !== "outline" &&
-          property !== "transparency" &&
-          property !== "shadow_on" &&
-          property !== "shadow_off" &&
+        ((property === "fill_color" || property === "line_color") &&
           style[property] === replacement[property])
       ) {
         setNotice("The selected shape style is unchanged.");
@@ -10331,6 +10351,27 @@ export function PresentationWorkspace({
                             stays read-only.
                           </p>
                         )}
+                        {selectedObject.shape_style.shape_geometry ? (
+                          <label>
+                            Shape type
+                            <select
+                              aria-label="Shape type"
+                              value={selectedObject.shape_style.shape_geometry}
+                              onChange={(event) =>
+                                void saveShapeColorRevision(
+                                  `geometry:${event.target.value}`,
+                                )
+                              }
+                              disabled={!loadedSourceId || loading}
+                            >
+                              {SHAPE_GEOMETRIES.map(([value, label]) => (
+                                <option key={value} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
                         {selectedObject.shape_style.shadow_editable ? (
                           <div className="pw-shape-color-control">
                             <p className="muted">

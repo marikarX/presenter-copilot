@@ -127,7 +127,12 @@ Commits this session:
   bottom-right preset) or an explicit empty effect list; theme-driven, mixed
   or DAG effects stay read-only. Objects panel and Copilot plans. PowerPoint
   reports the shadow visible at a 3 pt diagonal offset.
-  `test-shape-outline.mjs` 5/5.
+- Change shape type: preset geometries (rectangle, rounded rectangle, oval,
+  triangle, diamond, hexagon, right arrow, chevron, pentagon arrow, callout)
+  via `shape_geometry` in format_shape_style, the Objects panel "Shape type"
+  picker and Copilot plans; adjustment handles reset, fills/outline/text are
+  kept, custom geometry stays read-only. PowerPoint reads back an oval.
+  `test-shape-outline.mjs` 6/6.
 - Text links: one external http/https/mailto click link across a text
   shape's runs is a reviewed edit (`presentation.workspace.set_text_hyperlink`,
   Text panel and Copilot plans). Script, file and relative targets are

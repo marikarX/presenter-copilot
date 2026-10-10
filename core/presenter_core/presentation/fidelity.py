@@ -246,12 +246,29 @@ class FidelityShapeStyle:
     fill_transparency_percent: int | None = None
     shadow: bool | None = None
     shadow_editable: bool = False
+    shape_geometry: str | None = None
     line_color: str | None = None
     line_editable: bool = False
     line_width_pt: float | None = None
     line_dash: str | None = None
     line_format_editable: bool = False
 
+
+# Preset shape types offered for "change shape" (a:prstGeom@prst).
+SHAPE_GEOMETRIES = frozenset(
+    {
+        "rect",
+        "roundRect",
+        "ellipse",
+        "triangle",
+        "diamond",
+        "hexagon",
+        "rightArrow",
+        "chevron",
+        "homePlate",
+        "wedgeRoundRectCallout",
+    }
+)
 
 # Preset outline dash styles exposed for editing (a:prstDash@val).
 SHAPE_LINE_DASHES = frozenset(
@@ -523,6 +540,7 @@ class FidelityDocument:
                                 obj.shape_style.fill_transparency_percent
                             ),
                             "shadow": obj.shape_style.shadow,
+                            "shape_geometry": obj.shape_style.shape_geometry,
                             "shadow_editable": obj.shape_style.shadow_editable,
                             "line_color": obj.shape_style.line_color,
                             "line_editable": obj.shape_style.line_editable,
@@ -1347,7 +1365,14 @@ def _shape_style(
         _shape_line_format(lines[0] if lines else None) if structure_ok else (None, None, False)
     )
     shadow_editable, shadow = _shape_shadow(shape_properties)
+    geometry = shape_properties.find(f"{{{DRAWING_NS}}}prstGeom")
+    shape_geometry = (
+        geometry.get("prst")
+        if geometry is not None and geometry.get("prst") in SHAPE_GEOMETRIES
+        else None
+    )
     return FidelityShapeStyle(
+        shape_geometry=shape_geometry,
         editable=fill_editable or line_editable or line_format_editable or shadow_editable,
         fingerprint=fingerprint,
         shadow=shadow,

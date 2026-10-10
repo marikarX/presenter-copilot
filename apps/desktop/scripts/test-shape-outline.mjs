@@ -208,6 +208,10 @@ try {
   assert.equal((await style()).shadow, true);
   await page.getByText("Shadow: on", { exact: true }).waitFor();
   checks.push("GUI adds a shape shadow as one native revision");
+  await page.getByLabel("Shape type", { exact: true }).selectOption("ellipse");
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  assert.equal((await style()).shape_geometry, "ellipse");
+  checks.push("GUI changes the rectangle into an oval keeping its styles");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

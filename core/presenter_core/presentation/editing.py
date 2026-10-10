@@ -55,6 +55,7 @@ from presenter_core.presentation.fidelity import (
     PARAGRAPH_BULLET_MODES,
     PRESENTATION_NS,
     REL_NS,
+    SHAPE_GEOMETRIES,
     SHAPE_LINE_DASHES,
     SLIDE_LIMIT,
     FidelityGeometry,
@@ -524,6 +525,11 @@ class PresentationEditService:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This shape fill uses a style the color editor cannot safely retain.",
+            )
+        if "shape_geometry" in replacement_style and style.shape_geometry is None:
+            raise CoreDomainError(
+                "PRESENTATION_EDIT_UNSUPPORTED",
+                "This shape uses custom geometry that stays read-only.",
             )
         if "shadow" in replacement_style and not style.shadow_editable:
             raise CoreDomainError(
@@ -7807,6 +7813,8 @@ class PresentationEditService:
                 if property_name == "fill_transparency_percent"
                 else "shadow_editable"
                 if property_name == "shadow"
+                else "editable"
+                if property_name == "shape_geometry"
                 else f"{property_name.removesuffix('_color')}_editable"
             )
             if not getattr(obj.shape_style, editable_field):
@@ -7858,6 +7866,18 @@ class PresentationEditService:
                     width_pt=replacement_style.get("line_width_pt"),
                     dash=replacement_style.get("line_dash"),
                 )
+                if "shape_geometry" in replacement_style:
+                    geometry = shape.find(f"{{{PRESENTATION_NS}}}spPr/{{{DRAWING_NS}}}prstGeom")
+                    if geometry is None:
+                        raise CoreDomainError(
+                            "PRESENTATION_EDIT_UNSUPPORTED",
+                            "This shape uses custom geometry that stays read-only.",
+                        )
+                    geometry.set("prst", replacement_style["shape_geometry"])
+                    # Adjustment handles belong to the old shape type.
+                    for child in list(geometry):
+                        geometry.remove(child)
+                    etree.SubElement(geometry, f"{{{DRAWING_NS}}}avLst")
                 if "shadow" in replacement_style:
                     PresentationEditService._set_shape_shadow(shape, replacement_style["shadow"])
                 if "fill_transparency_percent" in replacement_style:
@@ -9023,6 +9043,7 @@ class PresentationEditService:
     @staticmethod
     def _shape_style_field(value: Any) -> dict[str, Any]:
         names = {
+            "shape_geometry",
             "shadow",
             "fill_color",
             "fill_transparency_percent",
@@ -9052,6 +9073,14 @@ class PresentationEditService:
                         field="replacement_style.line_width_pt",
                     )
                 result[name] = float(color)
+                continue
+            if name == "shape_geometry":
+                if color not in SHAPE_GEOMETRIES:
+                    raise invalid_request(
+                        "replacement_style.shape_geometry must be a supported shape type.",
+                        field="replacement_style.shape_geometry",
+                    )
+                result[name] = color
                 continue
             if name == "shadow":
                 if type(color) is not bool:

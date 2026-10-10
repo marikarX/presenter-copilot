@@ -99,6 +99,23 @@ _SHAPE_STYLE = _object(
         },
         "fill_transparency_percent": {"anyOf": [_integer(0, 100), {"type": "null"}]},
         "shadow": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+        "shape_geometry": {
+            "anyOf": [
+                _choice(
+                    "rect",
+                    "roundRect",
+                    "ellipse",
+                    "triangle",
+                    "diamond",
+                    "hexagon",
+                    "rightArrow",
+                    "chevron",
+                    "homePlate",
+                    "wedgeRoundRectCallout",
+                ),
+                {"type": "null"},
+            ]
+        },
         "line_width_pt": {
             "anyOf": [{"type": "number", "minimum": 0.25, "maximum": 20}, {"type": "null"}]
         },
