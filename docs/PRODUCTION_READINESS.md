@@ -213,8 +213,13 @@ Commits this session:
   insert/remove). Reshaping keeps retained rows' and columns' IDs and gives
   inserted ones fresh unique IDs. A cell edit plus an inserted row applied on
   every sampled deck, and PowerPoint shows the edited text and new row count.
-  The other 20 tables keep rich cell formatting, images or merged content and
-  stay read-only.
+  Cells with rich text (mixed run formatting, fields, line breaks) are now
+  locked individually (`locked_cells`; read-only in the table editor with a
+  hint) instead of making the whole table read-only; such tables keep cell
+  formatting and row/column changes read-only. Editable corpus tables: 39 of
+  43 (16 with locked cells); edits to unlocked cells applied on the sampled
+  decks with locked cells and PowerPoint shows the edited text. The remaining
+  4 tables contain images or linked content.
 - Automatic text fitting accepts shapes carrying those identity extensions:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
   on 9 of 11 sampled decks (the other two would have had to grow text past the

@@ -19,6 +19,7 @@ type NativeTable = {
   reason: string | null;
   fingerprint: string;
   cells?: string[][];
+  locked_cells?: number[][];
   structure_editable?: boolean;
   spans?: {
     regions: {
@@ -113,6 +114,10 @@ export function NativeTables({
     !!selected?.spans?.regions.length &&
     (selected.spans.owners[r]?.[c]?.[0] !== r ||
       selected.spans.owners[r]?.[c]?.[1] !== c);
+  const isLocked = (r: number, c: number) =>
+    !!selected?.locked_cells?.some(
+      ([row, column]) => row === r && column === c,
+    );
   const structural =
     !!choice &&
     (rowSources.length !== selected?.cells?.length ||
@@ -681,6 +686,12 @@ export function NativeTables({
                     </p>
                   </fieldset>
                 ) : null}
+                {choice && selected?.locked_cells?.length ? (
+                  <p className="muted">
+                    Cells with rich text formatting are locked here; edit them
+                    in PowerPoint.
+                  </p>
+                ) : null}
                 {choice &&
                 selected?.editable &&
                 !selected.structure_editable ? (
@@ -712,8 +723,16 @@ export function NativeTables({
                                 rows={2}
                                 maxLength={500}
                                 value={value}
+                                title={
+                                  isLocked(r, c)
+                                    ? "Rich text formatting: edit in PowerPoint"
+                                    : undefined
+                                }
                                 disabled={
-                                  busy || saved.current || isCovered(r, c)
+                                  busy ||
+                                  saved.current ||
+                                  isCovered(r, c) ||
+                                  isLocked(r, c)
                                 }
                                 onFocus={() => {
                                   setActiveRow(r);

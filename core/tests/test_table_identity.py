@@ -191,3 +191,56 @@ def test_identity_tagged_table_frame_is_movable_and_rows_fill_a_taller_frame(
     resize_table_grid(frame, FidelityGeometry(0, 0, 100, 80), FidelityGeometry(0, 0, 100, 160))
     heights = [int(row.get("h")) for row in frame.iter("{*}tr")]
     assert sum(heights) == 160 and heights == [64, 96]
+
+
+def test_rich_text_cell_is_locked_while_the_table_stays_editable(tmp_path: Path) -> None:
+    source = tmp_path / "rich.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(1)).table
+    for r in range(2):
+        for c in range(2):
+            table.cell(r, c).text = f"R{r}C{c}"
+    paragraph = table.cell(0, 0).text_frame.paragraphs[0]
+    paragraph.runs[0].text = "H"
+    extra = paragraph.add_run()
+    extra.text = "2O"
+    extra.font.bold = True
+    deck.save(source)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        result = _call(
+            core,
+            "l",
+            "presentation.workspace.list_tables",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )["result"]
+        item = result["items"][0]
+        assert item["editable"] and item["locked_cells"] == [[0, 0]]
+        assert item["cells"][0][0] == "H2O"
+        assert not item["structure_editable"] and not item["formatting"]["editable"]
+
+        def edit(cells: list[list[str]]) -> dict:
+            return _call(
+                core,
+                "e",
+                "presentation.workspace.replace_table_cells",
+                {
+                    **scope,
+                    "expected_revision_id": revision,
+                    "slide_id": result["slide_id"],
+                    "object_id": item["object_id"],
+                    "expected_fingerprint": item["fingerprint"],
+                    "cells": cells,
+                },
+            )
+
+        locked = edit([["Water", "R0C1"], ["R1C0", "R1C1"]])
+        assert not locked["ok"] and "rich text" in locked["error"]["message"]
+        assert edit([["H2O", "Edited"], ["R1C0", "R1C1"]])["ok"]
+    finally:
+        core.close()

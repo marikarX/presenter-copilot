@@ -90,12 +90,13 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
         result["reason"] = "The cell editor supports up to 12 rows and 8 columns."
         return result
     values = []
-    for row in rows:
+    locked: list[list[int]] = []
+    for row_index, row in enumerate(rows):
         cells = row.findall("a:tc", _NS)
         if len(cells) != len(columns) or len(row) != len(cells) + (row_identity(row) is not None):
             return result
         texts = []
-        for cell in cells:
+        for column_index, cell in enumerate(cells):
             if [n.tag for n in cell] != [
                 f"{{{DRAWING_NS}}}txBody",
                 f"{{{DRAWING_NS}}}tcPr",
@@ -103,8 +104,18 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
                 return result
             body = cell.find("a:txBody", _NS)
             paragraphs = body.findall("a:p", _NS)
-            if not paragraphs or not all(_notes_body_is_plain_editable([p]) for p in paragraphs):
+            if not paragraphs:
                 return result
+            if not all(_notes_body_is_plain_editable([p]) for p in paragraphs):
+                # Rich text (mixed run formatting, fields, breaks) stays as authored: the
+                # cell is locked while the rest of the table remains editable.
+                locked.append([row_index, column_index])
+                texts.append(
+                    "\n".join(
+                        "".join(n.text or "" for n in p.findall(".//a:t", _NS)) for p in paragraphs
+                    )
+                )
+                continue
             texts.append(
                 "\n".join(
                     "".join(n.text or "" for n in p.findall("a:r/a:t", _NS)) for p in paragraphs
@@ -136,12 +147,17 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
         editable=True,
         reason=None,
         cells=values,
+        locked_cells=locked,
         spans=spans,
-        structure_editable=not spans["regions"] and structure_supported(frame),
+        structure_editable=not spans["regions"] and not locked and structure_supported(frame),
     )
     from presenter_core.presentation.table_format import inspect_formatting
 
-    result["formatting"] = inspect_formatting(frame)
+    result["formatting"] = (
+        {"editable": False, "reason": "Tables with rich-text cells keep formatting read-only."}
+        if locked
+        else inspect_formatting(frame)
+    )
     from presenter_core.presentation.table_borders import inspect_borders
 
     result["borders"] = inspect_borders(frame)
@@ -495,6 +511,10 @@ def edit_table(
                         ):
                             if text == info["cells"][r][c]:
                                 continue
+                            if [r, c] in info["locked_cells"]:
+                                raise invalid_request(
+                                    "This cell has rich text formatting; edit it in PowerPoint."
+                                )
                             owner = info["spans"]["owners"][r][c]
                             if owner[:2] != [r, c]:
                                 raise invalid_request("Edit merged text at its top-left cell.")
