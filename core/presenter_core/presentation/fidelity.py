@@ -389,6 +389,7 @@ class FidelityObject:
     decorative: bool = False
     geometry_inherited: bool = False
     group_child: bool = False
+    group_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -596,6 +597,7 @@ class FidelityDocument:
                     "decorative": obj.decorative,
                     "geometry_inherited": obj.geometry_inherited,
                     "group_child": obj.group_child,
+                    "group_id": obj.group_id,
                     "shape_style": (
                         {
                             "editable": obj.shape_style.editable,
@@ -1126,6 +1128,7 @@ def _objects_for_slide(
                 and geometry.y_emu + geometry.height_emu <= slide_height_emu
             )
         group_child = False
+        group_ooxml_id: str | None = None
         if kind in {"sp", "pic"} and not alternate_content:
             from presenter_core.presentation.group_geometry import (
                 box_transform,
@@ -1145,6 +1148,11 @@ def _objects_for_slide(
                 frame = slide_geometry(chain[0])
                 geometry = slide_geometry(candidate)
                 group_child = True
+                group_ooxml_id = (
+                    chain[-1]
+                    .find(f"{{{PRESENTATION_NS}}}nvGrpSpPr/{{{PRESENTATION_NS}}}cNvPr")
+                    .get("id")
+                )
                 geometry_editable = bool(
                     geometry.width_emu > 0
                     and geometry.height_emu > 0
@@ -1231,6 +1239,13 @@ def _objects_for_slide(
                 decorative=decorative,
                 geometry_inherited=geometry_inherited,
                 group_child=group_child,
+                group_id=(
+                    _stable_id(
+                        f"{document_id}\0identity-v1\0slide\0{ooxml_slide_id}\0object\0{group_ooxml_id}"
+                    )
+                    if group_ooxml_id
+                    else None
+                ),
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
                 else semantic_kind,

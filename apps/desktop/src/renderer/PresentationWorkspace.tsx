@@ -504,6 +504,7 @@ type PresentationObject = {
   alt_text?: string | null;
   decorative?: boolean;
   group_child?: boolean;
+  group_id?: string | null;
 };
 
 type GeometryDraft = {

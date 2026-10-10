@@ -281,8 +281,10 @@ Commits this session:
   before and after a move on 4 sampled decks, with the outer group unchanged.
   (`test-live-canvas.mjs` failed once after this change and then passed on
   three consecutive re-runs; noted as an intermittent harness failure.)
-  On the canvas a click still selects the whole group; children are edited
-  from the Objects panel. Duplicating or pasting a group expects its children
+  On the canvas a click still selects the whole group; double-clicking it
+  enters the group so its members can be selected and moved there (Escape
+  leaves it), as in PowerPoint; members can also be edited from the Objects
+  panel. `test-group-canvas.mjs` 3/3. Duplicating or pasting a group expects its children
   to move with it (the Workspace GUI suite caught the old expectation).
 - Integration sweep after this session's shared fidelity changes: all 44
   focused GUI harnesses pass besides `test-workspace.mjs` (117/117).

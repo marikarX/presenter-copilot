@@ -80,10 +80,12 @@ export function SlideObjectCanvas({
     endY: number;
     initial: string[];
   } | null>(null);
+  // Double-clicking a group enters it: its members become selectable on the canvas.
+  const [enteredGroup, setEnteredGroup] = useState<string | null>(null);
   const movable = objects.filter(
     (object) =>
       object.geometry_editable &&
-      !object.group_child &&
+      (!object.group_child || object.group_id === enteredGroup) &&
       object.geometry &&
       size &&
       object.geometry.x_emu >= 0 &&
@@ -526,6 +528,7 @@ export function SlideObjectCanvas({
             }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
+                setEnteredGroup(null);
                 setDrag(null);
                 move.current = null;
                 resize.current = null;
@@ -595,6 +598,11 @@ export function SlideObjectCanvas({
                       return;
                     }
                     choose(event.shiftKey || event.ctrlKey || event.metaKey);
+                  }}
+                  onDoubleClick={(event) => {
+                    if (object.kind !== "grpSp") return;
+                    event.stopPropagation();
+                    setEnteredGroup(object.object_id);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {

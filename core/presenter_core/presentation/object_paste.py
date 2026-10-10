@@ -496,6 +496,10 @@ def write_paste(
                         ooxml_id=member.ooxml_id,
                         name=name if index == 0 else original_member.name,
                         geometry=expected_geometry,
+                        # Members of the pasted group belong to the new group.
+                        group_id=subtree[0].object_id
+                        if original_member.group_id is not None
+                        else None,
                     )
                     # Fingerprints include namespace context, offsets and remapped references.
                     # Canonical subtree validation checks XML; compare semantic fields here.
