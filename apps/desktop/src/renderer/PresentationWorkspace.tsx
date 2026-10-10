@@ -421,6 +421,38 @@ function isSlideFooterState(value: unknown): value is SlideFooterState {
   );
 }
 
+const THEME_COLOR_SLOTS: ReadonlyArray<[string, string]> = [
+  ["accent1", "Accent 1"],
+  ["accent2", "Accent 2"],
+  ["accent3", "Accent 3"],
+  ["accent4", "Accent 4"],
+  ["accent5", "Accent 5"],
+  ["accent6", "Accent 6"],
+  ["dk2", "Dark 2"],
+  ["lt2", "Light 2"],
+  ["hlink", "Hyperlink"],
+  ["folHlink", "Followed hyperlink"],
+];
+
+type ThemeColorState = {
+  colors: Record<string, string> | null;
+  editable: boolean;
+};
+
+function isThemeColorState(value: unknown): value is ThemeColorState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<ThemeColorState>;
+  if (typeof state.editable !== "boolean") return false;
+  if (state.colors === null) return !state.editable;
+  return (
+    !!state.colors &&
+    typeof state.colors === "object" &&
+    THEME_COLOR_SLOTS.every(([slot]) =>
+      /^#[0-9A-F]{6}$/.test(state.colors?.[slot] ?? ""),
+    )
+  );
+}
+
 const SLIDE_TRANSITIONS: ReadonlyArray<[string, string]> = [
   ["none", "No transition"],
   ["fade", "Fade"],
@@ -1388,6 +1420,10 @@ export function PresentationWorkspace({
     body_font: string | null;
     editable: boolean;
   } | null>(null);
+  const [themeColors, setThemeColors] = useState<ThemeColorState | null>(null);
+  const [themeColorDraft, setThemeColorDraft] = useState<
+    Record<string, string>
+  >({});
   const [themeFontDraft, setThemeFontDraft] = useState({
     heading: "",
     body: "",
@@ -4722,6 +4758,109 @@ export function PresentationWorkspace({
     };
   }, [currentRevision, loadedSourceId, project.id, selectedSource]);
 
+  useEffect(() => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (!source || !revision || loadedSourceId !== source.id) {
+      setThemeColors(null);
+      return;
+    }
+    let cancelled = false;
+    void requestCore<unknown>("presentation.workspace.get_theme_colors", {
+      project_id: project.id,
+      document_id: source.id,
+      expected_revision_id: revision.revision_id,
+    })
+      .then((state) => {
+        if (cancelled || !isThemeColorState(state)) return;
+        setThemeColors(state);
+        setThemeColorDraft(state.colors ?? {});
+      })
+      .catch(() => {
+        if (!cancelled) setThemeColors(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRevision, loadedSourceId, project.id, selectedSource]);
+
+  const saveThemeColors = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const state = themeColors;
+    if (!source || !revision || !state?.editable || !state.colors || loading)
+      return;
+    const before = state.colors;
+    const colors = Object.fromEntries(
+      Object.entries(themeColorDraft)
+        .map(([slot, value]): [string, string] => [slot, value.toUpperCase()])
+        .filter(([slot, value]) => before[slot] !== value),
+    );
+    if (Object.keys(colors).length === 0) return;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.set_theme_colors",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          expected_colors: before,
+          colors,
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id)
+      ) {
+        throw new Error("The theme color revision could not be verified.");
+      }
+      if (!result.changed) {
+        setNotice("The theme colors are unchanged.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, selectedObjectId || undefined);
+      setNotice(
+        `Saved revision ${result.revision_number} with the new theme colors.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The theme colors could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    currentRevision,
+    loadPresentation,
+    loading,
+    project.id,
+    selectedObjectId,
+    selectedSlide,
+    selectedSource,
+    themeColorDraft,
+    themeColors,
+  ]);
+
   const saveThemeFonts = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -7730,6 +7869,51 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                {themeColors?.editable && themeColors.colors ? (
+                  <fieldset className="pw-picture-crop">
+                    <legend>Theme colors</legend>
+                    <p className="muted">
+                      Shapes and text that use theme colors change across the
+                      whole deck; directly chosen colors stay.
+                    </p>
+                    {THEME_COLOR_SLOTS.map(([slot, label]) => (
+                      <label key={slot}>
+                        {label}
+                        <input
+                          type="color"
+                          aria-label={`Theme color ${label}`}
+                          value={(
+                            themeColorDraft[slot] ??
+                            themeColors.colors?.[slot] ??
+                            "#000000"
+                          ).toLowerCase()}
+                          onChange={(event) =>
+                            setThemeColorDraft((current) => ({
+                              ...current,
+                              [slot]: event.target.value.toUpperCase(),
+                            }))
+                          }
+                          disabled={loading}
+                        />
+                      </label>
+                    ))}
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void saveThemeColors()}
+                      disabled={
+                        loading ||
+                        THEME_COLOR_SLOTS.every(
+                          ([slot]) =>
+                            (themeColorDraft[slot] ?? "").toUpperCase() ===
+                            themeColors.colors?.[slot],
+                        )
+                      }
+                    >
+                      Apply theme colors
+                    </button>
+                  </fieldset>
+                ) : null}
                 {themeFonts?.editable ? (
                   <fieldset className="pw-picture-crop">
                     <legend>Theme fonts</legend>

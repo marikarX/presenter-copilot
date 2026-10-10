@@ -935,6 +935,14 @@ class CoreService:
             result = self._presentation_edits.set_text_hyperlink(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.get_theme_colors":
+            return make_response(
+                request_id, result=self._presentation_edits.get_theme_colors(params)
+            )
+        if method == "presentation.workspace.set_theme_colors":
+            result = self._presentation_edits.set_theme_colors(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.get_theme_fonts":
             return make_response(
                 request_id, result=self._presentation_edits.get_theme_fonts(params)

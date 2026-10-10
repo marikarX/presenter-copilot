@@ -124,6 +124,17 @@ Commits this session:
   fonts follows, explicit typefaces stay. PowerPoint reports the new theme
   fonts and a theme-font title rendering in Georgia.
   `test-slide-footers.mjs` 4/4.
+- Theme colors: deck-wide Accent 1-6, Dark 2 / Light 2 and hyperlink colors
+  across every slide master's theme (`presentation.workspace.get_theme_colors`
+  / `set_theme_colors`, "Theme colors" color pickers in slide actions); only
+  the changed slots are sent, guarded by the full previous palette. Shapes and
+  text using scheme colors follow; direct RGB colors stay. Dark 1 / Light 1
+  stay read-only because they are usually system colors tied to text and
+  background contrast. Decks whose masters carry different palettes are
+  reported as not editable rather than flattened to one palette.
+  `test-slide-footers.mjs` 5/5. Real-deck acceptance (33 decks, chained after
+  the edits below): theme fonts 33, theme colors 30 (3 multi-palette decks
+  skipped), no edit errors, all 28 PowerPoint-eligible decks open.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

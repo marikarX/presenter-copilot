@@ -2146,6 +2146,16 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def get_theme_colors(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.theme_colors import get_theme_colors
+
+        return get_theme_colors(self, params)
+
+    def set_theme_colors(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.theme_colors import set_theme_colors
+
+        return set_theme_colors(self, params)
+
     def get_theme_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.theme_fonts import get_theme_fonts
 

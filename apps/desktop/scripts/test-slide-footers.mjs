@@ -191,6 +191,32 @@ try {
   checks.push(
     "GUI changes the theme heading and body fonts as one native revision",
   );
+  await page
+    .getByLabel("Theme color Accent 1", { exact: true })
+    .fill("#1f3a5f");
+  await page
+    .getByRole("button", { name: "Apply theme colors", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  const palette = await ask("presentation.workspace.get_theme_colors", {
+    project_id: project,
+    document_id: document,
+    expected_revision_id: (
+      await ask("presentation.workspace.list_revisions", {
+        project_id: project,
+        document_id: document,
+      })
+    ).current_revision_id,
+  });
+  assert.equal(palette.colors.accent1, "#1F3A5F");
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Apply theme colors", exact: true })
+      .isDisabled(),
+    true,
+    "Controls read back the saved palette",
+  );
+  checks.push("GUI changes the Accent 1 theme color as one native revision");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),
