@@ -172,3 +172,44 @@ describe("PostScript font names", () => {
     expect(resolution.substitutions).toEqual(["ArialMT → Arial"]);
   });
 });
+
+describe("presentation preview font fallback order", () => {
+  it("prefers Calibri for an unknown missing font, as PowerPoint does", async () => {
+    const files = pptxFiles('<a:latin typeface="ff9"/>');
+    const installed = new Set([
+      "arial",
+      "arial bold",
+      "calibri",
+      "calibri bold",
+    ]);
+    const resolution = await resolvePreviewFonts(
+      files,
+      presentationData([]),
+      async (family) => installed.has(family.toLowerCase()),
+    );
+    expect(resolution.substitutions).toEqual(["ff9 → Calibri"]);
+  });
+});
+
+describe("presentation preview classified font fallback", () => {
+  it("maps a PANOSE-classified sans font to Arial, as Windows font mapping does", async () => {
+    const files = pptxFiles(
+      '<a:latin typeface="Ubuntu" panose="020B0504030602030204" pitchFamily="34" charset="0"/><a:latin typeface="ff9"/>',
+    );
+    const installed = new Set([
+      "arial",
+      "arial bold",
+      "calibri",
+      "calibri bold",
+    ]);
+    const resolution = await resolvePreviewFonts(
+      files,
+      presentationData([]),
+      async (family) => installed.has(family.toLowerCase()),
+    );
+    expect(resolution.substitutions).toEqual([
+      "Ubuntu → Arial",
+      "ff9 → Calibri",
+    ]);
+  });
+});

@@ -26,7 +26,7 @@ const GENERIC_FONT_FAMILIES = new Set([
   "unset",
 ]);
 
-type FallbackKind = "sans" | "serif" | "monospace";
+type FallbackKind = "sans" | "classified-sans" | "serif" | "monospace";
 
 interface FallbackFace {
   localName: string;
@@ -46,11 +46,18 @@ export type CssFamilyProbe = (family: string) => boolean;
 
 interface FontScanResult {
   families: string[];
+  /** Lower-case families referenced with a PANOSE classification. */
+  classified: Set<string>;
   limited: boolean;
 }
 
 const FALLBACK_FAMILIES: Record<FallbackKind, readonly string[]> = {
-  sans: ["Arial", "Calibri", "Liberation Sans", "Noto Sans"],
+  // PowerPoint draws an unavailable font of unknown style in Calibri (independent of
+  // the theme fonts), so Calibri comes first where it is installed.
+  sans: ["Calibri", "Arial", "Liberation Sans", "Noto Sans"],
+  // With a PANOSE classification PowerPoint lets Windows map to the closest installed
+  // face, which is Arial for a sans-serif font.
+  "classified-sans": ["Arial", "Calibri", "Liberation Sans", "Noto Sans"],
   serif: [
     "Times New Roman",
     "Georgia",
@@ -81,6 +88,13 @@ const METRIC_FALLBACKS: ReadonlyMap<string, readonly MetricFallback[]> =
     ],
     ["aptos narrow", [{ family: "Calibri", regular: "97%", bold: "97%" }]],
     ["aptos serif", [{ family: "Georgia", regular: "101.8%", bold: "101.8%" }]],
+    [
+      "arial nova cond",
+      [
+        { family: "Arial Narrow", regular: "108.5%", bold: "103.8%" },
+        { family: "Calibri", regular: "97.6%", bold: "98.1%" },
+      ],
+    ],
   ]);
 
 const FALLBACK_STYLES = [
@@ -164,6 +178,7 @@ function* xmlParts(
 
 function collectReferencedFamilies(files: PptxFiles): FontScanResult {
   const families = new Map<string, string>();
+  const classified = new Set<string>();
   let scannedChars = 0;
   let limited = false;
 
@@ -188,6 +203,12 @@ function collectReferencedFamilies(files: PptxFiles): FontScanResult {
       const family = usableFamily(match[2] ?? "");
       if (!family) continue;
       const key = family.toLowerCase();
+      const start = boundedXml.lastIndexOf("<", match.index ?? 0);
+      const end = boundedXml.indexOf(">", match.index ?? 0);
+      if (
+        /\bpanose\s*=/.test(boundedXml.slice(start, end < 0 ? undefined : end))
+      )
+        classified.add(key);
       if (families.has(key)) continue;
       if (families.size >= MAX_FONT_FAMILIES) {
         limited = true;
@@ -198,7 +219,7 @@ function collectReferencedFamilies(files: PptxFiles): FontScanResult {
     if (limited) break;
   }
 
-  return { families: [...families.values()], limited };
+  return { families: [...families.values()], classified, limited };
 }
 
 function embeddedFontKeys(presentation: PresentationData): Set<string> {
@@ -349,7 +370,12 @@ export async function resolvePreviewFonts(
       substitutions.push(`${family} → ${matched.localFamily} (width-matched)`);
       continue;
     }
-    const fallbackFaces = await getFallbackFaces(fallbackKind(family));
+    const kind = fallbackKind(family);
+    const fallbackFaces = await getFallbackFaces(
+      kind === "sans" && scan.classified.has(family.toLowerCase())
+        ? "classified-sans"
+        : kind,
+    );
     if (fallbackFaces.length === 0) {
       unresolvedFamilies.push(family);
       continue;

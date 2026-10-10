@@ -309,6 +309,19 @@ Commits this session:
   underlined). Corpus mean slide RGB MAE 2.901% -> 2.880% (median 2.499% ->
   2.496%) on the same 563 slides; 9 slides improve by more than 0.2 points
   (up to 2.39 on 24-ia-accounting-equation), none get worse.
+- Preview fidelity (missing fonts): PowerPoint draws an unavailable font with
+  no PANOSE information in Calibri, independent of the theme fonts (verified
+  with control decks: `ff9` / `NoSuchFontXYZ` render in Calibri even with a
+  Georgia theme), while a sans font that carries a PANOSE classification maps
+  to the closest installed face (Arial). The preview's local fallback now
+  follows both rules (it previously used Arial for every missing sans font),
+  and Arial Nova Cond, an Office cloud font PowerPoint has but the browser
+  cannot load, gets a width-matched Arial Narrow fallback (108.5% / 103.8%,
+  measured against the cached cloud font). A Segoe UI fallback for Daytona
+  was tried and dropped because it made its slide worse. Corpus mean slide
+  RGB MAE 2.880% -> 2.845% (median 2.496% -> 2.479%) on the same 563 slides;
+  22 slides improve by more than 0.2 points (up to 3.87), none get worse by
+  more than 0.12.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null
@@ -613,7 +626,7 @@ Remaining human-gated items:
 Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
-3.170% to 2.880% (median 2.714% -> 2.496%) on the same 563 slides; real-deck
+3.170% to 2.845% (median 2.714% -> 2.479%) on the same 563 slides; real-deck
 edit acceptance passes on all 33 decks. Last full check 2020 Core + 327
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
