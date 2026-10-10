@@ -2140,6 +2140,11 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def set_slide_hidden(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_visibility import set_slide_hidden
+
+        return set_slide_hidden(self, params)
+
     def set_slide_background(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_background import set_slide_background
 

@@ -330,6 +330,7 @@ class FidelitySlide:
     speaker_notes: str | None = None
     speaker_notes_editable: bool = False
     background: FidelityBackground | None = None
+    hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -415,6 +416,7 @@ class FidelityDocument:
                 }
                 for obj in semantic[:limit]
             ],
+            "hidden": slide.hidden,
             "background": (
                 {
                     "state": slide.background.state,
@@ -710,6 +712,7 @@ def inspect_pptx_snapshot(
                         speaker_notes=speaker_notes,
                         speaker_notes_editable=notes_editable,
                         background=slide_background(slide_root),
+                        hidden=slide_hidden(slide_root),
                     )
                 )
             result = FidelityDocument(
@@ -1447,6 +1450,11 @@ _BACKGROUND_FILLS = frozenset(
     f"{{{DRAWING_NS}}}{name}"
     for name in ("noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill")
 )
+
+
+def slide_hidden(slide_root: etree._Element) -> bool:
+    """Whether the slide is excluded from the slide show (p:sld show="0")."""
+    return slide_root.get("show") in {"0", "false"}
 
 
 def slide_background(slide_root: etree._Element) -> FidelityBackground | None:

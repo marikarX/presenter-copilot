@@ -89,6 +89,11 @@ Commits this session:
   backgrounds are editable; picture, gradient and pattern backgrounds stay
   read-only. PowerPoint reads back the color with master following off.
   `test-slide-background.mjs` 4/4.
+- Hide or show a slide in the slide show (`p:sld show="0"`,
+  `presentation.workspace.set_slide_hidden`, "Slide actions & layout" and
+  Copilot plans); the last visible slide cannot be hidden. PowerPoint reports
+  the slide hidden. Rehearsal and Run still include hidden slides.
+  `test-slide-background.mjs` 5/5.
 - Shape fill transparency (0-100%, solid fill `a:alpha`) is a shape-style
   property in the Objects panel and Copilot plans. Imported fills with a
   whole-percent alpha are now editable; recoloring keeps the transparency;

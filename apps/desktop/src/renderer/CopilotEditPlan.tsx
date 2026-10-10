@@ -79,6 +79,7 @@ const labels: Record<string, string> = {
   adjust_picture: "Adjust picture brightness, contrast or grayscale",
   rotate_object: "Rotate or flip an object",
   set_slide_background: "Change the slide background",
+  set_slide_hidden: "Hide or show a slide in the slide show",
   set_text_hyperlink: "Set or remove a text link",
   reorder_slides: "Reorder the presentation",
   apply_slide_layout: "Change slide layout",

@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
 
-// Actual Electron/Core/native PPTX for slide background color and reset.
+// Actual Electron/Core/native PPTX for slide background color and visibility.
 const require = createRequire(import.meta.url);
 const desktop = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,6 +45,7 @@ shape=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,Inches(2),Inches(2),Inches(4),I
 shape.name='Outline target'
 shape.fill.solid();shape.fill.fore_color.rgb=RGBColor(0xE0,0xED,0xFA)
 shape.line.color.rgb=RGBColor(0x39,0x6E,0xA7);shape.line.width=Pt(1)
+deck.slides.add_slide(deck.slide_layouts[6])
 deck.save(sys.argv[1])
 `,
     fixture,
@@ -198,6 +199,27 @@ try {
   await workspace.getByText("Current · Revision 2", { exact: true }).waitFor();
   assert.equal((await background()).color, "#1F3A5F");
   checks.push("Undo restores the navy background");
+  await page.getByText("Slide actions & layout", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Hide slide in slide show", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
+  const visibility = await ask("presentation.workspace.list_text_targets", {
+    project_id: project,
+    document_id: document,
+    revision_id: (
+      await ask("presentation.workspace.list_revisions", {
+        project_id: project,
+        document_id: document,
+      })
+    ).current_revision_id,
+    slide_number: 1,
+  });
+  assert.equal(visibility.hidden, true);
+  await page
+    .getByRole("button", { name: "Show slide in slide show", exact: true })
+    .waitFor();
+  checks.push("GUI hides slide 1 from the slide show as one native revision");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

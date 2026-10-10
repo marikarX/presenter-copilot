@@ -649,6 +649,8 @@ class PresentationEditPlanningService:
             params["expected_text"] = slide.speaker_notes
         if kind == "change_object_layer":
             params["expected_object_ids"] = [item.object_id for item in slide.objects]
+        if kind == "set_slide_hidden":
+            params["expected_hidden"] = slide.hidden
         if kind == "set_slide_background":
             if slide.background is None:
                 raise invalid_request("The proposed slide background is not editable.")

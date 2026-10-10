@@ -489,6 +489,7 @@ type TextTargetInventory = {
   has_more: boolean;
   objects_have_more: boolean;
   background?: SlideBackground;
+  hidden?: boolean;
   speaker_notes: {
     current_text: string | null;
     text_truncated: boolean;
@@ -1328,6 +1329,7 @@ export function PresentationWorkspace({
     useState<SpeakerNotesTarget | null>(null);
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [linkDraft, setLinkDraft] = useState({ objectId: "", value: "" });
+  const [slideHidden, setSlideHidden] = useState<boolean | null>(null);
   const [slideBackground, setSlideBackground] =
     useState<SlideBackground | null>(null);
   const [slideBackgroundDraft, setSlideBackgroundDraft] = useState("#FFFFFF");
@@ -2333,6 +2335,7 @@ export function PresentationWorkspace({
       setSpeakerNotesTarget(null);
       setSpeakerNotesDraft("");
       setSlideBackground(null);
+      setSlideHidden(null);
       setWorkspaceObjects([]);
       setSelectedObjectId("");
       setDeleteConfirmationObjectId("");
@@ -2613,6 +2616,9 @@ export function PresentationWorkspace({
           ? inventory.background
           : null;
         setSlideBackground(background);
+        setSlideHidden(
+          typeof inventory.hidden === "boolean" ? inventory.hidden : null,
+        );
         setSlideBackgroundDraft(background?.color ?? "#FFFFFF");
         const firstTarget =
           mappedTargets.find(
@@ -4572,6 +4578,90 @@ export function PresentationWorkspace({
       selectedTextLink,
     ],
   );
+
+  const saveSlideHiddenRevision = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const hidden = slideHidden;
+    if (
+      !source ||
+      !revision ||
+      hidden === null ||
+      !UUID_PATTERN.test(activeSlideId) ||
+      loadedSourceId !== source.id ||
+      loading
+    ) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.set_slide_hidden",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          slide_id: activeSlideId,
+          expected_hidden: hidden,
+          hidden: !hidden,
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id) ||
+        !Number.isSafeInteger(result.revision_number) ||
+        result.revision_number < 1 ||
+        !/^[0-9a-f]{64}$/.test(result.sha256) ||
+        !Number.isSafeInteger(result.byte_size) ||
+        result.byte_size < 1 ||
+        (result.changed && result.parent_revision_id !== revision.revision_id)
+      ) {
+        throw new Error("The slide visibility revision could not be verified.");
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, selectedObjectId || undefined);
+      setNotice(
+        hidden
+          ? `Saved revision ${result.revision_number}. Slide ${selectedSlide} shows in the slide show again.`
+          : `Saved revision ${result.revision_number}. Slide ${selectedSlide} is hidden from the slide show.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The slide visibility could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    activeSlideId,
+    currentRevision,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    selectedObjectId,
+    selectedSlide,
+    selectedSource,
+    slideHidden,
+  ]);
 
   const saveSlideBackgroundRevision = useCallback(
     async (color: string | null) => {
@@ -7235,6 +7325,23 @@ export function PresentationWorkspace({
                   aria-label="Duplicate current slide"
                 >
                   Duplicate slide
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void saveSlideHiddenRevision()}
+                  disabled={
+                    !loadedSourceId ||
+                    !currentRevision ||
+                    slideHidden === null ||
+                    !UUID_PATTERN.test(activeSlideId) ||
+                    loading
+                  }
+                  aria-pressed={slideHidden === true}
+                >
+                  {slideHidden
+                    ? "Show slide in slide show"
+                    : "Hide slide in slide show"}
                 </button>
                 <button
                   type="button"
