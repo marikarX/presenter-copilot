@@ -158,6 +158,12 @@ Commits this session:
   Copilot edit plans can propose `set_slide_animations`: the planning
   snapshot lists each editable slide's sequence (`animations_editable`,
   `animations`), and Core binds the timing fingerprint before review.
+- Copilot plans can also change theme fonts, theme colors and sections
+  (`set_theme_fonts`, `set_theme_colors`, `set_slide_sections`). These are
+  deck-wide, so like slide reordering they require the whole deck to be
+  selected; only then does the snapshot include `theme_fonts`,
+  `theme_colors` and `sections`. Core binds the current fonts, palette or
+  section fingerprint before review; null color slots are kept.
 - Slide sections: named, contiguous runs of slides (`p14:sectionLst`;
   `presentation.workspace.get_slide_sections` / `set_slide_sections`,
   "Sections" in slide actions): add a section at any slide (a "Default

@@ -222,6 +222,43 @@ PARAMETER_SCHEMAS = {
         }
     ),
     "set_slide_hidden": _object({"slide_id": _ID, "hidden": {"type": "boolean"}}),
+    "set_theme_fonts": _object({"heading_font": _text(31, 1), "body_font": _text(31, 1)}),
+    "set_theme_colors": _object(
+        {
+            "colors": _object(
+                {
+                    slot: {"anyOf": [_text(7, 7), {"type": "null"}]}
+                    for slot in (
+                        "dk2",
+                        "lt2",
+                        "accent1",
+                        "accent2",
+                        "accent3",
+                        "accent4",
+                        "accent5",
+                        "accent6",
+                        "hlink",
+                        "folHlink",
+                    )
+                }
+            )
+        }
+    ),
+    "set_slide_sections": _object(
+        {
+            "sections": {
+                "type": "array",
+                "maxItems": 200,
+                "items": _object(
+                    {
+                        "section_id": {"anyOf": [_text(38, 38), {"type": "null"}]},
+                        "name": _text(120, 1),
+                        "first_slide_id": _ID,
+                    }
+                ),
+            }
+        }
+    ),
     "set_slide_animations": _object(
         {
             "slide_id": _ID,

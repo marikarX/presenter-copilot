@@ -1268,3 +1268,94 @@ def test_provider_animations_see_sequence_bind_fingerprint_and_apply(tmp_path: P
         ]
     finally:
         core.close()
+
+
+def test_provider_deck_theme_and_sections_need_whole_deck_and_apply(tmp_path: Path) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        sections = call(
+            core,
+            "presentation.workspace.get_slide_sections",
+            {**scope, "expected_revision_id": params["expected_revision_id"]},
+        )
+        first, second = sections["slide_ids"]
+        captured: list[dict[str, Any]] = []
+        operations = [
+            {
+                "type": "set_theme_fonts",
+                "params": {"heading_font": "Georgia", "body_font": "Segoe UI"},
+            },
+            {
+                "type": "set_theme_colors",
+                "params": {
+                    "colors": {
+                        slot: "#1F3A5F" if slot == "accent1" else None
+                        for slot in PARAMETER_SCHEMAS["set_theme_colors"]["properties"]["colors"][
+                            "properties"
+                        ]
+                    }
+                },
+            },
+            {
+                "type": "set_slide_sections",
+                "params": {
+                    "sections": [
+                        {"section_id": None, "name": "Decision", "first_slide_id": first},
+                        {"section_id": None, "name": "Evidence", "first_slide_id": second},
+                    ]
+                },
+            },
+        ]
+
+        def modify(output: dict[str, Any], invocation: Any) -> None:
+            captured.append(
+                json.loads(invocation.request.current_slide_summary)["presentation_edit_snapshot"]
+            )
+            output["operations"] = [
+                {**item, "rationale": "Restyle the deck", "evidence_ids": []} for item in operations
+            ]
+
+        provider.modifier = modify
+        partial = call(core, "presentation.workspace.propose_edit_plan", params, ok=False)
+        assert "entire presentation" in partial["message"]
+        assert "theme_fonts" not in captured[0]
+        proposal = call(
+            core, "presentation.workspace.propose_edit_plan", {**params, "slide_numbers": [1, 2]}
+        )
+        assert {"theme_fonts", "theme_colors", "sections"} <= set(captured[1])
+        bound = [item["params"] for item in proposal["operations"]]
+        assert bound[1]["colors"] == {"accent1": "#1F3A5F"}
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        current = {**scope, "expected_revision_id": result["revision_id"]}
+        fonts = call(core, "presentation.workspace.get_theme_fonts", current)
+        assert (fonts["heading_font"], fonts["body_font"]) == ("Georgia", "Segoe UI")
+        colors = call(core, "presentation.workspace.get_theme_colors", current)
+        assert colors["colors"]["accent1"] == "#1F3A5F"
+        after = call(core, "presentation.workspace.get_slide_sections", current)
+        assert [(s["name"], s["slide_ids"]) for s in after["sections"]] == [
+            ("Decision", [first]),
+            ("Evidence", [second]),
+        ]
+    finally:
+        core.close()

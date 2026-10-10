@@ -134,7 +134,13 @@ class PresentationEditPlanningService:
         animation_context = self._animation_context(
             self._edits, project_id, document_id, revision_id, selected
         )
+        deck_context = (
+            self._deck_context(self._edits, project_id, document_id, revision_id)
+            if allowed_slides == all_slides
+            else {}
+        )
         snapshot = {
+            **deck_context,
             "slide_width_emu": baseline.slide_width_emu,
             "slide_height_emu": baseline.slide_height_emu,
             "ordered_slide_ids": [slide.slide_id for slide in baseline.slides],
@@ -265,6 +271,12 @@ class PresentationEditPlanningService:
                 if allowed_slides != all_slides:
                     raise invalid_request(
                         "Slide reordering requires selecting the entire presentation."
+                    )
+            elif kind in DECK_OPERATIONS:
+                if allowed_slides != all_slides:
+                    raise invalid_request(
+                        "Deck-wide theme and section edits require selecting the entire "
+                        "presentation."
                     )
             else:
                 if (
@@ -513,6 +525,75 @@ class PresentationEditPlanningService:
                 result[slide.slide_id] = items
         return result
 
+    @staticmethod
+    def _deck_context(
+        editor: PresentationEditService, project: str, document: str, revision: str
+    ) -> dict[str, Any]:
+        """Theme fonts, theme colors and sections; offered only for whole-deck requests."""
+        scope = {
+            "project_id": project,
+            "document_id": document,
+            "expected_revision_id": revision,
+        }
+        fonts = editor.get_theme_fonts(scope)
+        colors = editor.get_theme_colors(scope)
+        sections = editor.get_slide_sections(scope)
+        result: dict[str, Any] = {}
+        if fonts["editable"] and fonts["uniform"]:
+            result["theme_fonts"] = {
+                "heading_font": fonts["heading_font"],
+                "body_font": fonts["body_font"],
+            }
+        if colors["editable"]:
+            result["theme_colors"] = colors["colors"]
+        if sections["editable"]:
+            result["sections"] = [
+                {
+                    "section_id": section["section_id"],
+                    "name": section["name"],
+                    "first_slide_id": section["slide_ids"][0],
+                }
+                for section in sections["sections"]
+                if section["slide_ids"]
+            ]
+        return result
+
+    def _bind_deck(
+        self,
+        editor: PresentationEditService,
+        project: str,
+        document: str,
+        revision: str,
+        kind: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        context = self._deck_context(editor, project, document, revision)
+        if kind == "set_theme_fonts":
+            current = context.get("theme_fonts")
+            if current is None:
+                raise invalid_request("The proposed theme fonts are not editable.")
+            params["expected_heading_font"] = current["heading_font"]
+            params["expected_body_font"] = current["body_font"]
+        elif kind == "set_theme_colors":
+            if "theme_colors" not in context:
+                raise invalid_request("The proposed theme colors are not editable.")
+            params["colors"] = {
+                slot: value for slot, value in params.get("colors", {}).items() if value
+            }
+            if not params["colors"]:
+                raise invalid_request("The proposed theme color change is empty.")
+            params["expected_colors"] = context["theme_colors"]
+        else:
+            if "sections" not in context:
+                raise invalid_request("The proposed sections are not editable.")
+            scope = {
+                "project_id": project,
+                "document_id": document,
+                "expected_revision_id": revision,
+            }
+            params["expected_fingerprint"] = editor.get_slide_sections(scope)["fingerprint"]
+        return params
+
     def _animation_context(
         self,
         editor: PresentationEditService,
@@ -685,6 +766,8 @@ class PresentationEditPlanningService:
         params = copy.deepcopy(values)
         if kind == "reorder_slides":
             return params
+        if kind in DECK_OPERATIONS:
+            return self._bind_deck(editor, project, document, revision, kind, params)
         slide = next(
             (item for item in fidelity.slides if item.slide_id == params["slide_id"]), None
         )
@@ -1006,6 +1089,9 @@ class PresentationEditPlanningService:
                     "grayscale": obj.picture_adjustment.grayscale,
                 }
         return params
+
+
+DECK_OPERATIONS = frozenset({"set_theme_fonts", "set_theme_colors", "set_slide_sections"})
 
 
 def _animations(state: dict[str, Any]) -> dict[str, Any]:
