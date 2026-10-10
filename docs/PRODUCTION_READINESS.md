@@ -219,6 +219,8 @@ Commits this session:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
   on 9 of 11 sampled decks (the other two would have had to grow text past the
   chosen minimum); PowerPoint opens every result.
+- Duplicated and pasted objects now get fresh `a16:creationId` identities,
+  as PowerPoint gives a copy, instead of sharing the source's identity.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

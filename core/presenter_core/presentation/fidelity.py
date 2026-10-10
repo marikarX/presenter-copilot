@@ -293,6 +293,15 @@ def has_unsafe_extension_lists(node: etree._Element) -> bool:
     return False
 
 
+def refresh_creation_ids(node: etree._Element) -> None:
+    """Give a copied object (and its children) new a16:creationId identities, as PowerPoint
+    does on copy, so co-authoring never sees two objects with one identity."""
+    import uuid
+
+    for identity in node.xpath(".//*[local-name()='creationId'][@id]"):
+        identity.set("id", "{" + str(uuid.uuid4()).upper() + "}")
+
+
 def object_alt_text(nonvisual: etree._Element) -> tuple[str, bool]:
     """An object's alt text (cNvPr@descr) and PowerPoint's "Mark as decorative" flag."""
     flags = nonvisual.xpath(

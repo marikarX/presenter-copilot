@@ -1,4 +1,4 @@
-"""Alt text and the decorative flag on existing objects."""
+"""Alt text, the decorative flag and object identity metadata."""
 
 import io
 import zipfile
@@ -102,3 +102,65 @@ def test_benign_nonvisual_extensions_keep_objects_groupable() -> None:
     assert not has_unsafe_extensions(shape("{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"))
     assert not has_unsafe_extensions(shape("{C183D7F6-B498-43B3-948B-1728B52AA6E4}"))
     assert has_unsafe_extensions(shape("{00000000-0000-0000-0000-000000000000}"))
+
+
+def test_duplicate_object_gets_a_fresh_creation_id(tmp_path: Path) -> None:
+    source = tmp_path / "ids.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    image = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(image, "PNG")
+    image.seek(0)
+    slide.shapes.add_picture(image, Inches(1), Inches(1), Inches(2), Inches(2)).name = "Pic"
+    deck.save(source)
+    tagged = tmp_path / "tagged.pptx"
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(tagged, "w") as output:
+        for info in original.infolist():
+            data = original.read(info)
+            if info.filename == "ppt/slides/slide1.xml":
+                data = data.replace(
+                    b'name="Pic" descr="image.png"/>',
+                    b'name="Pic" descr="image.png"><a:extLst><a:ext '
+                    b'uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId '
+                    b'xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" '
+                    b'id="{11111111-1111-1111-1111-111111111111}"/></a:ext></a:extLst></p:cNvPr>',
+                )
+                assert b"creationId" in data
+            output.writestr(info, data)
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, tagged)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        inventory = _call(
+            core,
+            "t",
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )["result"]
+        picture = next(o for o in inventory["objects"] if o["name"] == "Pic")
+        reply = _call(
+            core,
+            "d",
+            "presentation.workspace.duplicate_object",
+            {
+                **scope,
+                "expected_revision_id": revision,
+                "slide_id": inventory["slide_id"],
+                "object_id": picture["object_id"],
+                "expected_geometry": picture["geometry"],
+            },
+        )
+        assert reply["ok"], reply.get("error")
+        revision = reply["result"]["revision_id"]
+        with core._storage.project_database(project) as connection:
+            path = connection.execute(
+                "SELECT local_snapshot_path FROM presentation_revisions WHERE id=?", (revision,)
+            ).fetchone()["local_snapshot_path"]
+        with zipfile.ZipFile(core._storage.paths.snapshot_path(project, path)) as archive:
+            root = etree.fromstring(archive.read("ppt/slides/slide1.xml"))
+        ids = root.xpath("//*[local-name()='creationId']/@id")
+        assert len(ids) == 2 and len(set(ids)) == 2
+    finally:
+        core.close()

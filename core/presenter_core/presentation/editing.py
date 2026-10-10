@@ -80,6 +80,7 @@ from presenter_core.presentation.fidelity import (
     inspect_pptx_snapshot,
     object_rotation,
     plain_bullet_font,
+    refresh_creation_ids,
 )
 from presenter_core.presentation.revisions import MAX_REVISION_NUMBER
 from presenter_core.presentation.slide_sections import P14_NS, sync_sections
@@ -4021,6 +4022,7 @@ class PresentationEditService:
                     slide_root, source_object.name
                 )
                 duplicate_node = copy.deepcopy(object_node)
+                refresh_creation_ids(duplicate_node)
                 duplicate_nonvisual = duplicate_node.xpath(nonvisual_selector, namespaces=_NS)
                 if len(duplicate_nonvisual) != 1:
                     raise CoreDomainError(

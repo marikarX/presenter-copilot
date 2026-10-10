@@ -23,6 +23,7 @@ from presenter_core.presentation.fidelity import (
     _relationships,
     _resolve_internal_part,
     inspect_pptx_snapshot,
+    refresh_creation_ids,
 )
 from presenter_core.presentation.graphic_duplication import CT, clone_chart_graph
 
@@ -219,6 +220,7 @@ def write_paste(
             node = copy.deepcopy(
                 editor._find_object_node(source_root, ooxml_id=obj.ooxml_id, kind=obj.kind)
             )
+            refresh_creation_ids(node)
             for style_id in node.findall(".//a:tableStyleId", _NS):
 
                 def catalog(archive: zipfile.ZipFile, members: Any) -> Any:
