@@ -163,8 +163,12 @@ Commits this session:
   fill styles (the renderer only did this for slide backgrounds), so text
   boxes styled with background gradients render like PowerPoint (open
   education slide 21 MAE 7.97% -> 5.16%; corpus mean 2.903%).
-  Remaining visible gaps: 3D perspective/bevel SmartArt renders flat and
-  small hanging bullets sit slightly high.
+- Auto-numbers: measured that PowerPoint draws `buAutoNum` numbers in the
+  first run's font and weight, ignoring `buFont` (even +mj-lt or Arial);
+  character bullets still use their bullet font. The preview now matches.
+  Remaining visible gaps: 3D perspective/bevel SmartArt renders flat,
+  small hanging bullets sit slightly high, and paragraph spacing differs by
+  about a point on some numbered lists.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
