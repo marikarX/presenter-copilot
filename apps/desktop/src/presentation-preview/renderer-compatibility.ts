@@ -120,6 +120,8 @@ export interface PreviewRendererCompatibilityReport {
   duotoneImageReferencesNormalized: number;
   tiledImageFillsSized?: number;
   pictureGeometryInherited?: number;
+  browserLineBreaksSuppressed?: number;
+  textColoredHyperlinks?: number;
   defaultLineSpacingLevelsFilled?: number;
   compatibilityPartsSkipped: number;
 }
@@ -136,6 +138,8 @@ export interface PreviewRendererCompatibilityOptions {
   repairSmartArtRelationships?: boolean;
   normalizeDuotoneImages?: boolean;
   sizeTiledImageFills?: boolean;
+  suppressBrowserOnlyLineBreaks?: boolean;
+  followTextColoredHyperlinks?: boolean;
   fillDefaultLineSpacing?: boolean;
 }
 
@@ -2953,6 +2957,99 @@ async function normalizeDuotoneImages(
   return { references, partsSkipped };
 }
 
+const HYPERLINK_COLOR_NS =
+  "http://schemas.microsoft.com/office/drawing/2018/hyperlinkcolor";
+
+/**
+ * Office's ahyp:hlinkClr val="tx" keeps a link in the run's text color. The
+ * renderer always uses the theme hyperlink color, so the preview copy drops the
+ * (inert) click link and keeps PowerPoint's underline.
+ */
+function followTextColoredHyperlinks(
+  files: PptxFiles,
+  platform: XmlPlatform,
+): number {
+  let changedLinks = 0;
+  for (const [slidePath, slideXml] of files.slides) {
+    if (!slideXml.includes(HYPERLINK_COLOR_NS)) continue;
+    if (slideXml.length > MAX_XML_DOCUMENT_CHARS) continue;
+    const document = parseXml(slideXml, platform, MAX_XML_DOCUMENT_CHARS);
+    if (!document) continue;
+    let changed = 0;
+    for (const colorChoice of [
+      ...document.getElementsByTagNameNS(HYPERLINK_COLOR_NS, "hlinkClr"),
+    ]) {
+      if (colorChoice.getAttribute("val") !== "tx") continue;
+      let link: Node | null = colorChoice.parentNode;
+      while (link && (link as Element).localName !== "hlinkClick") {
+        link = link.parentNode;
+      }
+      const properties = link?.parentNode as Element | null;
+      if (!link || !properties || properties.localName !== "rPr") continue;
+      properties.removeChild(link);
+      if (!properties.hasAttribute("u")) properties.setAttribute("u", "sng");
+      changed += 1;
+    }
+    if (!changed) continue;
+    try {
+      files.slides.set(slidePath, platform.serialize(document));
+      changedLinks += changed;
+    } catch {
+      // Keep the parsed slide unchanged if preview serialization fails.
+    }
+  }
+  return changedLinks;
+}
+
+const WORD_JOINER = "\u2060";
+
+/**
+ * PowerPoint breaks lines only at spaces and hyphens (then mid-word when a
+ * segment cannot fit); browsers also break after "?" and "!", splitting URLs
+ * such as images?q=. A zero-width word joiner keeps those inside the word.
+ */
+export function joinBrowserOnlyBreaks(text: string): string {
+  return text.replace(/([?!])(?=[^\s?!\u2060])/g, `$1${WORD_JOINER}`);
+}
+
+function suppressBrowserOnlyLineBreaks(
+  files: PptxFiles,
+  platform: XmlPlatform,
+): number {
+  let joined = 0;
+  let scannedChars = 0;
+  for (const [slidePath, slideXml] of files.slides) {
+    if (!/[?!][^\s<?!]/.test(slideXml)) continue;
+    if (
+      slideXml.length > MAX_XML_DOCUMENT_CHARS ||
+      scannedChars + slideXml.length > MAX_COMPATIBILITY_XML_CHARS
+    ) {
+      break;
+    }
+    scannedChars += slideXml.length;
+    const document = parseXml(slideXml, platform, MAX_XML_DOCUMENT_CHARS);
+    if (!document) continue;
+    let changed = 0;
+    for (const text of elementsWithLocalName(document, "t")) {
+      if (text.namespaceURI !== DRAWING_NS) continue;
+      const original = text.textContent ?? "";
+      const updated = joinBrowserOnlyBreaks(original);
+      if (updated !== original) {
+        text.textContent = updated;
+        changed += 1;
+      }
+    }
+    if (!changed) continue;
+    try {
+      files.slides.set(slidePath, platform.serialize(document));
+      joined += changed;
+    } catch {
+      // Keep the parsed slide unchanged if preview serialization fails.
+    }
+  }
+  return joined;
+}
+
 const EMU_PER_INCH = 914_400;
 export const TILE_WIDTH_ATTRIBUTE = "presenterTileWidthEmu";
 export const TILE_HEIGHT_ATTRIBUTE = "presenterTileHeightEmu";
@@ -4265,6 +4362,26 @@ export async function applyPreviewRendererCompatibility(
       files,
       platform,
     );
+  }
+  if (options.followTextColoredHyperlinks === true) {
+    try {
+      report.textColoredHyperlinks = followTextColoredHyperlinks(
+        files,
+        platform,
+      );
+    } catch {
+      report.compatibilityPartsSkipped += 1;
+    }
+  }
+  if (options.suppressBrowserOnlyLineBreaks === true) {
+    try {
+      report.browserLineBreaksSuppressed = suppressBrowserOnlyLineBreaks(
+        files,
+        platform,
+      );
+    } catch {
+      report.compatibilityPartsSkipped += 1;
+    }
   }
   // Before duotone baking, which re-encodes images without their DPI.
   if (options.sizeTiledImageFills === true) {

@@ -101,6 +101,8 @@ async function openPresentation(buffer: ArrayBuffer): Promise<void> {
       normalizePictureFillGeometry: true,
       normalizeDuotoneImages: true,
       sizeTiledImageFills: true,
+      suppressBrowserOnlyLineBreaks: true,
+      followTextColoredHyperlinks: true,
       fillDefaultLineSpacing: true,
     });
     ensureOpen();

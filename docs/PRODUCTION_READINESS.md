@@ -151,6 +151,14 @@ Commits this session:
   placeholder's `custGeom`/`prstGeom` in the preview, so PowerPoint-style
   shaped picture placeholders clip like PowerPoint (SDGS title slide MAE
   8.39% -> 1.37%; 3 slides better, none worse; corpus mean 2.909%).
+- Line breaking: PowerPoint breaks only at spaces and hyphens, and mid-word
+  only when a segment cannot fit. The preview now breaks overlong words
+  (`overflow-wrap: break-word`) and joins browser-only break points after
+  `?`/`!` inside words (a zero-width word joiner in the preview copy), so long
+  URLs wrap where PowerPoint wraps them (airline slide 3 MAE 8.35% -> 6.85%).
+  Links marked `ahyp:hlinkClr val="tx"` keep the run's text color in the
+  preview. Corpus mean unchanged at 2.908% (4 better, 3 slightly worse from
+  overflowing text that previously overlapped PowerPoint pixels).
   Remaining visible gaps: 3D perspective/bevel SmartArt renders flat and
   small hanging bullets sit slightly high.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never

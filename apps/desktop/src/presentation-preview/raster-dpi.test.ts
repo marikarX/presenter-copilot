@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rasterDpi } from "./renderer-compatibility";
+import { joinBrowserOnlyBreaks, rasterDpi } from "./renderer-compatibility";
 
 function jfif(unit: number, x: number, y: number): Uint8Array {
   return new Uint8Array([
@@ -66,5 +66,15 @@ describe("rasterDpi", () => {
       x: 96,
       y: 96,
     });
+  });
+});
+
+describe("joinBrowserOnlyBreaks", () => {
+  it("keeps ? and ! inside words but leaves sentence ends alone", () => {
+    expect(joinBrowserOnlyBreaks("images?q=tbn")).toBe("images?⁠q=tbn");
+    expect(joinBrowserOnlyBreaks("Really? Yes! Done.")).toBe(
+      "Really? Yes! Done.",
+    );
+    expect(joinBrowserOnlyBreaks("why?!")).toBe("why?!");
   });
 });
