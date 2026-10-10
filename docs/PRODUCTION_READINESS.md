@@ -137,6 +137,24 @@ Commits this session:
   `test-slide-footers.mjs` 5/5. Real-deck acceptance (33 decks, chained after
   the edits below): theme fonts 33, theme colors 30 (3 multi-palette decks
   skipped), no edit errors, all 28 PowerPoint-eligible decks open.
+- Slide animations: an ordered list of entrance effects per slide
+  (`presentation.workspace.get_slide_animations` / `set_slide_animations`,
+  "Animations" in slide actions): Appear, Fade, Fly in, Wipe and Zoom, each
+  On click / With previous / After previous, with add, reorder, change and
+  remove applied as one revision under a timing fingerprint. New effects are
+  written exactly as PowerPoint writes them (XML compared against PowerPoint's
+  own output). Unchanged effects are carried over verbatim, so other entrance
+  presets ("Custom (kept as is)") keep their own durations. Emphasis, exit and
+  motion effects, triggers, by-paragraph/chart builds, nested targets and
+  alternate-content timing keep the slide read-only with a reason. PowerPoint
+  reads back each effect type, its start mode and duration, and a kept 2 s
+  Split. The browser preview shows the finished slide and does not play
+  effects; they play in PowerPoint. `test-slide-animations.mjs` 5/5.
+  Real-deck acceptance (33 decks): 24 decks gained a new two-effect sequence
+  and 9 had an existing sequence of 1-6 effects reversed (effects carried over
+  verbatim), no edit errors, all 28 PowerPoint-eligible decks open. Read-only
+  slides found: by-paragraph text or triggers 33, part-by-part builds 15,
+  emphasis/exit/motion 10, audio/video playback 5.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

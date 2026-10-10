@@ -47,6 +47,12 @@ import {
 import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
+import {
+  SlideAnimations,
+  isSlideAnimationState,
+  type SlideAnimationEffect,
+  type SlideAnimationState,
+} from "./SlideAnimations";
 import { DeckSemanticReview } from "./DeckSemanticReview";
 import type { ClaimScanCache } from "./claim-scan-state";
 import { SlideTakeaway } from "./SlideTakeaway";
@@ -1420,6 +1426,8 @@ export function PresentationWorkspace({
     body_font: string | null;
     editable: boolean;
   } | null>(null);
+  const [slideAnimations, setSlideAnimations] =
+    useState<SlideAnimationState | null>(null);
   const [themeColors, setThemeColors] = useState<ThemeColorState | null>(null);
   const [themeColorDraft, setThemeColorDraft] = useState<
     Record<string, string>
@@ -5011,6 +5019,132 @@ export function PresentationWorkspace({
     selectedSource,
   ]);
 
+  useEffect(() => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (
+      !source ||
+      !revision ||
+      loadedSourceId !== source.id ||
+      !UUID_PATTERN.test(activeSlideId)
+    ) {
+      setSlideAnimations(null);
+      return;
+    }
+    let cancelled = false;
+    void requestCore<unknown>("presentation.workspace.get_slide_animations", {
+      project_id: project.id,
+      document_id: source.id,
+      expected_revision_id: revision.revision_id,
+      slide_id: activeSlideId,
+    })
+      .then((state) => {
+        if (!cancelled)
+          setSlideAnimations(isSlideAnimationState(state) ? state : null);
+      })
+      .catch(() => {
+        if (!cancelled) setSlideAnimations(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSlideId,
+    currentRevision,
+    loadedSourceId,
+    project.id,
+    selectedSource,
+  ]);
+
+  const saveSlideAnimations = useCallback(
+    async (effects: SlideAnimationEffect[]) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const state = slideAnimations;
+      if (
+        !source ||
+        !revision ||
+        !state?.editable ||
+        state.slide_id !== activeSlideId ||
+        loadedSourceId !== source.id ||
+        loading
+      )
+        return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_slide_animations",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            slide_id: activeSlideId,
+            expected_fingerprint: state.fingerprint,
+            effects: effects.map(({ object_id, effect, start }) => ({
+              object_id,
+              effect,
+              start,
+            })),
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number)
+        ) {
+          throw new Error(
+            "The slide animation revision could not be verified.",
+          );
+        }
+        if (!result.changed) {
+          setNotice("The slide animations are unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, selectedObjectId || undefined);
+        setNotice(
+          `Saved revision ${result.revision_number} with ${effects.length} entrance animation${effects.length === 1 ? "" : "s"}.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide animations could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      activeSlideId,
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObjectId,
+      selectedSlide,
+      selectedSource,
+      slideAnimations,
+    ],
+  );
+
   const saveSlideTransitionRevision = useCallback(
     async (transition: string) => {
       const source = selectedSource;
@@ -8036,6 +8170,14 @@ export function PresentationWorkspace({
                       Apply to all slides
                     </button>
                   </fieldset>
+                ) : null}
+                {slideAnimations &&
+                slideAnimations.slide_id === activeSlideId ? (
+                  <SlideAnimations
+                    state={slideAnimations}
+                    disabled={loading || !currentRevision}
+                    onApply={(effects) => void saveSlideAnimations(effects)}
+                  />
                 ) : null}
                 <label>
                   Slide transition

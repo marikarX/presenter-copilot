@@ -2573,3 +2573,34 @@ h1 {
   display: block;
   pointer-events: none;
 }
+
+.pw-animation-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.pw-animation-list li,
+.pw-animation-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pw-animation-list li > span {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+
+.pw-animation-list {
+  list-style: none;
+}
+
+.pw-animation-list select,
+.pw-animation-add select {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 0;
+}
