@@ -304,9 +304,10 @@ try {
     .locator(".pw-slide-column .pw-notice")
     .filter({ hasText: "Presenter Copilot Missing Font Smoke" })
     .waitFor();
+  // Unclassified missing fonts fall back to Calibri (as PowerPoint does), else Arial.
   await page
     .locator(".pw-slide-column .pw-notice")
-    .filter({ hasText: "Arial" })
+    .filter({ hasText: /Calibri|Arial/ })
     .waitFor();
   const previewImage = page.getByRole("img", {
     name: "Imported presentation, slide 1",
