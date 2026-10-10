@@ -114,6 +114,14 @@ Commits this session:
   verified unchanged. PowerPoint's HeadersFooters API reports the number and
   footer on content slides and none on the title slide.
   `test-slide-footers.mjs` 3/3.
+- Copilot planning snapshot compaction: the many capability fields added this
+  session pushed a near-limit whole-deck request past the 48k context limit
+  (caught by the Workspace GUI suite). Object and slide context now drop null
+  fields, false flags and style fingerprints (absent means unavailable/false;
+  the prompt says so), present rotation and picture adjustment in schema
+  units, and compact table cell styles; diagram and chart data stay verbatim
+  because providers echo them. The sample deck's slide context shrank from
+  about 15k to 6.6k characters; a regression test checks the shape.
 - 3D perspective SmartArt: the corpus has only 2 non-front cameras (one deck,
   set by the SmartArt quick style on extruded shapes), so a 3D renderer is not
   worth building; it stays a documented gap.

@@ -1160,3 +1160,29 @@ def test_provider_text_link_binds_current_link_and_applies(tmp_path: Path) -> No
         assert linked["hyperlink"] == {"url": "https://example.com/pilot", "slide_id": None}
     finally:
         core.close()
+
+
+def test_planning_snapshot_is_compact_and_uses_schema_units(tmp_path: Path) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        captured: list[str] = []
+
+        def modify(_output: dict[str, Any], invocation: Any) -> None:
+            captured.append(invocation.request.current_slide_summary)
+
+        provider.modifier = modify
+        call(core, "presentation.workspace.propose_edit_plan", params)
+        snapshot = json.loads(captured[0])["presentation_edit_snapshot"]
+        objects = [obj for slide in snapshot["slides"] for obj in slide["objects"]]
+        text = json.dumps(objects)
+        assert '"fingerprint"' not in text and ": null" not in text and ": false" not in text
+        rotated = [obj["rotation"] for obj in objects if "rotation" in obj]
+        assert rotated and all("rotation_degrees" in item or item == {} for item in rotated)
+    finally:
+        core.close()

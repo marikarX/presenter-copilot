@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import asdict, replace
-from typing import Any
+from typing import Any, cast
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
 from presenter_core.presentation.creation import PresentationCreationService
@@ -135,6 +135,7 @@ class PresentationEditPlanningService:
             "slide_width_emu": baseline.slide_width_emu,
             "slide_height_emu": baseline.slide_height_emu,
             "ordered_slide_ids": [slide.slide_id for slide in baseline.slides],
+            # Diagram and data contexts stay verbatim: providers echo them in proposals.
             "slides": [
                 {
                     **self._slide_context(slide),
@@ -144,7 +145,10 @@ class PresentationEditPlanningService:
                     ],
                     **{
                         kind: [
-                            {k: v for k, v in item.items() if k != "fingerprint"} for item in items
+                            _compact_cell_styles(
+                                {k: v for k, v in item.items() if k != "fingerprint"}
+                            )
+                            for item in items
                         ]
                         for kind, items in data_context[slide.slide_id].items()
                     },
@@ -611,13 +615,28 @@ class PresentationEditPlanningService:
             result["speaker_notes_editable"] = False
         for obj in result["objects"]:
             obj.pop("ooxml_id")
+            # Present edit capabilities in the units the plan schema uses.
+            rotation = obj.get("rotation")
+            if rotation is not None:
+                obj["rotation"] = {
+                    "rotation_degrees": rotation["rotation"] / 60_000,
+                    "flip_horizontal": rotation["flip_horizontal"],
+                    "flip_vertical": rotation["flip_vertical"],
+                }
+            adjustment = obj.get("picture_adjustment")
+            if adjustment is not None:
+                obj["picture_adjustment"] = {
+                    "brightness_percent": adjustment["brightness"],
+                    "contrast_percent": adjustment["contrast"],
+                    "grayscale": adjustment["grayscale"],
+                }
             if len(obj["text"]) > 2000:
                 obj["text"] = obj["text"][:500]
                 obj["text_edit_candidate"] = False
                 obj["single_run_text_edit_candidate"] = False
                 obj["uniform_run_text_edit_candidate"] = False
                 obj["text_format_edit_candidate"] = False
-        return result
+        return cast(dict[str, Any], _compact(result, drop_false=True))
 
     def _bind(
         self,
@@ -950,3 +969,38 @@ class PresentationEditPlanningService:
                     "grayscale": obj.picture_adjustment.grayscale,
                 }
         return params
+
+
+def _compact(value: Any, *, drop_false: bool = False) -> Any:
+    """Drop null fields and style fingerprints from planning context in place.
+
+    Absent capabilities mean unavailable; Core rebinds fingerprints itself. With
+    drop_false, false flags are dropped too (absent means false).
+    """
+    if isinstance(value, dict):
+        for key in [
+            k
+            for k, v in value.items()
+            if v is None or k == "fingerprint" or (drop_false and v is False)
+        ]:
+            del value[key]
+        for item in value.values():
+            _compact(item, drop_false=drop_false)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _compact(item, drop_false=drop_false)
+    return value
+
+
+def _compact_cell_styles(value: Any) -> Any:
+    """Compact per-cell table styles (never echoed by providers) to bound context size."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "cell_styles":
+                _compact(item)
+            else:
+                _compact_cell_styles(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _compact_cell_styles(item)
+    return value

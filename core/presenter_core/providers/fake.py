@@ -186,7 +186,8 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
             obj = next(
                 item
                 for item in slide["objects"]
-                if item["single_run_text_edit_candidate"] or item["uniform_run_text_edit_candidate"]
+                if item.get("single_run_text_edit_candidate")
+                or item.get("uniform_run_text_edit_candidate")
             )
             output = validate_provider_output(
                 request.task_type,
@@ -207,7 +208,7 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                             "type": "replace_speaker_notes",
                             "params": {
                                 "slide_id": slide["slide_id"],
-                                "replacement_text": (slide["speaker_notes"] or "")[:11940]
+                                "replacement_text": (slide.get("speaker_notes") or "")[:11940]
                                 + "\nReview the decision with the audience.",
                             },
                             "rationale": "Keep the speaking reminder with the slide.",
@@ -217,7 +218,10 @@ class DeterministicFakeReasoningProvider(ReasoningProvider):
                 },
             )
             for additional in snapshot["slides"][1:19]:
-                if additional["speaker_notes_editable"] and additional["speaker_notes"] is not None:
+                if (
+                    additional.get("speaker_notes_editable")
+                    and additional.get("speaker_notes") is not None
+                ):
                     output["operations"].append(
                         {
                             "type": "replace_speaker_notes",
