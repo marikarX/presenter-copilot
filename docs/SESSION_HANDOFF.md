@@ -307,6 +307,11 @@ Fast Decisions live local acceptance (2026-10-09):
   after explicit review. The "We recommend funding the pilot" slide was
   classified correctly in both runs; the Agenda slide came back "unclear" in
   one run and "recommendation" in another.
+- Re-verified after this session's Workspace and planning changes (same model
+  on the LM Studio CUDA 12 llama-server 2.48.0, stopped afterwards):
+  `accept-fast-decisions-local.mjs` 2/2 live GUI suggestions correct and saved
+  after review (556-1319 ms provider latency); `decision_acceptance` 8/10
+  correct, 10/10 valid structured responses, median 821 ms, p95 2103 ms.
 - Bug found and fixed: saving the local reasoning provider did not refresh
   Fast Decisions status, so the panel kept showing the local model as "not
   configured" and Save stayed disabled until Settings was reopened.
