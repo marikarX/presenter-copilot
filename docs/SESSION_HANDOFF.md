@@ -167,8 +167,11 @@ Commits this session:
   first run's font and weight, ignoring `buFont` (even +mj-lt or Arial);
   character bullets still use their bullet font. The preview now matches.
   Remaining visible gaps: 3D perspective/bevel SmartArt renders flat,
-  small hanging bullets sit slightly high, and paragraph spacing differs by
-  about a point on some numbered lists.
+  small hanging bullets sit slightly high, and line pitch runs about 0.3 pt
+  short per line. PowerPoint's pitch is exactly lnSpc x 1.2 x size (Georgia
+  28 pt at 90% measures 30.21 pt), but the browser snaps line boxes to whole
+  pixels: the renderer's 1.19 factor lands on 40 px lines (29.9 pt) while
+  1.2 rounds to 41 px (31.0 pt), so 1.19 stays as the closer compensation.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
   offered for text replacement. Corpus format-editable objects 2068 -> 2173;
   16 real-deck edits open in PowerPoint.
@@ -346,8 +349,7 @@ Remaining human-gated items:
   in `docs/PROVIDERS.md` as part of the isolation design, not a bug.
 
 Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt, small
-hanging bullet baseline, about a point of paragraph spacing on numbered
-lists, glyph rasterization), further Workspace authoring as needed, and the
+hanging bullet baseline, sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed, and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
 edit acceptance passes on all 33 decks. Last full check 1983 Core + 327
