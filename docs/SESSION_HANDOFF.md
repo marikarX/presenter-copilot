@@ -219,6 +219,14 @@ Commits this session:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
   on 9 of 11 sampled decks (the other two would have had to grow text past the
   chosen minimum); PowerPoint opens every result.
+- Table frames from current PowerPoint can be moved and resized: the frame
+  check accepts row/column identities and content-placeholder tables, and row
+  heights that sum to less than the frame (rows that grew to fit their text).
+  Height resizes then scale the rows to add up to the new frame. Movable
+  graphic frames in the corpus went from 1 to 27 of 116; PowerPoint reads back
+  the exact new position on all five sampled decks and the exact new height
+  on four (on the fifth, the rows' text is taller than the scaled minimum
+  heights, so PowerPoint grows the table further).
 - Duplicated and pasted objects now get fresh `a16:creationId` identities,
   as PowerPoint gives a copy, instead of sharing the source's identity.
 - Copilot planning snapshot compaction: the many capability fields added this

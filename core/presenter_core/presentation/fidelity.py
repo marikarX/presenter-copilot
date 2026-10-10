@@ -1800,13 +1800,13 @@ def _geometry_for_object(
 def _graphic_frame_geometry_supported(
     candidate: etree._Element, geometry: FidelityGeometry
 ) -> bool:
-    if has_unsafe_extensions(candidate):
-        return False
     data = candidate.findall("a:graphic/a:graphicData", _NS)
     if len(data) != 1 or len(data[0]) != 1:
         return False
     chart_ns = "http://schemas.openxmlformats.org/drawingml/2006/chart"
     if data[0].get("uri") == chart_ns:
+        if has_unsafe_extensions(candidate):
+            return False
         chart = data[0][0]
         return (
             chart.tag == f"{{{chart_ns}}}chart"
@@ -1817,6 +1817,14 @@ def _graphic_frame_geometry_supported(
     if (
         data[0].get("uri") != "http://schemas.openxmlformats.org/drawingml/2006/table"
         or data[0][0].tag != f"{{{DRAWING_NS}}}tbl"
+    ):
+        return False
+    from presenter_core.presentation.table_structure import table_extensions_supported
+
+    # Tables may sit in a content placeholder and carry row/column identities; their
+    # frame keeps an explicit transform either way.
+    if candidate.xpath(".//p:ph[not(parent::p:nvPr)]", namespaces=_NS) or not (
+        table_extensions_supported(candidate)
     ):
         return False
     table = data[0][0]
@@ -1832,7 +1840,8 @@ def _graphic_frame_geometry_supported(
     return (
         all(value > 0 for value in widths + heights)
         and sum(widths) == geometry.width_emu
-        and sum(heights) == geometry.height_emu
+        # Row heights are minimums: rows grow to fit their text, so the frame can be taller.
+        and sum(heights) <= geometry.height_emu
     )
 
 

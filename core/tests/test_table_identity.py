@@ -149,3 +149,45 @@ def test_identity_tagged_table_edits_and_new_rows_get_fresh_ids(tmp_path: Path) 
         assert table()[1]["cells"][2] == ["New", ""]
     finally:
         core.close()
+
+
+def test_identity_tagged_table_frame_is_movable_and_rows_fill_a_taller_frame(
+    tmp_path: Path,
+) -> None:
+    from lxml import etree
+
+    from presenter_core.presentation.fidelity import FidelityGeometry
+    from presenter_core.presentation.graphic_geometry import resize_table_grid
+
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, _deck(tmp_path))["id"]
+        revision = _open(core, project, document)["revision_id"]
+        objects = _call(
+            core,
+            "t",
+            "presentation.workspace.list_text_targets",
+            {
+                "project_id": project,
+                "document_id": document,
+                "revision_id": revision,
+                "slide_number": 1,
+            },
+        )["result"]["objects"]
+        frame_object = next(o for o in objects if o["kind"] == "graphicFrame")
+        assert frame_object["geometry_editable"]
+    finally:
+        core.close()
+
+    frame = etree.fromstring(
+        '<p:graphicFrame xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphic>'
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>'
+        '<a:tblGrid><a:gridCol w="100"/></a:tblGrid><a:tr h="20"/><a:tr h="30"/></a:tbl>'
+        "</a:graphicData></a:graphic></p:graphicFrame>"
+    )
+    # Rows sum to 50 while text grew the frame to 80; a 160-tall frame gets rows of 160.
+    resize_table_grid(frame, FidelityGeometry(0, 0, 100, 80), FidelityGeometry(0, 0, 100, 160))
+    heights = [int(row.get("h")) for row in frame.iter("{*}tr")]
+    assert sum(heights) == 160 and heights == [64, 96]

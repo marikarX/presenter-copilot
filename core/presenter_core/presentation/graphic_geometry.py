@@ -19,7 +19,13 @@ def resize_table_grid(frame: Any, old: FidelityGeometry, new: FidelityGeometry) 
         if original == replacement:
             continue
         values = [int(node.get(field)) for node in nodes]
-        if not values or sum(values) != original or any(value <= 0 for value in values):
+        if not values or any(value <= 0 for value in values):
+            raise invalid_request("The table grid does not match its frame size.")
+        if field == "h" and sum(values) < original:
+            # Rows grew to fit their text, so the frame is taller than the minimum heights.
+            # PowerPoint sizes the table from row heights: make them add up to the new frame.
+            original = sum(values)
+        elif sum(values) != original:
             raise invalid_request("The table grid does not match its frame size.")
         scaled = []
         total = previous = 0
