@@ -242,8 +242,8 @@ def test_complex_tables_are_read_only(tmp_path: Path, case: str):
         if case == "oversized":
             cell.find("a:txBody/a:p/a:r/a:t", ns).text = "x" * 501
         info = inspect_table(frame)
-        if case == "mixed_runs":
-            # Rich-text cells are locked individually; the rest of the table stays editable.
+        if case in {"mixed_runs", "hyperlink"}:
+            # Rich-text and linked cells are locked individually; the rest stays editable.
             assert info["editable"] and info["locked_cells"] == [[0, 0]]
         else:
             assert not info["editable"]

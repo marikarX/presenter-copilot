@@ -79,11 +79,15 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
         or len(data[0]) != 1
         # A table inserted into a content placeholder keeps its p:ph link; cell and
         # row edits never touch it.
-        or frame.xpath(".//@r:* | .//p:ph[not(parent::p:nvPr)]", namespaces=_NS)
+        # Cell picture fills keep their relationship; references elsewhere stay read-only.
+        or frame.xpath(
+            ".//@r:*[not(ancestor::a:tc)] | .//p:ph[not(parent::p:nvPr)]", namespaces=_NS
+        )
         or not table_extensions_supported(frame)
     ):
         return result
     table = tables[0]
+    cell_relationships = bool(frame.xpath(".//a:tc//@r:*", namespaces=_NS))
     rows = table.findall("a:tr", _NS)
     columns = table.findall("a:tblGrid/a:gridCol", _NS)
     if not 1 <= len(rows) <= 12 or not 1 <= len(columns) <= 8:
@@ -106,7 +110,9 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
             paragraphs = body.findall("a:p", _NS)
             if not paragraphs:
                 return result
-            if not all(_notes_body_is_plain_editable([p]) for p in paragraphs):
+            if cell.xpath("./a:txBody//@r:*", namespaces=_NS) or not all(
+                _notes_body_is_plain_editable([p]) for p in paragraphs
+            ):
                 # Rich text (mixed run formatting, fields, breaks) stays as authored: the
                 # cell is locked while the rest of the table remains editable.
                 locked.append([row_index, column_index])
@@ -149,13 +155,21 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
         cells=values,
         locked_cells=locked,
         spans=spans,
-        structure_editable=not spans["regions"] and not locked and structure_supported(frame),
+        structure_editable=not spans["regions"]
+        and not locked
+        and not cell_relationships
+        and structure_supported(frame),
     )
     from presenter_core.presentation.table_format import inspect_formatting
 
     result["formatting"] = (
         {"editable": False, "reason": "Tables with rich-text cells keep formatting read-only."}
         if locked
+        else {
+            "editable": False,
+            "reason": "Tables with picture-filled cells keep formatting read-only.",
+        }
+        if cell_relationships
         else inspect_formatting(frame)
     )
     from presenter_core.presentation.table_borders import inspect_borders

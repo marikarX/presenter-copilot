@@ -244,3 +244,74 @@ def test_rich_text_cell_is_locked_while_the_table_stays_editable(tmp_path: Path)
         assert edit([["H2O", "Edited"], ["R1C0", "R1C1"]])["ok"]
     finally:
         core.close()
+
+
+def _picture_cell_deck(tmp_path: Path) -> Path:
+    import io
+
+    from lxml import etree
+    from PIL import Image
+
+    source = tmp_path / "picture-cell.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    table = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(4), Inches(2)).table
+    for r in range(2):
+        for c in range(2):
+            table.cell(r, c).text = f"R{r}C{c}"
+    image = io.BytesIO()
+    Image.new("RGB", (16, 16), (200, 60, 30)).save(image, "PNG")
+    image.seek(0)
+    picture = slide.shapes.add_picture(image, 0, 0)
+    relationship = picture._element.xpath(".//a:blip/@r:embed")[0]
+    picture._element.getparent().remove(picture._element)
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    properties = table.cell(0, 0)._tc.get_or_add_tcPr()
+    fill = etree.SubElement(properties, f"{{{a}}}blipFill")
+    etree.SubElement(fill, f"{{{a}}}blip").set(f"{{{r}}}embed", relationship)
+    etree.SubElement(etree.SubElement(fill, f"{{{a}}}stretch"), f"{{{a}}}fillRect")
+    deck.save(source)
+    return source
+
+
+def test_picture_filled_cell_text_stays_editable(tmp_path: Path) -> None:
+    core = CoreService(data_root=tmp_path / "data")
+    try:
+        project = _project_id(core)
+        document = _import_presentation(core, project, _picture_cell_deck(tmp_path))["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        result = _call(
+            core,
+            "l",
+            "presentation.workspace.list_tables",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )["result"]
+        item = result["items"][0]
+        assert item["editable"] and item["locked_cells"] == []
+        assert not item["structure_editable"] and not item["formatting"]["editable"]
+        reply = _call(
+            core,
+            "e",
+            "presentation.workspace.replace_table_cells",
+            {
+                **scope,
+                "expected_revision_id": revision,
+                "slide_id": result["slide_id"],
+                "object_id": item["object_id"],
+                "expected_fingerprint": item["fingerprint"],
+                "cells": [["Pictured", "R0C1"], ["R1C0", "R1C1"]],
+            },
+        )
+        assert reply["ok"], reply.get("error")
+        with core._storage.project_database(project) as connection:
+            path = connection.execute(
+                "SELECT local_snapshot_path FROM presentation_revisions WHERE id=?",
+                (reply["result"]["revision_id"],),
+            ).fetchone()["local_snapshot_path"]
+        with zipfile.ZipFile(core._storage.paths.snapshot_path(project, path)) as archive:
+            xml = archive.read("ppt/slides/slide1.xml").decode()
+        assert "blipFill" in xml and "Pictured" in xml
+    finally:
+        core.close()

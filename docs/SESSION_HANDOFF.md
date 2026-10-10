@@ -209,17 +209,25 @@ Commits this session:
 - Tables made by current PowerPoint are editable again: the table editor
   now accepts the per-row/per-column identity extensions (`a16:rowId`,
   `a16:colId`), `p14:modId`, and tables that sit in a content placeholder.
-  Editable corpus tables went from 2 to 23 of 43 (17 also allow row/column
-  insert/remove). Reshaping keeps retained rows' and columns' IDs and gives
+  Editable corpus tables went from 2 to 23 (17 also allow row/column
+  insert/remove); these counts are of raw table frames and include 8
+  alternate-content equation copies, see the corrected count below. Reshaping keeps retained rows' and columns' IDs and gives
   inserted ones fresh unique IDs. A cell edit plus an inserted row applied on
   every sampled deck, and PowerPoint shows the edited text and new row count.
-  Cells with rich text (mixed run formatting, fields, line breaks) are now
+  Cells with rich text (mixed run formatting, fields, line breaks, links) are now
   locked individually (`locked_cells`; read-only in the table editor with a
   hint) instead of making the whole table read-only; such tables keep cell
-  formatting and row/column changes read-only. Editable corpus tables: 39 of
-  43 (16 with locked cells); edits to unlocked cells applied on the sampled
-  decks with locked cells and PowerPoint shows the edited text. The remaining
-  4 tables contain images or linked content.
+  formatting and row/column changes read-only. Edits to unlocked cells
+  applied on the sampled decks with locked cells and PowerPoint shows the
+  edited text. Picture-filled cells (`tcPr/blipFill`) keep their text
+  editable (such tables keep formatting and row/column changes read-only);
+  PowerPoint keeps the picture fill after a text edit. Corrected count of
+  user-facing tables (top-level frames, as `list_tables` reports them): all
+  35 corpus tables are editable, 12 with locked cells and 17 allowing
+  row/column changes. The other 8 table frames are equation tables inside
+  alternate content (4 tables, each with a Choice and a picture Fallback
+  copy), read-only by design; the earlier "4 remaining read-only tables" were
+  those fallback copies.
   Copilot plans that would change a locked cell are refused before review.
 - Automatic text fitting accepts shapes carrying those identity extensions:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
@@ -575,7 +583,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2019 Core + 327
+edit acceptance passes on all 33 decks. Last full check 2020 Core + 327
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 
