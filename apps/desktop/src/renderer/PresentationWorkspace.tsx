@@ -3311,14 +3311,13 @@ export function PresentationWorkspace({
     }
   };
 
-  const reorderSelectedSlide = useCallback(
-    async (direction: -1 | 1) => {
+  const moveSlide = useCallback(
+    async (currentIndex: number, nextIndex: number) => {
       const source = selectedSource;
       const revision = currentRevision;
       const slides = fidelityReport?.slides;
-      const currentIndex = selectedSlide - 1;
-      const nextIndex = currentIndex + direction;
       if (
+        currentIndex === nextIndex ||
         !source ||
         !revision ||
         loadedSourceId !== source.id ||
@@ -3333,11 +3332,9 @@ export function PresentationWorkspace({
         return;
       }
       const reorderedSlides = [...slides];
-      const selectedSlideEntry = reorderedSlides[currentIndex];
-      const adjacentSlideEntry = reorderedSlides[nextIndex];
-      if (!selectedSlideEntry || !adjacentSlideEntry) return;
-      reorderedSlides[currentIndex] = adjacentSlideEntry;
-      reorderedSlides[nextIndex] = selectedSlideEntry;
+      const [movedSlide] = reorderedSlides.splice(currentIndex, 1);
+      if (!movedSlide) return;
+      reorderedSlides.splice(nextIndex, 0, movedSlide);
       setLoading(true);
       setError(null);
       setNotice(null);
@@ -3400,11 +3397,18 @@ export function PresentationWorkspace({
       loadedSourceId,
       loading,
       project.id,
-      selectedSlide,
       selectedSource,
       slideCount,
     ],
   );
+  const reorderSelectedSlide = useCallback(
+    (direction: -1 | 1) =>
+      moveSlide(selectedSlide - 1, selectedSlide - 1 + direction),
+    [moveSlide, selectedSlide],
+  );
+  // Slide strip drag-and-drop: the dragged slide index and the hovered drop target.
+  const [draggedSlide, setDraggedSlide] = useState<number | null>(null);
+  const [slideDropTarget, setSlideDropTarget] = useState<number | null>(null);
 
   const applySlideLayoutRevision = useCallback(async () => {
     const source = selectedSource;
@@ -7293,7 +7297,35 @@ export function PresentationWorkspace({
                   { length: slideCount },
                   (_, index) => index + 1,
                 ).map((slideNumber) => (
-                  <li key={slideNumber}>
+                  <li
+                    key={slideNumber}
+                    className={
+                      slideDropTarget === slideNumber &&
+                      draggedSlide !== null &&
+                      draggedSlide !== slideNumber
+                        ? "pw-slide-drop-target"
+                        : undefined
+                    }
+                    onDragOver={(event) => {
+                      if (draggedSlide === null) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setSlideDropTarget(slideNumber);
+                    }}
+                    onDragLeave={() =>
+                      setSlideDropTarget((current) =>
+                        current === slideNumber ? null : current,
+                      )
+                    }
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const from = draggedSlide;
+                      setDraggedSlide(null);
+                      setSlideDropTarget(null);
+                      if (from !== null && from !== slideNumber)
+                        void moveSlide(from - 1, slideNumber - 1);
+                    }}
+                  >
                     {sectionStarts.get(slideNumber) ? (
                       <span className="pw-slide-section">
                         {sectionStarts.get(slideNumber)}
@@ -7307,6 +7339,24 @@ export function PresentationWorkspace({
                       aria-current={
                         slideNumber === selectedSlide ? "true" : undefined
                       }
+                      draggable={
+                        !!loadedSourceId &&
+                        !!currentRevision &&
+                        !loading &&
+                        slideCount > 1
+                      }
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(
+                          "text/plain",
+                          String(slideNumber),
+                        );
+                        setDraggedSlide(slideNumber);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedSlide(null);
+                        setSlideDropTarget(null);
+                      }}
                       onClick={() => {
                         if (currentRevision) {
                           void renderSlide(

@@ -215,6 +215,29 @@ try {
   await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
   assert.deepEqual(await sections(), []);
   checks.push("GUI removes all sections as one native revision");
+
+  const slideButtons = page
+    .getByRole("navigation", { name: "Presentation slides", exact: true })
+    .getByRole("button");
+  await slideButtons.nth(2).dragTo(slideButtons.nth(0));
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  const firstTitle = (
+    await ask("presentation.workspace.list_text_targets", {
+      project_id: project,
+      document_id: document,
+      revision_id: (
+        await ask("presentation.workspace.list_revisions", {
+          project_id: project,
+          document_id: document,
+        })
+      ).current_revision_id,
+      slide_number: 1,
+    })
+  ).targets.find((item) => item.current_text)?.current_text;
+  assert.equal(firstTitle, "Details");
+  checks.push(
+    "Dragging slide 3 onto slide 1 in the slide strip moves it first as one revision",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

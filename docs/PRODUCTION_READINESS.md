@@ -178,7 +178,10 @@ Commits this session:
   inserts left new slides outside every section. PowerPoint reads back the
   same section names and slide runs after split, move-to-front, delete and
   duplicate. Section names also head their first slide in the slide strip.
-  `test-slide-sections.mjs` 5/5.
+  Slides can also be dragged in the slide strip and dropped onto another
+  slide's position (one revision; sections follow); Move up/down remain the
+  keyboard path.
+  `test-slide-sections.mjs` 6/6.
   Real-deck acceptance (33 decks): sections applied on 32 (one single-slide
   deck skipped); duplicate + delete inside the new sections kept every
   section consistent on 31 decks (after the media/notes fixes below; the one
