@@ -897,3 +897,66 @@ def test_workspace_rehearsal_binds_revision_maps_slides_and_commits_provenance(
             )
     finally:
         core.close()
+
+
+def test_manual_navigation_skips_slides_hidden_from_the_show(tmp_path: Path) -> None:
+    core = make_core(
+        tmp_path / "hidden-run", DeterministicFakeAudioInput(), DeterministicFakeASRAdapter(), []
+    )
+    try:
+        project_id = call(core, "project.create", {"name": "Hidden slides"})["project"]["id"]
+        document = call(
+            core,
+            "presentation.workspace.create_from_outline",
+            {
+                "project_id": project_id,
+                "title": "Deck",
+                "slides": [
+                    {"title": title, "bullets": ["Point"], "notes": "Notes"}
+                    for title in ("One", "Two", "Three")
+                ],
+            },
+        )["document"]["id"]
+        scope = {"project_id": project_id, "document_id": document}
+        revision = call(core, "presentation.workspace.list_revisions", scope)["current_revision_id"]
+        second = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": revision, "slide_number": 2},
+        )["slide_id"]
+        hidden = call(
+            core,
+            "presentation.workspace.set_slide_hidden",
+            {
+                **scope,
+                "expected_revision_id": revision,
+                "slide_id": second,
+                "expected_hidden": False,
+                "hidden": True,
+            },
+        )["revision_id"]
+        call(
+            core,
+            "presentation.workspace.select_for_rehearsal",
+            {**scope, "expected_revision_id": hidden},
+        )
+        session_id = call(
+            core,
+            "session.start",
+            {
+                "project_id": project_id,
+                "mode": "run",
+                "current_slide_start": 1,
+                "expected_presentation_revision_id": hidden,
+            },
+        )["session"]["id"]
+        run = {"project_id": project_id, "session_id": session_id}
+        call(core, "presentation.set_slide", {**run, "slide_ordinal": 1})
+        assert call(core, "presentation.next_slide", run)["current_slide"] == 3
+        assert call(core, "presentation.next_slide", run)["current_slide"] == 3
+        assert call(core, "presentation.previous_slide", run)["current_slide"] == 1
+        assert (
+            call(core, "presentation.set_slide", {**run, "slide_ordinal": 2})["current_slide"] == 2
+        )
+    finally:
+        core.close()

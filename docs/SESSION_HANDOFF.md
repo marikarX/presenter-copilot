@@ -92,7 +92,10 @@ Commits this session:
 - Hide or show a slide in the slide show (`p:sld show="0"`,
   `presentation.workspace.set_slide_hidden`, "Slide actions & layout" and
   Copilot plans); the last visible slide cannot be hidden. PowerPoint reports
-  the slide hidden. Rehearsal and Run still include hidden slides.
+  the slide hidden. Manual Run navigation (next/previous) skips hidden
+  slides like a PowerPoint slide show, reading them from the session's bound
+  revision; an explicit jump can still land on one, and live PowerPoint
+  tracking already follows the show.
   `test-slide-background.mjs` 5/5.
 - Shape fill transparency (0-100%, solid fill `a:alpha`) is a shape-style
   property in the Objects panel and Copilot plans. Imported fills with a

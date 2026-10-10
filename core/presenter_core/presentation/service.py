@@ -38,6 +38,9 @@ class _ActivePresentation:
     started_monotonic: float = field(default_factory=monotonic)
     watcher_stop: threading.Event = field(default_factory=threading.Event)
     watcher: threading.Thread | None = None
+    # Ordinals PowerPoint skips in a slide show (p:sld show="0"); loaded lazily.
+    hidden_slides: frozenset[int] | None = None
+    package_slide_count: int | None = None
 
 
 class SlideStateService:
@@ -170,10 +173,7 @@ class SlideStateService:
         if active.mode == "powerpoint":
             self._switch_to_manual(active, "MANUAL_OVERRIDE")
         current = active.current_slide or 1
-        next_slide = current + 1
-        if active.slide_count is not None:
-            next_slide = min(active.slide_count, next_slide)
-        self._persist_slide(active, next_slide, source="manual")
+        self._persist_slide(active, self._step(active, current, 1), source="manual")
         return self.status({"project_id": project_id, "session_id": session_id})
 
     def previous_slide(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -182,8 +182,55 @@ class SlideStateService:
         if active.mode == "powerpoint":
             self._switch_to_manual(active, "MANUAL_OVERRIDE")
         current = active.current_slide or 1
-        self._persist_slide(active, max(1, current - 1), source="manual")
+        self._persist_slide(active, self._step(active, current, -1), source="manual")
         return self.status({"project_id": project_id, "session_id": session_id})
+
+    def _step(self, active: _ActivePresentation, current: int, direction: int) -> int:
+        """Next/previous slide in show order, skipping slides hidden from the show."""
+        if active.hidden_slides is None:
+            active.hidden_slides, active.package_slide_count = self._hidden_slides(
+                active.project_id, active.session_id
+            )
+        last = active.slide_count or active.package_slide_count or max(current + direction, 1)
+        candidate = current + direction
+        while 1 <= candidate <= last:
+            if candidate not in active.hidden_slides:
+                return candidate
+            candidate += direction
+        return current if 1 <= current <= last else max(1, min(last, current))
+
+    def _hidden_slides(self, project_id: str, session_id: str) -> tuple[frozenset[int], int | None]:
+        """Hidden ordinals and slide count of the session's bound revision, if any."""
+        from presenter_core.presentation.fidelity import inspect_pptx_snapshot
+
+        try:
+            with self._storage.project_database(project_id) as connection:
+                row = connection.execute(
+                    "SELECT r.local_snapshot_path, r.presentation_id, r.sha256, r.byte_size "
+                    "FROM sessions s JOIN presentation_revisions r "
+                    "ON r.id = s.presentation_revision_id "
+                    "WHERE s.id = ? AND s.project_id = ?",
+                    (session_id, project_id),
+                ).fetchone()
+            if row is None:
+                return frozenset(), None
+            path = self._storage.paths.snapshot_path(
+                project_id, row["local_snapshot_path"], require_exists=True
+            )
+            with path.open("rb") as handle:
+                fidelity = inspect_pptx_snapshot(
+                    handle,
+                    document_id=str(row["presentation_id"]),
+                    expected_sha256=str(row["sha256"]),
+                    byte_size=int(row["byte_size"]),
+                )
+        except (CoreDomainError, OSError, KeyError, IndexError):
+            # Navigation must keep working when the snapshot cannot be inspected.
+            return frozenset(), None
+        return (
+            frozenset(slide.ordinal for slide in fidelity.slides if slide.hidden),
+            len(fidelity.slides),
+        )
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         reject_unknown_fields(params, {"project_id", "session_id"})
