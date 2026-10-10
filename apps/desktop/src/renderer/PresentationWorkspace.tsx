@@ -1040,7 +1040,7 @@ function isPresentationObject(value: unknown): value is PresentationObject {
           shapeStyle.fill_transparency_percent >= 0 &&
           shapeStyle.fill_transparency_percent <= 100)) &&
       (!shapeStyle.editable ||
-        (candidate.kind === "sp" &&
+        ((candidate.kind === "sp" || candidate.kind === "pic") &&
           shapeStyle.fingerprint !== null &&
           (shapeStyle.fill_editable ||
             shapeStyle.line_editable ||
@@ -10305,7 +10305,7 @@ export function PresentationWorkspace({
                               </>
                             ) : null}
                           </div>
-                        ) : (
+                        ) : selectedObject.kind === "pic" ? null : (
                           <p className="muted">
                             The current fill uses an unsupported effect and
                             stays read-only.

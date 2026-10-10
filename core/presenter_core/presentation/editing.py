@@ -505,7 +505,7 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This shape does not use a supported direct fill or outline color.",
             )
-        if obj.kind != "sp" or style.fingerprint != fingerprint:
+        if obj.kind not in {"sp", "pic"} or style.fingerprint != fingerprint:
             raise CoreDomainError(
                 "PRESENTATION_EDIT_STALE_TARGET",
                 "The selected shape styling changed. Refresh the preview and try again.",
@@ -7796,7 +7796,7 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_TARGET_NOT_FOUND", "The selected shape is unavailable."
             )
         if (
-            obj.kind != "sp"
+            obj.kind not in {"sp", "pic"}
             or obj.shape_style is None
             or not obj.shape_style.editable
             or obj.shape_style.fingerprint != expected_style_fingerprint
@@ -7838,7 +7838,7 @@ class PresentationEditService:
                 slide_info = source_archive.getinfo(slide.part_name)
                 slide_root = _parse_xml_part(source_archive, slide_info)
                 shape = PresentationEditService._find_object_node(
-                    slide_root, ooxml_id=obj.ooxml_id, kind="sp"
+                    slide_root, ooxml_id=obj.ooxml_id, kind=obj.kind
                 )
                 shape_trees = slide_root.xpath("./p:cSld/p:spTree", namespaces=_NS)
                 if len(shape_trees) != 1:
@@ -7847,7 +7847,7 @@ class PresentationEditService:
                         "This presentation contains an unsupported or invalid package structure.",
                     )
                 shape_tree = shape_trees[0]
-                current_style = _shape_style(shape, "sp", shape_tree=shape_tree)
+                current_style = _shape_style(shape, obj.kind, shape_tree=shape_tree)
                 if (
                     not current_style.editable
                     or current_style.fingerprint != expected_style_fingerprint

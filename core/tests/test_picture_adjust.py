@@ -189,3 +189,41 @@ def test_full_bleed_picture_outside_slide_bounds_can_be_adjusted(tmp_path: Path)
         assert reply["ok"] and reply["result"]["changed"], reply.get("error")
     finally:
         core.close()
+
+
+def test_picture_border_and_shadow_are_shape_styles(tmp_path: Path) -> None:
+    picture = _Picture(tmp_path)
+    try:
+        target, slide_id = picture.target()
+        style = target["shape_style"]
+        assert style["editable"] and style["line_editable"] and not style["fill_editable"]
+        assert style["shape_geometry"] is None
+        reply = _call(
+            picture.core,
+            "border",
+            "presentation.workspace.format_shape_style",
+            {
+                "project_id": picture.project,
+                "document_id": picture.document,
+                "expected_revision_id": picture.revision,
+                "slide_id": slide_id,
+                "object_id": target["object_id"],
+                "expected_style_fingerprint": style["fingerprint"],
+                "replacement_style": {
+                    "line_color": "#1F3A5F",
+                    "line_width_pt": 3.0,
+                    "shadow": True,
+                },
+            },
+        )
+        assert reply["ok"], reply
+        picture.revision = reply["result"]["revision_id"]
+        after = picture.target()[0]["shape_style"]
+        assert (after["line_color"], after["line_width_pt"], after["shadow"]) == (
+            "#1F3A5F",
+            3.0,
+            True,
+        )
+        assert picture.target()[0]["picture_adjustment"] is not None
+    finally:
+        picture.core.close()

@@ -1286,9 +1286,9 @@ def _shape_style(
 ) -> FidelityShapeStyle:
     """Expose only direct RGB colors that can be replaced without flattening effects."""
     if (
-        kind != "sp"
+        kind not in {"sp", "pic"}
         or candidate.getparent() is not shape_tree
-        or candidate.xpath("./p:nvSpPr/p:nvPr/p:ph", namespaces=_NS)
+        or candidate.xpath("./p:nvSpPr/p:nvPr/p:ph | ./p:nvPicPr/p:nvPr/p:ph", namespaces=_NS)
     ):
         return FidelityShapeStyle(editable=False)
     properties = candidate.xpath("./p:spPr", namespaces=_NS)
@@ -1365,10 +1365,13 @@ def _shape_style(
         _shape_line_format(lines[0] if lines else None) if structure_ok else (None, None, False)
     )
     shadow_editable, shadow = _shape_shadow(shape_properties)
+    if kind == "pic":
+        # A picture's fill is its image: only the border and shadow are styled here.
+        fill_editable, fill_color, fill_transparency = False, None, None
     geometry = shape_properties.find(f"{{{DRAWING_NS}}}prstGeom")
     shape_geometry = (
         geometry.get("prst")
-        if geometry is not None and geometry.get("prst") in SHAPE_GEOMETRIES
+        if kind == "sp" and geometry is not None and geometry.get("prst") in SHAPE_GEOMETRIES
         else None
     )
     return FidelityShapeStyle(

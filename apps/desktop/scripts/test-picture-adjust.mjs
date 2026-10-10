@@ -208,6 +208,13 @@ try {
     initial.picture_adjustment,
   );
   checks.push("Undo restores the unadjusted picture");
+  await page.getByLabel("Shape outline color", { exact: true }).fill("#1f3a5f");
+  await page
+    .getByRole("button", { name: "Apply outline color", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
+  assert.equal((await target()).shape_style.line_color, "#1F3A5F");
+  checks.push("GUI adds a navy picture border as one native revision");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

@@ -59,6 +59,10 @@ Commits this session:
   preview renderer patch now applies PowerPoint's measured contrast curve
   (slope 1/(1-c) for positive contrast, about mid-grey after brightness).
   `test-picture-adjust.mjs` passes 3/3 (range rejection, apply, undo).
+- Picture borders: slide-level pictures now expose outline color, width,
+  dash and shadow through the shape style (fill, transparency and shape type
+  stay unavailable because a picture's fill is its image). PowerPoint reads
+  back a visible 3 pt #1F3A5F border. `test-picture-adjust.mjs` 4/4.
 - Object rotation (clockwise degrees, 0.01 steps, quick 90 degree turns) and
   horizontal/vertical flips are reviewed edits for slide-level shapes and
   pictures (`presentation.workspace.rotate_object`, Objects panel and Copilot
