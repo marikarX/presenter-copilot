@@ -220,6 +220,7 @@ Commits this session:
   43 (16 with locked cells); edits to unlocked cells applied on the sampled
   decks with locked cells and PowerPoint shows the edited text. The remaining
   4 tables contain images or linked content.
+  Copilot plans that would change a locked cell are refused before review.
 - Automatic text fitting accepts shapes carrying those identity extensions:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
   on 9 of 11 sampled decks (the other two would have had to grow text past the
@@ -550,7 +551,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2015 Core + 327
+edit acceptance passes on all 33 decks. Last full check 2017 Core + 327
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 

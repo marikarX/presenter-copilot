@@ -220,6 +220,7 @@ Commits this session:
   43 (16 with locked cells); edits to unlocked cells applied on the sampled
   decks with locked cells and PowerPoint shows the edited text. The remaining
   4 tables contain images or linked content.
+  Copilot plans that would change a locked cell are refused before review.
 - Automatic text fitting accepts shapes carrying those identity extensions:
   shapes passing the fit precondition went from 1079 to 3081, and fits applied
   on 9 of 11 sampled decks (the other two would have had to grow text past the
