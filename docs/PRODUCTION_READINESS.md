@@ -204,6 +204,17 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Exit animations: the slide animation editor now covers exits as well as
+  entrances (`disappear`, `fade_out`, `fly_out`, `wipe_out`, `zoom_out`, and
+  `custom_exit` to keep an existing one), one entrance and one exit per
+  object, in the GUI ("Exit effect for ..." rows, Entrance/Exit groups when
+  adding) and in Copilot plans. Exits are written exactly as PowerPoint
+  writes them (captured from PowerPoint: the animation, then a visibility
+  set to hidden at 0 ms or 499 ms), and build group IDs are numbered per
+  object in sequence order as PowerPoint does. PowerPoint reads back the
+  effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
+  are editable (3 with existing exits, previously read-only).
+  `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
 - Lines and arrows: `create_shape` accepts `line` (a straight `p:sp` line with
   no fill and a 1.5 pt outline; the GUI draws it horizontally through the
   chosen box), `line` joins the shape types, and the shape style reports and

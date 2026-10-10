@@ -296,7 +296,20 @@ PARAMETER_SCHEMAS = {
                 "items": _object(
                     {
                         "object_id": _ID,
-                        "effect": _choice("appear", "fade", "fly_in", "wipe", "zoom", "custom"),
+                        "effect": _choice(
+                            "appear",
+                            "fade",
+                            "fly_in",
+                            "wipe",
+                            "zoom",
+                            "custom",
+                            "disappear",
+                            "fade_out",
+                            "fly_out",
+                            "wipe_out",
+                            "zoom_out",
+                            "custom_exit",
+                        ),
                         "start": _choice("on_click", "with_previous", "after_previous"),
                     }
                 ),

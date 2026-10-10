@@ -245,6 +245,21 @@ try {
   await workspace.getByText("Current · Revision 4", { exact: true }).waitFor();
   assert.deepEqual(await state(), []);
   checks.push("GUI removes every animation as one native revision");
+
+  await add("Box", "Fade");
+  await add("Box", "Fade out");
+  await page
+    .getByLabel("Exit effect for Box", { exact: true })
+    .selectOption({ label: "Fly out" });
+  await apply.click();
+  await workspace.getByText("Current · Revision 5", { exact: true }).waitFor();
+  assert.deepEqual(await state(), [
+    ["Box", "fade", "on_click"],
+    ["Box", "fly_out", "on_click"],
+  ]);
+  checks.push(
+    "GUI gives Box a Fade entrance and a Fly out exit as one revision",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

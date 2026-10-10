@@ -16,18 +16,28 @@ export type SlideAnimationState = {
   fingerprint: string;
 };
 
-const EFFECTS: ReadonlyArray<[string, string]> = [
+const ENTRANCES: ReadonlyArray<[string, string]> = [
   ["appear", "Appear"],
   ["fade", "Fade"],
   ["fly_in", "Fly in"],
   ["wipe", "Wipe"],
   ["zoom", "Zoom"],
 ];
+const EXITS: ReadonlyArray<[string, string]> = [
+  ["disappear", "Disappear"],
+  ["fade_out", "Fade out"],
+  ["fly_out", "Fly out"],
+  ["wipe_out", "Wipe out"],
+  ["zoom_out", "Zoom out"],
+];
 const STARTS: ReadonlyArray<[string, string]> = [
   ["on_click", "On click"],
   ["with_previous", "With previous"],
   ["after_previous", "After previous"],
 ];
+
+const isExit = (effect: string) =>
+  effect === "custom_exit" || EXITS.some(([value]) => value === effect);
 
 export function isSlideAnimationState(
   value: unknown,
@@ -60,7 +70,7 @@ export function isSlideAnimationState(
 const key = (effects: SlideAnimationEffect[]) =>
   JSON.stringify(effects.map((e) => [e.object_id, e.effect, e.start]));
 
-/** Ordered entrance effects for one slide; Apply writes them as one revision. */
+/** Ordered entrance and exit effects for one slide; Apply writes them as one revision. */
 export function SlideAnimations({
   state,
   disabled,
@@ -76,9 +86,15 @@ export function SlideAnimations({
     setDraft(state.effects);
     setAdding({ objectId: "", effect: "fade" });
   }, [state]);
+  // Each object can have one entrance and one exit.
+  const taken = (objectId: string, exit: boolean) =>
+    draft.some((e) => e.object_id === objectId && isExit(e.effect) === exit);
   const available = state.candidates.filter(
-    (candidate) => !draft.some((e) => e.object_id === candidate.object_id),
+    (candidate) =>
+      !taken(candidate.object_id, false) || !taken(candidate.object_id, true),
   );
+  const conflict =
+    !!adding.objectId && taken(adding.objectId, isExit(adding.effect));
   const update = (index: number, change: Partial<SlideAnimationEffect>) =>
     setDraft((current) =>
       current.map((effect, i) =>
@@ -103,147 +119,182 @@ export function SlideAnimations({
     <fieldset className="pw-picture-crop">
       <legend>Animations</legend>
       <p className="muted">
-        Entrance effects play in this order during the slide show.
+        Entrance and exit effects play in this order during the slide show.
       </p>
       {draft.length ? (
         <ol className="pw-animation-list">
-          {draft.map((effect, index) => (
-            <li key={effect.object_id}>
-              <span>
-                {index + 1}. {effect.name}
-              </span>
-              <select
-                aria-label={`Animation effect for ${effect.name}`}
-                value={effect.effect}
-                onChange={(event) =>
-                  update(index, { effect: event.target.value })
-                }
-                disabled={disabled}
-              >
-                {effect.effect === "custom" ||
-                state.effects.some(
-                  (e) =>
-                    e.object_id === effect.object_id && e.effect === "custom",
-                ) ? (
-                  <option value="custom">Custom (kept as is)</option>
-                ) : null}
-                {EFFECTS.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label={`Animation start for ${effect.name}`}
-                value={effect.start}
-                onChange={(event) =>
-                  update(index, { start: event.target.value })
-                }
-                disabled={disabled}
-              >
-                {STARTS.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="secondary-button"
-                aria-label={`Play ${effect.name} earlier`}
-                onClick={() => move(index, -1)}
-                disabled={disabled || index === 0}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                aria-label={`Play ${effect.name} later`}
-                onClick={() => move(index, 1)}
-                disabled={disabled || index === draft.length - 1}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                aria-label={`Remove animation from ${effect.name}`}
-                onClick={() =>
-                  setDraft((current) => current.filter((_, i) => i !== index))
-                }
-                disabled={disabled}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
+          {draft.map((effect, index) => {
+            const exit = isExit(effect.effect);
+            const custom = exit ? "custom_exit" : "custom";
+            // Entrance rows keep their established labels; exit rows say so.
+            const label = (entrance: string, leaving: string) =>
+              exit ? leaving : entrance;
+            return (
+              <li key={`${effect.object_id}:${exit ? "exit" : "entrance"}`}>
+                <span>
+                  {index + 1}. {effect.name}
+                  {exit ? " (exit)" : ""}
+                </span>
+                <select
+                  aria-label={label(
+                    `Animation effect for ${effect.name}`,
+                    `Exit effect for ${effect.name}`,
+                  )}
+                  value={effect.effect}
+                  onChange={(event) =>
+                    update(index, { effect: event.target.value })
+                  }
+                  disabled={disabled}
+                >
+                  {effect.effect === custom ||
+                  state.effects.some(
+                    (e) =>
+                      e.object_id === effect.object_id && e.effect === custom,
+                  ) ? (
+                    <option value={custom}>Custom (kept as is)</option>
+                  ) : null}
+                  {(exit ? EXITS : ENTRANCES).map(([value, name]) => (
+                    <option key={value} value={value}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={label(
+                    `Animation start for ${effect.name}`,
+                    `Exit start for ${effect.name}`,
+                  )}
+                  value={effect.start}
+                  onChange={(event) =>
+                    update(index, { start: event.target.value })
+                  }
+                  disabled={disabled}
+                >
+                  {STARTS.map(([value, name]) => (
+                    <option key={value} value={value}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  aria-label={label(
+                    `Play ${effect.name} earlier`,
+                    `Play ${effect.name} exit earlier`,
+                  )}
+                  onClick={() => move(index, -1)}
+                  disabled={disabled || index === 0}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  aria-label={label(
+                    `Play ${effect.name} later`,
+                    `Play ${effect.name} exit later`,
+                  )}
+                  onClick={() => move(index, 1)}
+                  disabled={disabled || index === draft.length - 1}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  aria-label={label(
+                    `Remove animation from ${effect.name}`,
+                    `Remove exit from ${effect.name}`,
+                  )}
+                  onClick={() =>
+                    setDraft((current) => current.filter((_, i) => i !== index))
+                  }
+                  disabled={disabled}
+                >
+                  Remove
+                </button>
+              </li>
+            );
+          })}
         </ol>
       ) : (
         <p className="muted">No entrance animations on this slide.</p>
       )}
-      {available.length ? (
-        <div className="pw-animation-add">
-          <select
-            aria-label="Object to animate"
-            value={adding.objectId}
-            onChange={(event) =>
-              setAdding((current) => ({
-                ...current,
-                objectId: event.target.value,
-              }))
-            }
-            disabled={disabled}
-          >
-            <option value="">Choose an object…</option>
-            {available.map((candidate) => (
-              <option key={candidate.object_id} value={candidate.object_id}>
-                {candidate.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="New animation effect"
-            value={adding.effect}
-            onChange={(event) =>
-              setAdding((current) => ({
-                ...current,
-                effect: event.target.value,
-              }))
-            }
-            disabled={disabled}
-          >
-            {EFFECTS.map(([value, label]) => (
+      <div className="pw-animation-add">
+        <select
+          aria-label="Object to animate"
+          value={adding.objectId}
+          onChange={(event) =>
+            setAdding((current) => ({
+              ...current,
+              objectId: event.target.value,
+            }))
+          }
+          disabled={disabled || !available.length}
+        >
+          <option value="">Choose an object…</option>
+          {available.map((candidate) => (
+            <option key={candidate.object_id} value={candidate.object_id}>
+              {candidate.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="New animation effect"
+          value={adding.effect}
+          onChange={(event) =>
+            setAdding((current) => ({
+              ...current,
+              effect: event.target.value,
+            }))
+          }
+          disabled={disabled}
+        >
+          <optgroup label="Entrance">
+            {ENTRANCES.map(([value, name]) => (
               <option key={value} value={value}>
-                {label}
+                {name}
               </option>
             ))}
-          </select>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              const candidate = available.find(
-                (c) => c.object_id === adding.objectId,
-              );
-              if (!candidate) return;
-              setDraft((current) => [
-                ...current,
-                {
-                  object_id: candidate.object_id,
-                  name: candidate.name,
-                  effect: adding.effect,
-                  start: "on_click",
-                },
-              ]);
-              setAdding((current) => ({ ...current, objectId: "" }));
-            }}
-            disabled={disabled || !adding.objectId}
-          >
-            Add animation
-          </button>
-        </div>
-      ) : null}
+          </optgroup>
+          <optgroup label="Exit">
+            {EXITS.map(([value, name]) => (
+              <option key={value} value={value}>
+                {name}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => {
+            const candidate = available.find(
+              (c) => c.object_id === adding.objectId,
+            );
+            if (!candidate || conflict) return;
+            setDraft((current) => [
+              ...current,
+              {
+                object_id: candidate.object_id,
+                name: candidate.name,
+                effect: adding.effect,
+                start: "on_click",
+              },
+            ]);
+            setAdding((current) => ({ ...current, objectId: "" }));
+          }}
+          disabled={disabled || !adding.objectId || conflict}
+          title={
+            conflict
+              ? "This object already has an effect of that kind."
+              : undefined
+          }
+        >
+          Add animation
+        </button>
+      </div>
       <button
         type="button"
         className="secondary-button"

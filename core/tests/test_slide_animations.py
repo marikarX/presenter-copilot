@@ -1,4 +1,4 @@
-"""A slide's entrance animations."""
+"""A slide's entrance and exit animations."""
 
 import io
 import zipfile
@@ -214,5 +214,48 @@ def test_media_timing_reason(tmp_path: Path) -> None:
     try:
         state = deck.state()
         assert not state["editable"] and "audio or video" in state["reason"]
+    finally:
+        deck.core.close()
+
+
+def test_exit_effects_follow_entrances(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path)
+    try:
+        plan = [
+            ("Box", "fade", "on_click"),
+            ("Pic", "zoom_out", "with_previous"),
+            ("Box", "fly_out", "on_click"),
+            ("Title 1", "disappear", "after_previous"),
+        ]
+        reply = deck.apply(plan)
+        assert reply["ok"], reply.get("error")
+        assert _summary(deck.state()) == plan
+        timing = deck.timing()
+        ns = {"p": PRESENTATION_NS}
+        exits = timing.xpath(".//p:cTn[@presetClass='exit']", namespaces=ns)
+        assert [(n.get("presetID"), n.get("presetSubtype")) for n in exits] == [
+            ("23", "16"),
+            ("2", "4"),
+            ("1", "0"),
+        ]
+        # Every exit ends by hiding its object: at once for Disappear, else at 499 ms.
+        for node, delay in zip(exits, ("499", "499", "0"), strict=True):
+            hide = node.xpath(".//p:set[p:to/p:strVal/@val='hidden']", namespaces=ns)
+            assert hide and hide[0].find(".//p:cond", ns).get("delay") == delay
+        # The box enters (group 0) and leaves (group 1), as PowerPoint numbers them.
+        box_groups = [
+            n.get("grpId")
+            for n in timing.xpath(".//p:cTn[@presetClass]", namespaces=ns)
+            if n.find(".//p:spTgt", ns).get("spid") == timing.find(".//p:spTgt", ns).get("spid")
+        ]
+        assert box_groups == ["0", "1"]
+        builds = [(b.get("spid"), b.get("grpId")) for b in timing.iter(f"{P}bldP")]
+        assert len(builds) == len(set(builds)) == 3  # Box twice, the title once
+
+        twice = deck.apply([("Box", "fade_out", "on_click"), ("Box", "disappear", "on_click")])
+        assert not twice["ok"] and twice["error"]["code"] == "INVALID_REQUEST"
+        kept = deck.apply([("Box", "fly_out", "on_click")])
+        assert kept["ok"]
+        assert _summary(deck.state()) == [("Box", "fly_out", "on_click")]
     finally:
         deck.core.close()

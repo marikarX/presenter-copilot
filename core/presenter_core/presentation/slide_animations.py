@@ -1,9 +1,10 @@
-"""A slide's entrance animations: which objects appear, with what effect, in what order.
+"""A slide's entrance and exit animations: which objects appear or leave, with what
+effect, in what order.
 
-Only the main click sequence of entrance effects is editable. Emphasis, exit and
-motion effects, triggers, by-paragraph or chart builds and alternate-content
-timing keep the slide read-only. Unchanged effects are carried over verbatim, so
-custom durations and delays survive reordering.
+Only the main click sequence of entrance and exit effects is editable; each object
+can have one of each. Emphasis and motion effects, triggers, by-paragraph or chart
+builds and alternate-content timing keep the slide read-only. Unchanged effects are
+carried over verbatim, so custom durations and delays survive reordering.
 """
 
 from __future__ import annotations
@@ -32,13 +33,23 @@ P = f"{{{PRESENTATION_NS}}}"
 MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _NS = {"p": PRESENTATION_NS, "mc": MC}
 MAX_EFFECTS = 50
-# (presetID, presetSubtype) for the effects that can be chosen.
+# (presetID, presetSubtype, presetClass) for the effects that can be chosen.
 EFFECTS = {
-    "appear": ("1", "0"),
-    "fade": ("10", "0"),
-    "fly_in": ("2", "4"),
-    "wipe": ("22", "4"),
-    "zoom": ("23", "16"),
+    "appear": ("1", "0", "entr"),
+    "fade": ("10", "0", "entr"),
+    "fly_in": ("2", "4", "entr"),
+    "wipe": ("22", "4", "entr"),
+    "zoom": ("23", "16", "entr"),
+    "disappear": ("1", "0", "exit"),
+    "fade_out": ("10", "0", "exit"),
+    "fly_out": ("2", "4", "exit"),
+    "wipe_out": ("22", "4", "exit"),
+    "zoom_out": ("23", "16", "exit"),
+}
+# An effect this editor does not write is kept as "custom" (entrance) or "custom_exit".
+CUSTOM = {"entr": "custom", "exit": "custom_exit"}
+CLASSES = {name: value[2] for name, value in EFFECTS.items()} | {
+    name: kind for kind, name in CUSTOM.items()
 }
 STARTS = {"on_click": "clickEffect", "with_previous": "withEffect", "after_previous": "afterEffect"}
 _TARGET_KINDS = {"sp": "nvSpPr", "pic": "nvPicPr", "grpSp": "nvGrpSpPr", "cxnSp": "nvCxnSpPr"}
@@ -123,7 +134,7 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
     if len(sequences) != 1 or main is None or main.get("nodeType") != "mainSeq":
         raise _ReadOnly("This slide has trigger animations that stay read-only.")
     items: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     clicks = _children(_child(main, f"{P}childTnLst"), "par")
     for click_index, click in enumerate(clicks):
         click_node = _time_node(click)
@@ -141,9 +152,10 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
             effects = _children(_child(_time_node(group), f"{P}childTnLst"), "par")
             for effect_index, effect in enumerate(effects):
                 node = _time_node(effect)
-                if node.get("presetClass") != "entr":
+                kind = node.get("presetClass")
+                if kind not in CUSTOM:
                     raise _ReadOnly(
-                        "This slide has emphasis, exit or motion animations that stay read-only."
+                        "This slide has emphasis or motion animations that stay read-only."
                     )
                 if effect_index:
                     wanted = "withEffect"
@@ -165,17 +177,19 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
                         "This slide animates text by paragraph or uses triggers; read-only."
                     )
                 spid = next(iter(spids))
-                if spid not in targets or spid in seen:
+                if spid not in targets or (spid, kind) in seen:
                     raise _ReadOnly(
                         "This slide animates nested or repeated targets; that stays read-only."
                     )
-                seen.add(spid)
-                preset = (node.get("presetID"), node.get("presetSubtype", "0"))
+                seen.add((spid, kind))
+                preset = (node.get("presetID"), node.get("presetSubtype", "0"), kind)
                 items.append(
                     {
                         "ooxml_id": spid,
+                        "class": kind,
                         "effect": next(
-                            (name for name, value in EFFECTS.items() if value == preset), "custom"
+                            (name for name, value in EFFECTS.items() if value == preset),
+                            CUSTOM[kind],
                         ),
                         "start": next(k for k, v in STARTS.items() if v == node.get("nodeType")),
                         "element": effect,
@@ -260,7 +274,9 @@ def _behavior(
 
 def _canonical(spid: str, effect: str) -> etree._Element:
     """The effect exactly as PowerPoint writes it (captured from PowerPoint's own output)."""
-    preset, subtype = EFFECTS[effect]
+    preset, subtype, kind = EFFECTS[effect]
+    if kind == "exit":
+        return _canonical_exit(spid, effect)
     par = _element("par")
     node = _element(
         "cTn",
@@ -304,6 +320,60 @@ def _canonical(spid: str, effect: str) -> etree._Element:
     return par
 
 
+def _canonical_exit(spid: str, effect: str) -> etree._Element:
+    """An exit effect as PowerPoint writes it: the animation, then hide the object."""
+    preset, subtype, _kind = EFFECTS[effect]
+    par = _element("par")
+    node = _element(
+        "cTn",
+        par,
+        id="0",
+        presetID=preset,
+        presetClass="exit",
+        presetSubtype=subtype,
+        fill="hold",
+        grpId="0",
+        nodeType="clickEffect",
+    )
+    _element("cond", _element("stCondLst", node), delay="0")
+    children = _element("childTnLst", node)
+
+    def animate(attribute: str, start: str, end: str, *, additive: bool) -> None:
+        anim = _element("anim", children, calcmode="lin", valueType="num")
+        _behavior(anim, spid, "500", attribute, hold=False, additive=additive)
+        frames = _element("tavLst", anim)
+        for time, value in (("0", start), ("100000", end)):
+            _element("strVal", _element("val", _element("tav", frames, tm=time)), val=value)
+
+    if effect in {"fade_out", "wipe_out"}:
+        animation = _element(
+            "animEffect",
+            children,
+            transition="out",
+            filter="fade" if effect == "fade_out" else "wipe(down)",
+        )
+        _behavior(animation, spid, "500", hold=False)
+    elif effect == "fly_out":
+        animate("ppt_x", "ppt_x", "ppt_x", additive=True)
+        animate("ppt_y", "ppt_y", "1+ppt_h/2", additive=True)
+    elif effect == "zoom_out":
+        animate("ppt_w", "ppt_w", "4*ppt_w", additive=False)
+        animate("ppt_h", "ppt_h", "4*ppt_h", additive=False)
+    hidden = _element("set", children)
+    behavior = _element("cBhvr", hidden)
+    timing = _element("cTn", behavior, id="0", dur="1", fill="hold")
+    # Disappear hides at once; the others hide as their 500 ms animation ends.
+    _element(
+        "cond",
+        _element("stCondLst", timing),
+        delay="0" if effect == "disappear" else "499",
+    )
+    _element("spTgt", _element("tgtEl", behavior), spid=spid)
+    _element("attrName", _element("attrNameLst", behavior)).text = "style.visibility"
+    _element("strVal", _element("to", hidden), val="hidden")
+    return par
+
+
 def _int(value: str | None) -> int:
     return int(value) if value is not None and value.isdigit() else 0
 
@@ -340,6 +410,7 @@ def _timing(
         _element("sldTgt", _element("tgtEl", condition))
     group_effects: etree._Element | None = None
     click_effects: etree._Element | None = None
+    groups: dict[str, dict[int, int]] = {}
     offset = end = 0
     for index, (_spid, start, effect) in enumerate(plan):
         if click_effects is None or start == "on_click":
@@ -359,17 +430,29 @@ def _timing(
             group_effects = _element("childTnLst", group)
         node = _time_node(effect)
         node.set("nodeType", STARTS[start])
-        node.set("grpId", "0")
+        # PowerPoint numbers each object's build groups in sequence order.
+        node.set("grpId", str(groups.setdefault(_spid, {}).setdefault(index, len(groups[_spid]))))
         group_effects.append(effect)
         end = max(end, offset + _length(effect))
     builds = _element("bldLst", timing)
-    old_builds = {} if old is None else {b.get("spid"): b for b in old.iter(f"{P}bldP")}
-    for spid, _start, _effect in plan:
-        if targets.get(spid):
-            build = copy.deepcopy(old_builds.get(spid)) if spid in old_builds else None
-            if build is None:
-                build = _element("bldP", spid=spid, grpId="0", animBg="1")
-            build.set("grpId", "0")
+    old_builds = (
+        {}
+        if old is None
+        else {(b.get("spid"), b.get("grpId", "0")): b for b in old.iter(f"{P}bldP")}
+    )
+    for spid, numbers in groups.items():
+        if not targets.get(spid):
+            continue
+        for number in sorted(numbers.values()):
+            kept = old_builds.get((spid, str(number)))
+            if kept is None:
+                kept = old_builds.get((spid, "0"))
+            build = (
+                copy.deepcopy(kept)
+                if kept is not None
+                else _element("bldP", spid=spid, grpId="0", animBg="1")
+            )
+            build.set("grpId", str(number))
             builds.append(build)
     if not len(builds):
         timing.remove(builds)
@@ -432,18 +515,20 @@ def _requested(value: Any) -> list[dict[str, str]]:
             not isinstance(entry, dict)
             or set(entry) != {"object_id", "effect", "start"}
             or not isinstance(entry["object_id"], str)
-            or entry["effect"] not in {*EFFECTS, "custom"}
+            or entry["effect"] not in CLASSES
             or entry["start"] not in STARTS
         ):
             raise invalid_request(
                 "Each effect needs object_id, effect ("
-                + ", ".join([*EFFECTS, "custom"])
+                + ", ".join(CLASSES)
                 + ") and start (on_click, with_previous, after_previous).",
                 field="effects",
             )
         result.append(dict(entry))
-    if len({entry["object_id"] for entry in result}) != len(result):
-        raise invalid_request("Each object can have only one entrance effect.", field="effects")
+    if len({(entry["object_id"], CLASSES[entry["effect"]]) for entry in result}) != len(result):
+        raise invalid_request(
+            "Each object can have one entrance and one exit effect.", field="effects"
+        )
     return result
 
 
@@ -481,7 +566,7 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
         raise CoreDomainError("PRESENTATION_EDIT_UNSUPPORTED", before["reason"])
     by_object = {obj.object_id: obj.ooxml_id for obj in slide.objects}
     targets = _targets(root)
-    current = {item["ooxml_id"]: item for item in _parse(root)}
+    current = {(item["ooxml_id"], item["class"]): item for item in _parse(root)}
     for entry in requested:
         spid = by_object.get(entry["object_id"])
         if spid not in targets:
@@ -489,9 +574,12 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
                 "PRESENTATION_EDIT_TARGET_NOT_FOUND",
                 "An animated object is unavailable or nested inside a group.",
             )
-        if entry["effect"] == "custom" and current.get(spid, {}).get("effect") != "custom":
+        kind = CLASSES[entry["effect"]]
+        if entry["effect"] == CUSTOM[kind] and (
+            current.get((spid, kind), {}).get("effect") != CUSTOM[kind]
+        ):
             raise invalid_request(
-                "Only an object that already has a custom entrance effect can keep it.",
+                "Only an object that already has a custom effect can keep it.",
                 field="effects",
             )
     wanted = [
@@ -520,11 +608,11 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
                     "The slide animations changed. Refresh and try again.",
                     retryable=True,
                 )
-            existing = {item["ooxml_id"]: item for item in _parse(slide_root)}
+            existing = {(item["ooxml_id"], item["class"]): item for item in _parse(slide_root)}
             plan = []
             for entry in requested:
                 spid = by_object[entry["object_id"]]
-                kept = existing.get(spid)
+                kept = existing.get((spid, CLASSES[entry["effect"]]))
                 effect = (
                     copy.deepcopy(kept["element"])
                     if kept is not None and kept["effect"] == entry["effect"]
