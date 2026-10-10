@@ -298,6 +298,17 @@ Commits this session:
   now match, so the old "exactly one match" count no longer held).
 - Duplicated and pasted objects now get fresh `a16:creationId` identities,
   as PowerPoint gives a copy, instead of sharing the source's identity.
+- Preview fidelity (renderer patch): a run that sets only East Asian or
+  complex-script fonts (`a:ea` / `a:cs`, no `a:latin`) now keeps the inherited
+  Latin font for Latin text, with those fonts as fallbacks, as PowerPoint does
+  (previously the preview drew such text in the complex-script font, e.g.
+  Times New Roman instead of Calibri). Hyperlinks whose target a browser
+  cannot open (for example a bare `wscubetech.com` file link) keep hyperlink
+  colour and underline. Verified against PowerPoint with a control deck (a
+  complex-script-only run renders in Calibri; a file-action link is blue and
+  underlined). Corpus mean slide RGB MAE 2.901% -> 2.880% (median 2.499% ->
+  2.496%) on the same 563 slides; 9 slides improve by more than 0.2 points
+  (up to 2.39 on 24-ia-accounting-equation), none get worse.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null
@@ -602,7 +613,7 @@ Remaining human-gated items:
 Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
-3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
+3.170% to 2.880% (median 2.714% -> 2.496%) on the same 563 slides; real-deck
 edit acceptance passes on all 33 decks. Last full check 2020 Core + 327
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
