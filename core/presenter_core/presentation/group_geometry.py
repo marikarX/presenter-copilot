@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import posixpath
 from typing import Any
 
 from lxml import etree  # type: ignore[import-untyped]
 
+from presenter_core.errors import invalid_request
 from presenter_core.presentation.fidelity import (
     _NS,
     DRAWING_NS,
@@ -181,6 +183,75 @@ def grouping_picture_ids(archive: Any, members: Any, root: Any, slide_part: str)
         if header == b"\x89PNG\r\n\x1a\n" or header.startswith(b"\xff\xd8\xff"):
             result.add(identities[0])
     return result
+
+
+def child_geometry(
+    group: Any, child: Any, target: FidelityGeometry
+) -> tuple[FidelityGeometry, FidelityGeometry]:
+    """Group-internal coordinates for a slide-space target, and where they actually land.
+
+    The target must lie inside the group's frame, so the group itself is unchanged. A
+    scaled group may not reach every EMU; the nearest position within one child-unit
+    step is used.
+    """
+    outer, transform = read_geometry(group)
+    assert outer is not None
+    if (
+        target.x_emu < outer.x_emu
+        or target.y_emu < outer.y_emu
+        or target.x_emu + target.width_emu > outer.x_emu + outer.width_emu
+        or target.y_emu + target.height_emu > outer.y_emu + outer.height_emu
+    ):
+        raise invalid_request("Keep an object inside its group's frame, or ungroup it first.")
+    offset, extent = transform.find("a:chOff", _NS), transform.find("a:chExt", _NS)
+
+    def inverse(value: int, axis: str, origin: int, size: int) -> int:
+        child_size = int(extent.get("c" + axis))
+        return int(offset.get(axis)) + ((value - origin) * child_size + size // 2) // size
+
+    def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:
+        base = inverse(value, axis, origin, size)
+        return [base + step for step in (0, -1, 1, -2, 2)]
+
+    tolerance = 1 + max(
+        -(-outer.width_emu // int(extent.get("cx"))),
+        -(-outer.height_emu // int(extent.get("cy"))),
+    )
+    probe = copy.deepcopy(child)
+    _, probe_transform = read_geometry(probe)
+    probe_offset = probe_transform.find("a:off", _NS)
+    probe_extent = probe_transform.find("a:ext", _NS)
+    best: tuple[int, FidelityGeometry, FidelityGeometry] | None = None
+    for left in candidates(target.x_emu, "x", outer.x_emu, outer.width_emu):
+        for right in candidates(target.x_emu + target.width_emu, "x", outer.x_emu, outer.width_emu):
+            for top in candidates(target.y_emu, "y", outer.y_emu, outer.height_emu):
+                for bottom in candidates(
+                    target.y_emu + target.height_emu, "y", outer.y_emu, outer.height_emu
+                ):
+                    if right <= left or bottom <= top:
+                        continue
+                    probe_offset.set("x", str(left))
+                    probe_offset.set("y", str(top))
+                    probe_extent.set("cx", str(right - left))
+                    probe_extent.set("cy", str(bottom - top))
+                    landed = promoted_geometry(group, probe)
+                    error = max(
+                        abs(landed.x_emu - target.x_emu),
+                        abs(landed.y_emu - target.y_emu),
+                        abs(landed.width_emu - target.width_emu),
+                        abs(landed.height_emu - target.height_emu),
+                    )
+                    if best is None or error < best[0]:
+                        best = (
+                            error,
+                            FidelityGeometry(left, top, right - left, bottom - top),
+                            landed,
+                        )
+                    if error == 0:
+                        return best[1], best[2]
+    if best is None or best[0] > tolerance:
+        raise invalid_request("This scaled group cannot place the object at that position.")
+    return best[1], best[2]
 
 
 def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:

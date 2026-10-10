@@ -388,6 +388,7 @@ class FidelityObject:
     alt_text: str | None = None
     decorative: bool = False
     geometry_inherited: bool = False
+    group_child: bool = False
 
 
 @dataclass(frozen=True)
@@ -594,6 +595,7 @@ class FidelityDocument:
                     "alt_text": obj.alt_text,
                     "decorative": obj.decorative,
                     "geometry_inherited": obj.geometry_inherited,
+                    "group_child": obj.group_child,
                     "shape_style": (
                         {
                             "editable": obj.shape_style.editable,
@@ -1123,6 +1125,34 @@ def _objects_for_slide(
                 and geometry.x_emu + geometry.width_emu <= slide_width_emu
                 and geometry.y_emu + geometry.height_emu <= slide_height_emu
             )
+        group_child = False
+        parent = candidate.getparent()
+        if (
+            kind in {"sp", "pic"}
+            and not alternate_content
+            and parent is not None
+            and parent.tag == f"{{{PRESENTATION_NS}}}grpSp"
+            and parent.getparent() is shape_tree
+        ):
+            from presenter_core.presentation.group_geometry import (
+                promoted_geometry,
+                simple_transform,
+            )
+
+            if simple_transform(parent) and simple_transform(candidate):
+                # Report slide coordinates; edits stay inside the group's frame.
+                outer, _ = read_geometry(parent)
+                geometry = promoted_geometry(parent, candidate)
+                group_child = True
+                geometry_editable = bool(
+                    outer is not None
+                    and geometry.width_emu > 0
+                    and geometry.height_emu > 0
+                    and outer.x_emu <= geometry.x_emu
+                    and outer.y_emu <= geometry.y_emu
+                    and geometry.x_emu + geometry.width_emu <= outer.x_emu + outer.width_emu
+                    and geometry.y_emu + geometry.height_emu <= outer.y_emu + outer.height_emu
+                )
         if kind == "grpSp":
             geometry, _ = read_geometry(candidate)
             geometry_editable = bool(
@@ -1170,10 +1200,11 @@ def _objects_for_slide(
                 text_format_edit_candidate=text_format_edit_candidate and not alternate_content,
                 geometry=geometry,
                 geometry_editable=geometry_editable and not alternate_content,
-                delete_editable=delete_editable and not alternate_content,
+                delete_editable=delete_editable and not alternate_content and not group_child,
                 group_editable=geometry_editable
                 and grouping_reason is None
-                and not alternate_content,
+                and not alternate_content
+                and not group_child,
                 group_reason=grouping_reason
                 if not alternate_content
                 else "Alternate-content objects are read-only.",
@@ -1183,7 +1214,9 @@ def _objects_for_slide(
                     None if alternate_content else _picture_adjustment(candidate, kind)
                 ),
                 rotation=(
-                    None if alternate_content else object_rotation(candidate, kind, shape_tree)
+                    None
+                    if alternate_content or group_child
+                    else object_rotation(candidate, kind, shape_tree)
                 ),
                 hyperlink=(
                     shape_hyperlink(candidate, hyperlink_targets or {})
@@ -1197,6 +1230,7 @@ def _objects_for_slide(
                 alt_text=None if alternate_content else alt_text,
                 decorative=decorative,
                 geometry_inherited=geometry_inherited,
+                group_child=group_child,
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
                 else semantic_kind,

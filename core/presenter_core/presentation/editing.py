@@ -3167,6 +3167,7 @@ class PresentationEditService:
                     slide_root,
                     ooxml_id=obj.ooxml_id,
                     kind=obj.kind,
+                    include_group_children=obj.group_child,
                 )
                 current_geometry = FidelityGeometry(
                     x_emu=int(offset.get("x", "")),
@@ -3174,6 +3175,24 @@ class PresentationEditService:
                     width_emu=int(extent.get("cx", "")),
                     height_emu=int(extent.get("cy", "")),
                 )
+                child_target: FidelityGeometry | None = None
+                if obj.group_child:
+                    from presenter_core.presentation.group_geometry import (
+                        child_geometry,
+                        promoted_geometry,
+                    )
+
+                    node = PresentationEditService._find_object_node(
+                        slide_root,
+                        ooxml_id=obj.ooxml_id,
+                        kind=obj.kind,
+                        include_group_children=True,
+                    )
+                    group = node.getparent()
+                    current_geometry = promoted_geometry(group, node)
+                    child_target, landed = child_geometry(group, node, replacement_geometry)
+                    # A scaled group may land within one child-unit step of the request.
+                    replacement_geometry = landed
                 if current_geometry != expected_geometry:
                     raise CoreDomainError(
                         "PRESENTATION_EDIT_STALE_TARGET",
@@ -3209,10 +3228,11 @@ class PresentationEditService:
                             transform.attrib.pop(name, None)
                         else:
                             transform.set(name, value)
-                offset.set("x", str(replacement_geometry.x_emu))
-                offset.set("y", str(replacement_geometry.y_emu))
-                extent.set("cx", str(replacement_geometry.width_emu))
-                extent.set("cy", str(replacement_geometry.height_emu))
+                written = child_target or replacement_geometry
+                offset.set("x", str(written.x_emu))
+                offset.set("y", str(written.y_emu))
+                extent.set("cx", str(written.width_emu))
+                extent.set("cy", str(written.height_emu))
                 rewritten_slide = etree.tostring(
                     slide_root,
                     encoding="UTF-8",
@@ -8519,11 +8539,13 @@ class PresentationEditService:
         *,
         ooxml_id: str,
         kind: str,
+        include_group_children: bool = False,
     ) -> tuple[etree._Element, etree._Element]:
         candidate = PresentationEditService._find_object_node(
             root,
             ooxml_id=ooxml_id,
             kind=kind,
+            include_group_children=include_group_children,
         )
         transforms = candidate.xpath(
             "./p:grpSpPr/a:xfrm"
@@ -8901,7 +8923,9 @@ class PresentationEditService:
         return new_object.object_id
 
     @staticmethod
-    def _find_object_node(root: etree._Element, *, ooxml_id: str, kind: str) -> etree._Element:
+    def _find_object_node(
+        root: etree._Element, *, ooxml_id: str, kind: str, include_group_children: bool = False
+    ) -> etree._Element:
         if kind == "sp":
             selector = "./p:cSld/p:spTree/p:sp"
             nonvisual_selector = "./p:nvSpPr/p:cNvPr"
@@ -8919,6 +8943,9 @@ class PresentationEditService:
                 "PRESENTATION_EDIT_UNSUPPORTED",
                 "This object does not use a supported slide-level shape or picture.",
             )
+        if include_group_children and kind in {"sp", "pic"}:
+            # Direct children of a top-level group (moved within the group's frame).
+            selector += f" | ./p:cSld/p:spTree/p:grpSp/p:{kind}"
         matches = []
         for candidate in root.xpath(selector, namespaces=_NS):
             nonvisual = candidate.xpath(nonvisual_selector, namespaces=_NS)

@@ -83,6 +83,7 @@ export function SlideObjectCanvas({
   const movable = objects.filter(
     (object) =>
       object.geometry_editable &&
+      !object.group_child &&
       object.geometry &&
       size &&
       object.geometry.x_emu >= 0 &&

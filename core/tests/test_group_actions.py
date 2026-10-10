@@ -34,7 +34,13 @@ def grouped(core, directory, nested, picture_format):
             prepare(
                 core,
                 group_request(
-                    core, params, [o for o in first["objects"] if o["geometry_editable"]]
+                    core,
+                    params,
+                    [
+                        o
+                        for o in first["objects"]
+                        if o["geometry_editable"] and not o["group_child"]
+                    ],
                 ),
             ),
         )

@@ -503,6 +503,7 @@ type PresentationObject = {
   shape_style: ShapeStyle | null;
   alt_text?: string | null;
   decorative?: boolean;
+  group_child?: boolean;
 };
 
 type GeometryDraft = {

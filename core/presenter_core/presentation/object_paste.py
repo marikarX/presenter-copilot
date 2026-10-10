@@ -468,12 +468,34 @@ def write_paste(
                 for index, (member, original_member) in enumerate(
                     zip(subtree, originals, strict=True)
                 ):
+                    expected_geometry = member.geometry if index == 0 else original_member.geometry
+                    if (
+                        index
+                        and original_member.group_child
+                        and original_member.geometry is not None
+                        and member.geometry is not None
+                        and subtree[0].geometry is not None
+                        and originals[0].geometry is not None
+                    ):
+                        # Group children report slide positions: they move with the group.
+                        dx = subtree[0].geometry.x_emu - originals[0].geometry.x_emu
+                        dy = subtree[0].geometry.y_emu - originals[0].geometry.y_emu
+                        shifted = replace(
+                            original_member.geometry,
+                            x_emu=original_member.geometry.x_emu + dx,
+                            y_emu=original_member.geometry.y_emu + dy,
+                        )
+                        within_rounding = all(
+                            abs(getattr(shifted, field) - getattr(member.geometry, field)) <= 1
+                            for field in ("x_emu", "y_emu", "width_emu", "height_emu")
+                        )
+                        expected_geometry = member.geometry if within_rounding else shifted
                     expected_member = replace(
                         original_member,
                         object_id=member.object_id,
                         ooxml_id=member.ooxml_id,
                         name=name if index == 0 else original_member.name,
-                        geometry=member.geometry if index == 0 else original_member.geometry,
+                        geometry=expected_geometry,
                     )
                     # Fingerprints include namespace context, offsets and remapped references.
                     # Canonical subtree validation checks XML; compare semantic fields here.

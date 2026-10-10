@@ -251,6 +251,17 @@ Commits this session:
   onto the slide. Movable shapes/pictures in the corpus went from 2506/725 to
   2651/780, and PowerPoint places each sampled object exactly at its new
   on-slide position (6 of 6 decks, off the left, top, right or bottom edge).
+- Shapes and pictures directly inside a top-level group (340 in the corpus;
+  children of rotated or nested groups stay read-only) report their slide
+  position and can be moved and resized within the group's frame, so the
+  group itself is unchanged; moving outside the frame asks to ungroup first.
+  A heavily scaled group places the object within one internal-unit step
+  (1 EMU on the sampled deck). PowerPoint matches the reported position within
+  1 EMU before and after the move on 8 of 8 sampled decks, with the group
+  frame unchanged. Group children stay non-deletable and non-groupable.
+  On the canvas a click still selects the whole group; children are edited
+  from the Objects panel. Duplicating or pasting a group expects its children
+  to move with it (the Workspace GUI suite caught the old expectation).
 - Integration sweep after this session's shared fidelity changes: all 44
   focused GUI harnesses pass besides `test-workspace.mjs` (117/117).
   `test-outline-evidence.mjs` must be run from the repository root.

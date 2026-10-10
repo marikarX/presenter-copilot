@@ -148,8 +148,11 @@ def test_native_group_preserves_parts_identities_retrieval_and_history(
                 byte_size=result["byte_size"],
             )
         assert any("Revenue" in obj.text for obj in fidelity.slides[0].objects)
+        # Group members move within the group's frame but cannot be deleted or regrouped.
         assert all(
-            not obj["geometry_editable"]
+            (obj["group_child"] or obj["kind"] not in {"sp", "pic"})
+            and not obj["delete_editable"]
+            and not obj["group_editable"]
             for obj in grouped_targets["objects"]
             if obj["object_id"] in {o["object_id"] for o in objects}
         )

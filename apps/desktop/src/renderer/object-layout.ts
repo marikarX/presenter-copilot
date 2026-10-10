@@ -9,6 +9,8 @@ export type LayoutObject = {
   name: string;
   geometry_editable: boolean;
   geometry: LayoutGeometry | null;
+  // Inside a group: edited from the Objects panel; the canvas selects the group.
+  group_child?: boolean;
   rotation?: { rotation_degrees: number } | null;
 };
 export const LAYOUT_ACTIONS = [
