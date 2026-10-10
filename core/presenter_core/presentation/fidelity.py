@@ -1135,11 +1135,13 @@ def _objects_for_slide(
             and parent.getparent() is shape_tree
         ):
             from presenter_core.presentation.group_geometry import (
+                box_transform,
                 promoted_geometry,
                 simple_transform,
             )
 
-            if simple_transform(parent) and simple_transform(candidate):
+            # The group must be unrotated; a rotated or flipped child keeps its rotation.
+            if simple_transform(parent) and box_transform(candidate):
                 # Report slide coordinates; edits stay inside the group's frame.
                 outer, _ = read_geometry(parent)
                 geometry = promoted_geometry(parent, candidate)

@@ -47,6 +47,21 @@ def read_geometry(node: Any) -> tuple[FidelityGeometry | None, Any]:
     return geometry, transform
 
 
+def box_transform(node: Any) -> bool:
+    """A shape/picture transform whose off/ext box can move; rotation and flips are kept."""
+    geometry, transform = read_geometry(node)
+    if geometry is None or geometry.width_emu <= 0 or geometry.height_emu <= 0:
+        return False
+    if [child.tag for child in transform] != [f"{{{DRAWING_NS}}}off", f"{{{DRAWING_NS}}}ext"]:
+        return False
+    if any(key not in {"rot", "flipH", "flipV"} for key in transform.attrib):
+        return False
+    rotation = transform.get("rot", "0")
+    return rotation.lstrip("-").isdigit() and all(
+        transform.get(key) in {None, "0", "1", "false", "true"} for key in ("flipH", "flipV")
+    )
+
+
 def simple_transform(node: Any) -> bool:
     geometry, transform = read_geometry(node)
     if geometry is None or geometry.width_emu <= 0 or geometry.height_emu <= 0:
@@ -209,9 +224,36 @@ def child_geometry(
         child_size = int(extent.get("c" + axis))
         return int(offset.get(axis)) + ((value - origin) * child_size + size // 2) // size
 
-    def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:
-        base = inverse(value, axis, origin, size)
+    def around(base: int) -> list[int]:
         return [base + step for step in (0, -1, 1, -2, 2)]
+
+    def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:
+        return around(inverse(value, axis, origin, size))
+
+    _, child_transform = read_geometry(child)
+    if child_transform is not None and _swaps_axes(child_transform):
+        # Seed from the centre and swapped-axis sizes, then search the same neighbourhood.
+        center_x = inverse(target.x_emu + target.width_emu // 2, "x", outer.x_emu, outer.width_emu)
+        center_y = inverse(
+            target.y_emu + target.height_emu // 2, "y", outer.y_emu, outer.height_emu
+        )
+        child_width = target.width_emu * int(extent.get("cy")) // outer.height_emu
+        child_height = target.height_emu * int(extent.get("cx")) // outer.width_emu
+        seeds = {
+            "left": center_x - child_width // 2,
+            "right": center_x - child_width // 2 + child_width,
+            "top": center_y - child_height // 2,
+            "bottom": center_y - child_height // 2 + child_height,
+        }
+
+        def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:  # noqa: F811
+            key = {
+                ("x", target.x_emu): "left",
+                ("x", target.x_emu + target.width_emu): "right",
+                ("y", target.y_emu): "top",
+                ("y", target.y_emu + target.height_emu): "bottom",
+            }[(axis, value)]
+            return around(seeds[key])
 
     tolerance = 1 + max(
         -(-outer.width_emu // int(extent.get("cx"))),
@@ -254,9 +296,18 @@ def child_geometry(
     return best[1], best[2]
 
 
+def _swaps_axes(transform: Any) -> bool:
+    """PowerPoint scales a child rotated 45-135 or 225-315 degrees with swapped axes."""
+    try:
+        degrees = (int(transform.get("rot", "0")) // 60_000) % 360
+    except ValueError:
+        return False
+    return 45 <= degrees < 135 or 225 <= degrees < 315
+
+
 def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:
     outer, transform = read_geometry(group)
-    geometry, _ = read_geometry(child)
+    geometry, child_transform = read_geometry(child)
     assert outer is not None and geometry is not None
     offset, extent = transform.find("a:chOff", _NS), transform.find("a:chExt", _NS)
 
@@ -265,6 +316,21 @@ def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:
         numerator = (value - int(offset.get(axis))) * size
         return origin + (numerator + denominator // 2) // denominator
 
+    if child_transform is not None and _swaps_axes(child_transform):
+        # The centre maps normally; the box takes the other axis' scale.
+        center_x = coordinate(
+            geometry.x_emu + geometry.width_emu // 2, "x", outer.x_emu, outer.width_emu
+        )
+        center_y = coordinate(
+            geometry.y_emu + geometry.height_emu // 2, "y", outer.y_emu, outer.height_emu
+        )
+        width = (geometry.width_emu * outer.height_emu + int(extent.get("cy")) // 2) // int(
+            extent.get("cy")
+        )
+        height = (geometry.height_emu * outer.width_emu + int(extent.get("cx")) // 2) // int(
+            extent.get("cx")
+        )
+        return FidelityGeometry(center_x - width // 2, center_y - height // 2, width, height)
     left = coordinate(geometry.x_emu, "x", outer.x_emu, outer.width_emu)
     top = coordinate(geometry.y_emu, "y", outer.y_emu, outer.height_emu)
     right = coordinate(geometry.x_emu + geometry.width_emu, "x", outer.x_emu, outer.width_emu)

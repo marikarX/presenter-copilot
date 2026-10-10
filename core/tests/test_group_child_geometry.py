@@ -73,3 +73,26 @@ def test_group_child_moves_inside_the_frame_only(tmp_path: Path) -> None:
         assert next(o for o in after.values() if o["kind"] == "grpSp")["geometry"] == frame
     finally:
         core.close()
+
+
+def test_rotated_child_in_a_scaled_group_uses_swapped_axis_scaling() -> None:
+    from lxml import etree
+
+    from presenter_core.presentation.fidelity import FidelityGeometry
+    from presenter_core.presentation.group_geometry import child_geometry, promoted_geometry
+
+    group = etree.fromstring(
+        '<p:grpSp xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:grpSpPr><a:xfrm>'
+        '<a:off x="1000" y="1000"/><a:ext cx="2000" cy="1000"/>'
+        '<a:chOff x="0" y="0"/><a:chExt cx="1000" cy="1000"/></a:xfrm></p:grpSpPr>'
+        '<p:sp><p:spPr><a:xfrm rot="5400000"><a:off x="400" y="300"/><a:ext cx="200" cy="400"/>'
+        "</a:xfrm></p:spPr></p:sp></p:grpSp>"
+    )
+    child = group[1]
+    # Centre (500, 500) maps to (2000, 1500); a 90-degree child takes y-scale on its width
+    # (200 * 1) and x-scale on its height (400 * 2).
+    assert promoted_geometry(group, child) == FidelityGeometry(1900, 1100, 200, 800)
+    target = FidelityGeometry(1700, 1100, 200, 800)
+    internal, landed = child_geometry(group, child, target)
+    assert landed == target and internal.x_emu == 300

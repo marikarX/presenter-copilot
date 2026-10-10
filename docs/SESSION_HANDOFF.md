@@ -259,6 +259,13 @@ Commits this session:
   (1 EMU on the sampled deck). PowerPoint matches the reported position within
   1 EMU before and after the move on 8 of 8 sampled decks, with the group
   frame unchanged. Group children stay non-deletable and non-groupable.
+  Rotated or flipped children of such groups are included and keep their
+  rotation (528 group children reported, 519 movable). PowerPoint scales a
+  child rotated 45-135 or 225-315 degrees with swapped axes (centre mapped
+  normally); group geometry now follows that rule, which also corrects where
+  ungroup places such children in scaled groups. PowerPoint matches the
+  reported box within 1 EMU before and after moving rotated children on 8 of
+  8 sampled decks (rotations from 10 to 357 degrees).
   On the canvas a click still selects the whole group; children are edited
   from the Objects panel. Duplicating or pasting a group expects its children
   to move with it (the Workspace GUI suite caught the old expectation).
@@ -568,7 +575,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.903% (median 2.714% -> 2.510%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2018 Core + 327
+edit acceptance passes on all 33 decks. Last full check 2019 Core + 327
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 
