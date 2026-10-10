@@ -79,7 +79,11 @@ Commits this session:
   single strike and Georgia.
 - Text highlight color (`a:highlight` solid RGB, or `none` to remove) is a
   direct-run style in the Text panel and Copilot plans, inserted in schema
-  order before underline/font elements. `test-text-emphasis.mjs` 6/6.
+  order before underline/font elements.
+- Text box vertical alignment (top/middle/bottom, `bodyPr anchor`) and text
+  columns (1-3, `numCol`) are text styles in the Text panel, format_text_shape
+  and Copilot plans; PowerPoint reads back bottom anchor and 2 columns.
+  `test-text-emphasis.mjs` 7/7.
 - Table cell formatting gains underline (on/off/keep) in the Tables dialog,
   `format_table_cells` and Copilot plans; turning it on keeps an existing
   double/wavy underline.

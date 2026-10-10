@@ -240,6 +240,8 @@ type TextStyle = {
   strikethrough?: boolean | null;
   font_family?: string | null;
   highlight_color?: string | null;
+  vertical_anchor?: "top" | "middle" | "bottom" | null;
+  columns?: number | null;
   font_size_pt: number | null;
   font_color: string | null;
   color_editable: boolean;
@@ -274,6 +276,8 @@ type TextStyleChange = Partial<
     | "strikethrough"
     | "font_family"
     | "highlight_color"
+    | "vertical_anchor"
+    | "columns"
     | "font_size_pt"
     | "font_color"
     | "alignment"
@@ -9075,6 +9079,53 @@ export function PresentationWorkspace({
                           >
                             Remove highlight
                           </button>
+                        </div>
+                        <div className="pw-shape-color-control">
+                          <label>
+                            Vertical alignment
+                            <select
+                              aria-label="Text vertical alignment"
+                              value={selectedTarget.style.vertical_anchor ?? ""}
+                              onChange={(event) =>
+                                event.target.value &&
+                                void saveTextStyleRevision({
+                                  vertical_anchor: event.target.value as
+                                    "top" | "middle" | "bottom",
+                                })
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !selectedTarget.style.fingerprint
+                              }
+                            >
+                              <option value="">Inherited</option>
+                              <option value="top">Top</option>
+                              <option value="middle">Middle</option>
+                              <option value="bottom">Bottom</option>
+                            </select>
+                          </label>
+                          <label>
+                            Columns
+                            <select
+                              aria-label="Text columns"
+                              value={String(selectedTarget.style.columns ?? 1)}
+                              onChange={(event) =>
+                                void saveTextStyleRevision({
+                                  columns: Number(event.target.value),
+                                })
+                              }
+                              disabled={
+                                !loadedSourceId ||
+                                loading ||
+                                !selectedTarget.style.fingerprint
+                              }
+                            >
+                              <option value="1">1</option>
+                              <option value="2">2</option>
+                              <option value="3">3</option>
+                            </select>
+                          </label>
                         </div>
                         <label>
                           Font (theme: +mn-lt body, +mj-lt headings)

@@ -147,3 +147,19 @@ def test_highlight_applies_in_schema_order_and_removes(tmp_path: Path) -> None:
         assert not bad["ok"] and bad["error"]["code"] == "INVALID_REQUEST"
     finally:
         deck.core.close()
+
+
+def test_vertical_anchor_and_columns_apply_and_reset(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path, _keep)
+    try:
+        assert deck.format({"vertical_anchor": "bottom", "columns": 2})["ok"]
+        style = deck.target()[0]["text_style"]
+        assert (style["vertical_anchor"], style["columns"]) == ("bottom", 2)
+        assert deck.format({"vertical_anchor": "middle", "columns": 1})["ok"]
+        style = deck.target()[0]["text_style"]
+        assert (style["vertical_anchor"], style["columns"]) == ("middle", None)
+        for bad in ({"vertical_anchor": "center"}, {"columns": 4}):
+            reply = deck.format(bad)
+            assert not reply["ok"] and reply["error"]["code"] == "INVALID_REQUEST"
+    finally:
+        deck.core.close()

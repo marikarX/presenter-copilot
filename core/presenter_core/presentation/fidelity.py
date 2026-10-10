@@ -208,6 +208,8 @@ class FidelityTextStyle:
     strikethrough: bool | None = None
     font_family: str | None = None
     highlight_color: str | None = None
+    vertical_anchor: str | None = None
+    columns: int | None = None
     font_size_pt: float | None = None
     font_color: str | None = None
     color_editable: bool = False
@@ -468,6 +470,8 @@ class FidelityDocument:
                             "strikethrough": obj.text_style.strikethrough,
                             "font_family": obj.text_style.font_family,
                             "highlight_color": obj.text_style.highlight_color,
+                            "vertical_anchor": obj.text_style.vertical_anchor,
+                            "columns": obj.text_style.columns,
                             "font_size_pt": obj.text_style.font_size_pt,
                             "font_color": obj.text_style.font_color,
                             "color_editable": obj.text_style.color_editable,
@@ -1908,6 +1912,21 @@ def _styled_paragraphs(paragraphs: list[etree._Element]) -> list[etree._Element]
     ]
 
 
+TEXT_ANCHORS = {"t": "top", "ctr": "middle", "b": "bottom"}
+
+
+def _body_anchor(candidate: etree._Element) -> str | None:
+    """Direct vertical text alignment of the shape's text body (None when inherited)."""
+    body = candidate.find(f"{{{PRESENTATION_NS}}}txBody/{{{DRAWING_NS}}}bodyPr")
+    return TEXT_ANCHORS.get(body.get("anchor", "")) if body is not None else None
+
+
+def _body_columns(candidate: etree._Element) -> int | None:
+    body = candidate.find(f"{{{PRESENTATION_NS}}}txBody/{{{DRAWING_NS}}}bodyPr")
+    raw = body.get("numCol") if body is not None else None
+    return int(raw) if raw is not None and raw.isdigit() and 1 <= int(raw) <= 16 else None
+
+
 def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextStyle:
     """Describe direct formatting shared by safe text runs and paragraphs."""
     paragraphs = _formatable_text_paragraphs(candidate, kind)
@@ -2020,6 +2039,8 @@ def _text_style_for_shape(candidate: etree._Element, kind: str) -> FidelityTextS
         strikethrough=uniform("strikethrough"),
         font_family=uniform("font_family"),
         highlight_color=uniform("highlight_color"),
+        vertical_anchor=_body_anchor(candidate),
+        columns=_body_columns(candidate),
         font_size_pt=uniform("font_size_pt"),
         font_color=uniform("font_color"),
         color_editable=all(style.color_editable for style in styles),

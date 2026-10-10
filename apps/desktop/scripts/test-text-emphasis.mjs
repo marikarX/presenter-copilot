@@ -236,6 +236,15 @@ try {
     [null, "Georgia"],
   );
   checks.push("Undo removes the highlight and keeps the earlier font change");
+  await page
+    .getByLabel("Text vertical alignment", { exact: true })
+    .selectOption("bottom");
+  await workspace.getByText("Current · Revision 7", { exact: true }).waitFor();
+  await page.getByLabel("Text columns", { exact: true }).selectOption("2");
+  await workspace.getByText("Current · Revision 8", { exact: true }).waitFor();
+  const layout = await style();
+  assert.deepEqual([layout.vertical_anchor, layout.columns], ["bottom", 2]);
+  checks.push("GUI sets bottom vertical alignment and two text columns");
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

@@ -58,6 +58,8 @@ _STYLE_PROPERTIES = {
     "underline": {"type": "boolean"},
     "strikethrough": {"type": "boolean"},
     "font_family": _text(31, 1),
+    "vertical_anchor": _choice("top", "middle", "bottom"),
+    "columns": _integer(1, 3),
     # "#RRGGBB" or "none" to remove the highlight.
     "highlight_color": _text(7, 4),
     "font_size_pt": _integer(6, 96),

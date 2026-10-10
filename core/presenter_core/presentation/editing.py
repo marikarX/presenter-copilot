@@ -7205,6 +7205,27 @@ class PresentationEditService:
                         PresentationEditService._apply_text_style_to_run(
                             line_break, replacement_style
                         )
+                if replacement_style.keys() & {"vertical_anchor", "columns"}:
+                    body = shape.find(f"{{{PRESENTATION_NS}}}txBody/{{{DRAWING_NS}}}bodyPr")
+                    if body is None:
+                        raise CoreDomainError(
+                            "PRESENTATION_EDIT_UNSUPPORTED",
+                            "This text shape has no body properties to change.",
+                        )
+                    if "vertical_anchor" in replacement_style:
+                        body.set(
+                            "anchor",
+                            {"top": "t", "middle": "ctr", "bottom": "b"}[
+                                replacement_style["vertical_anchor"]
+                            ],
+                        )
+                    if "columns" in replacement_style:
+                        if replacement_style["columns"] == 1:
+                            body.attrib.pop("numCol", None)
+                            body.attrib.pop("spcCol", None)
+                        else:
+                            body.set("numCol", str(replacement_style["columns"]))
+                            body.set("spcCol", body.get("spcCol", "457200"))
                 paragraph_style_keys = {
                     "alignment",
                     "bullet_mode",
@@ -7349,7 +7370,12 @@ class PresentationEditService:
                     revised_object.text_style,
                     "bullet_state" if name == "bullet_mode" else name,
                 )
-                != (None if name == "highlight_color" and value == "none" else value)
+                != (
+                    None
+                    if (name == "highlight_color" and value == "none")
+                    or (name == "columns" and value == 1)
+                    else value
+                )
                 for name, value in replacement_style.items()
             )
         ):
@@ -8836,6 +8862,8 @@ class PresentationEditService:
             "strikethrough",
             "font_family",
             "highlight_color",
+            "vertical_anchor",
+            "columns",
             "font_size_pt",
             "font_color",
             "alignment",
@@ -8864,6 +8892,20 @@ class PresentationEditService:
                     raise invalid_request(
                         f"replacement_style.{name} must be a boolean.",
                         field=f"replacement_style.{name}",
+                    )
+                result[name] = item
+            elif name == "vertical_anchor":
+                if item not in {"top", "middle", "bottom"}:
+                    raise invalid_request(
+                        "replacement_style.vertical_anchor must be top, middle or bottom.",
+                        field="replacement_style.vertical_anchor",
+                    )
+                result[name] = item
+            elif name == "columns":
+                if type(item) is not int or not 1 <= item <= 3:
+                    raise invalid_request(
+                        "replacement_style.columns must be 1, 2 or 3.",
+                        field="replacement_style.columns",
                     )
                 result[name] = item
             elif name == "highlight_color":
