@@ -48,6 +48,12 @@ import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import {
+  SlideSections,
+  isSlideSectionState,
+  type SlideSectionDraft,
+  type SlideSectionState,
+} from "./SlideSections";
+import {
   SlideAnimations,
   isSlideAnimationState,
   type SlideAnimationEffect,
@@ -1428,6 +1434,9 @@ export function PresentationWorkspace({
   } | null>(null);
   const [slideAnimations, setSlideAnimations] =
     useState<SlideAnimationState | null>(null);
+  const [slideSections, setSlideSections] = useState<SlideSectionState | null>(
+    null,
+  );
   const [themeColors, setThemeColors] = useState<ThemeColorState | null>(null);
   const [themeColorDraft, setThemeColorDraft] = useState<
     Record<string, string>
@@ -4792,6 +4801,118 @@ export function PresentationWorkspace({
     };
   }, [currentRevision, loadedSourceId, project.id, selectedSource]);
 
+  useEffect(() => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (!source || !revision || loadedSourceId !== source.id) {
+      setSlideSections(null);
+      return;
+    }
+    let cancelled = false;
+    void requestCore<unknown>("presentation.workspace.get_slide_sections", {
+      project_id: project.id,
+      document_id: source.id,
+      expected_revision_id: revision.revision_id,
+    })
+      .then((state) => {
+        if (!cancelled)
+          setSlideSections(isSlideSectionState(state) ? state : null);
+      })
+      .catch(() => {
+        if (!cancelled) setSlideSections(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRevision, loadedSourceId, project.id, selectedSource]);
+
+  const saveSlideSections = useCallback(
+    async (sections: SlideSectionDraft[]) => {
+      const source = selectedSource;
+      const revision = currentRevision;
+      const state = slideSections;
+      if (
+        !source ||
+        !revision ||
+        !state?.editable ||
+        state.revision_id !== revision.revision_id ||
+        loadedSourceId !== source.id ||
+        loading
+      )
+        return;
+      setLoading(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await requestCore<TextEditResult>(
+          "presentation.workspace.set_slide_sections",
+          {
+            project_id: project.id,
+            document_id: source.id,
+            expected_revision_id: revision.revision_id,
+            expected_fingerprint: state.fingerprint,
+            sections: sections.map((section) => ({
+              section_id: section.section_id,
+              name: section.name.trim(),
+              first_slide_id: section.first_slide_id,
+            })),
+          },
+        );
+        if (
+          typeof result.changed !== "boolean" ||
+          !UUID_PATTERN.test(result.revision_id) ||
+          !Number.isSafeInteger(result.revision_number)
+        ) {
+          throw new Error("The slide section revision could not be verified.");
+        }
+        if (!result.changed) {
+          setNotice("The slide sections are unchanged.");
+          return;
+        }
+        setCurrentRevision({
+          revision_id: result.revision_id,
+          revision_kind: "edited",
+          revision_number: result.revision_number,
+          sha256: result.sha256,
+          byte_size: result.byte_size,
+        });
+        try {
+          await requestCore("source.reindex", {
+            project_id: project.id,
+            document_id: source.id,
+          });
+        } catch {
+          // Core excludes an unindexed revision from retrieval until retry.
+        }
+        await loadPresentation(selectedSlide, selectedObjectId || undefined);
+        setNotice(
+          sections.length
+            ? `Saved revision ${result.revision_number} with ${sections.length} section${sections.length === 1 ? "" : "s"}.`
+            : `Saved revision ${result.revision_number} without sections.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The slide sections could not be saved.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      currentRevision,
+      loadPresentation,
+      loadedSourceId,
+      loading,
+      project.id,
+      selectedObjectId,
+      selectedSlide,
+      selectedSource,
+      slideSections,
+    ],
+  );
+
   const saveThemeColors = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -8003,6 +8124,14 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                {slideSections &&
+                slideSections.revision_id === currentRevision?.revision_id ? (
+                  <SlideSections
+                    state={slideSections}
+                    disabled={loading}
+                    onApply={(sections) => void saveSlideSections(sections)}
+                  />
+                ) : null}
                 {themeColors?.editable && themeColors.colors ? (
                   <fieldset className="pw-picture-crop">
                     <legend>Theme colors</legend>

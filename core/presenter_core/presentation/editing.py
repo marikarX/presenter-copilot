@@ -82,6 +82,7 @@ from presenter_core.presentation.fidelity import (
     plain_bullet_font,
 )
 from presenter_core.presentation.revisions import MAX_REVISION_NUMBER
+from presenter_core.presentation.slide_sections import P14_NS, sync_sections
 from presenter_core.storage.paths import normalize_project_id
 from presenter_core.storage.service import StorageManager
 
@@ -2145,6 +2146,16 @@ class PresentationEditService:
         from presenter_core.presentation.text_hyperlinks import set_text_hyperlink
 
         return set_text_hyperlink(self, params)
+
+    def get_slide_sections(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_sections import get_slide_sections
+
+        return get_slide_sections(self, params)
+
+    def set_slide_sections(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_sections import set_slide_sections
+
+        return set_slide_sections(self, params)
 
     def get_slide_animations(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_animations import get_slide_animations
@@ -4467,6 +4478,7 @@ class PresentationEditService:
                         "This presentation does not use a supported slide-list structure.",
                     )
                 slide_list = slide_lists[0]
+                previous_order = [item.get("id", "") for item in slide_list]
                 references = list(slide_list)
                 if len(references) != len(fidelity.slides) or any(
                     reference.tag != f"{{{PRESENTATION_NS}}}sldId" for reference in references
@@ -4508,6 +4520,8 @@ class PresentationEditService:
                     and not (
                         item.tag == f"{{{PRESENTATION_NS}}}sldId" and item.getparent() is slide_list
                     )
+                    # Section membership follows the delete (sync_sections).
+                    and item.tag != f"{{{P14_NS}}}sldId"
                     for item in presentation_root.xpath(".//*[@id]")
                 ):
                     raise CoreDomainError(
@@ -4547,10 +4561,11 @@ class PresentationEditService:
                         and relation[2].casefold() == "internal"
                         and _resolve_internal_part("ppt/notesSlides", relation[1]) in members
                     ]
+                    # Some producers omit the notes-to-slide back reference.
                     if (
-                        len(notes_relationships_map) != 2
-                        or len(note_slide_relations) != 1
-                        or len(note_master_relations) != 1
+                        len(note_master_relations) != 1
+                        or len(notes_relationships_map) != 1 + len(note_slide_relations)
+                        or len(note_slide_relations) > 1
                     ):
                         raise CoreDomainError(
                             "PRESENTATION_EDIT_UNSUPPORTED",
@@ -4640,7 +4655,7 @@ class PresentationEditService:
 
                 replacements = {
                     "ppt/presentation.xml": etree.tostring(
-                        presentation_root,
+                        sync_sections(presentation_root, previous_order),
                         encoding="UTF-8",
                         xml_declaration=True,
                         standalone=True,
@@ -4914,6 +4929,7 @@ class PresentationEditService:
                         "This presentation does not use a supported slide-list structure.",
                     )
                 slide_list = slide_lists[0]
+                previous_order = [item.get("id", "") for item in slide_list]
                 references = list(slide_list)
                 if len(references) != len(fidelity.slides) or any(
                     reference.tag != f"{{{PRESENTATION_NS}}}sldId" for reference in references
@@ -5065,11 +5081,27 @@ class PresentationEditService:
                                 "This speaker-notes part contains a relationship that cannot "
                                 "be duplicated safely.",
                             )
-                    if len(notes_slide_relationships) != 1 or len(notes_master_relationships) != 1:
+                    if len(notes_slide_relationships) > 1 or len(notes_master_relationships) != 1:
                         raise CoreDomainError(
                             "PRESENTATION_EDIT_UNSUPPORTED",
                             "This slide does not use a supported speaker-notes structure.",
                         )
+                    if not notes_slide_relationships:
+                        # Some producers omit the notes-to-slide back reference; the
+                        # duplicate gets the one PowerPoint itself writes.
+                        used = {node.get("Id") for node in notes_rels_root}
+                        back_id = next(
+                            f"rId{number}"
+                            for number in range(1, len(used) + 2)
+                            if f"rId{number}" not in used
+                        )
+                        back = etree.SubElement(
+                            notes_rels_root,
+                            f"{{{_NS['rel']}}}Relationship",
+                            Id=back_id,
+                            Type=_PRESENTATION_SLIDE_REL_TYPE,
+                        )
+                        notes_slide_relationships.append((back, back_id))
                     notes_part = PresentationEditService._unique_package_part(
                         members, "ppt/notesSlides", "notesSlide"
                     )
@@ -5203,7 +5235,7 @@ class PresentationEditService:
                     )
 
                 rewritten_presentation = etree.tostring(
-                    presentation_root,
+                    sync_sections(presentation_root, previous_order),
                     encoding="UTF-8",
                     xml_declaration=True,
                     standalone=True,
@@ -5839,6 +5871,7 @@ class PresentationEditService:
                         "This presentation does not use a supported slide-list structure.",
                     )
                 slide_list = slide_lists[0]
+                previous_order = [item.get("id", "") for item in slide_list]
                 references = list(slide_list)
                 if len(references) != len(fidelity.slides) or any(
                     reference.tag != f"{{{PRESENTATION_NS}}}sldId" for reference in references
@@ -6007,7 +6040,7 @@ class PresentationEditService:
 
                 replacements = {
                     "ppt/presentation.xml": etree.tostring(
-                        presentation_root,
+                        sync_sections(presentation_root, previous_order),
                         encoding="UTF-8",
                         xml_declaration=True,
                         standalone=True,
@@ -6305,6 +6338,7 @@ class PresentationEditService:
                         "This presentation does not use a supported slide list.",
                     )
                 slide_list = slide_lists[0]
+                previous_order = [item.get("id", "") for item in slide_list]
                 references = list(slide_list)
                 if (
                     not references
@@ -6340,7 +6374,7 @@ class PresentationEditService:
                 for slide_id in ordered_slide_ids:
                     slide_list.append(references_by_slide_id[slide_id])
                 rewritten_presentation = etree.tostring(
-                    presentation_root,
+                    sync_sections(presentation_root, previous_order),
                     encoding="UTF-8",
                     xml_declaration=True,
                     standalone=True,

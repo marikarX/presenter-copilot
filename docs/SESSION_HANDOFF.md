@@ -158,6 +158,27 @@ Commits this session:
   Copilot edit plans can propose `set_slide_animations`: the planning
   snapshot lists each editable slide's sequence (`animations_editable`,
   `animations`), and Core binds the timing fingerprint before review.
+- Slide sections: named, contiguous runs of slides (`p14:sectionLst`;
+  `presentation.workspace.get_slide_sections` / `set_slide_sections`,
+  "Sections" in slide actions): add a section at any slide (a "Default
+  Section" covers the slides before it, as in PowerPoint), rename, merge into
+  the previous section, or remove all, as one revision under a fingerprint;
+  section IDs are kept on rename. Sections now follow every slide-list edit
+  (`sync_sections` in delete, duplicate, blank/layout insert and reorder):
+  deleted slides leave their section, slides that keep their relative order
+  keep their section, and moved or new slides join the section of the slide
+  before them (the one after, at the start), as PowerPoint's slide sorter
+  does. Previously deleting any slide in a sectioned deck was refused and
+  inserts left new slides outside every section. PowerPoint reads back the
+  same section names and slide runs after split, move-to-front, delete and
+  duplicate. `test-slide-sections.mjs` 5/5.
+  Real-deck acceptance (33 decks): sections applied on 32 (one single-slide
+  deck skipped); duplicate + delete inside the new sections kept every
+  section consistent on all 26 decks where the slide can be duplicated.
+- Duplicate and delete now accept speaker notes whose notes part omits the
+  notes-to-slide back reference (3 corpus decks' producer); the duplicate
+  gains the back reference PowerPoint writes. Previously both were refused as
+  an unsupported notes structure. PowerPoint opens the results.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null
