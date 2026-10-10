@@ -166,8 +166,12 @@ Commits this session:
 - Auto-numbers: measured that PowerPoint draws `buAutoNum` numbers in the
   first run's font and weight, ignoring `buFont` (even +mj-lt or Arial);
   character bullets still use their bullet font. The preview now matches.
-  Remaining visible gaps: 3D perspective/bevel SmartArt renders flat,
-  small hanging bullets sit slightly high, and line pitch runs about 0.3 pt
+- Hanging bullets smaller than the text (buSzPct) now share the text
+  baseline: the absolutely positioned bullet box carries a zero-width strut
+  at the first run's size and font (5 slides better, none worse; corpus mean
+  2.901%, median 2.499%).
+  Remaining visible gaps: 3D perspective/bevel SmartArt renders flat, and
+  line pitch runs about 0.3 pt
   short per line. PowerPoint's pitch is exactly lnSpc x 1.2 x size (Georgia
   28 pt at 90% measures 30.21 pt), but the browser snaps line boxes to whole
   pixels: the renderer's 1.19 factor lands on 40 px lines (29.9 pt) while
