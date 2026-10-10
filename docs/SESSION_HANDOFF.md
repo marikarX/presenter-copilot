@@ -206,6 +206,19 @@ Commits this session:
   content: group-eligible objects across the corpus went from 573 to 1135 of
   5492, and PowerPoint shows the new groups on 12 sampled decks. Any other
   extension still keeps an object out of groups.
+- Tables made by current PowerPoint are editable again: the table editor
+  now accepts the per-row/per-column identity extensions (`a16:rowId`,
+  `a16:colId`), `p14:modId`, and tables that sit in a content placeholder.
+  Editable corpus tables went from 2 to 23 of 43 (17 also allow row/column
+  insert/remove). Reshaping keeps retained rows' and columns' IDs and gives
+  inserted ones fresh unique IDs. A cell edit plus an inserted row applied on
+  every sampled deck, and PowerPoint shows the edited text and new row count.
+  The other 20 tables keep rich cell formatting, images or merged content and
+  stay read-only.
+- Automatic text fitting accepts shapes carrying those identity extensions:
+  shapes passing the fit precondition went from 1079 to 3081, and fits applied
+  on 9 of 11 sampled decks (the other two would have had to grow text past the
+  chosen minimum); PowerPoint opens every result.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

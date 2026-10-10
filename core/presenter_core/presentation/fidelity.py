@@ -258,22 +258,30 @@ DECORATIVE_EXT_URI = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
 DECORATIVE_NS = "http://schemas.microsoft.com/office/drawing/2017/decorative"
 
 
-# cNvPr extensions that carry identity or accessibility only (a16:creationId,
-# adec:decorative); they move with the object and never change its rendering.
+# Non-visual extensions that carry identity or accessibility only (a16:creationId,
+# adec:decorative on cNvPr; p14:modId on nvPr); they move with the object and never
+# change its rendering.
 BENIGN_NONVISUAL_EXTENSIONS = frozenset(
-    {"{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}", DECORATIVE_EXT_URI}
+    {
+        "{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}",
+        DECORATIVE_EXT_URI,
+        "{D42A27DB-BD31-4B8C-83A1-F6EECF244321}",
+    }
 )
 
 
 def has_unsafe_extensions(node: etree._Element) -> bool:
-    """Placeholders or extension lists other than benign cNvPr metadata."""
-    if node.xpath(".//p:ph", namespaces=_NS):
-        return True
+    """Placeholders or extension lists other than benign non-visual metadata."""
+    return bool(node.xpath(".//p:ph", namespaces=_NS)) or has_unsafe_extension_lists(node)
+
+
+def has_unsafe_extension_lists(node: etree._Element) -> bool:
+    """Extension lists other than benign non-visual identity/accessibility metadata."""
     for extensions in node.xpath(".//p:extLst | .//a:extLst", namespaces=_NS):
         parent = extensions.getparent()
         if (
             parent is None
-            or etree.QName(parent).localname != "cNvPr"
+            or etree.QName(parent).localname not in {"cNvPr", "nvPr"}
             or any(
                 child.tag != f"{{{DRAWING_NS}}}ext"
                 or child.get("uri") not in BENIGN_NONVISUAL_EXTENSIONS

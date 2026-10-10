@@ -60,6 +60,11 @@ def validate_cells(value: Any) -> list[list[str]]:
 
 
 def inspect_table(frame: Any) -> dict[str, Any] | None:
+    from presenter_core.presentation.table_structure import (
+        row_identity,
+        table_extensions_supported,
+    )
+
     data = frame.findall("a:graphic/a:graphicData", _NS)
     if len(data) != 1 or data[0].get("uri") != TABLE_URI:
         return None
@@ -72,7 +77,10 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
     if (
         len(tables) != 1
         or len(data[0]) != 1
-        or frame.xpath(".//@r:* | .//p:ph | .//a:extLst | .//p:extLst", namespaces=_NS)
+        # A table inserted into a content placeholder keeps its p:ph link; cell and
+        # row edits never touch it.
+        or frame.xpath(".//@r:* | .//p:ph[not(parent::p:nvPr)]", namespaces=_NS)
+        or not table_extensions_supported(frame)
     ):
         return result
     table = tables[0]
@@ -84,7 +92,7 @@ def inspect_table(frame: Any) -> dict[str, Any] | None:
     values = []
     for row in rows:
         cells = row.findall("a:tc", _NS)
-        if len(cells) != len(columns) or len(row) != len(cells):
+        if len(cells) != len(columns) or len(row) != len(cells) + (row_identity(row) is not None):
             return result
         texts = []
         for cell in cells:

@@ -12,7 +12,12 @@ from typing import Any
 from lxml import etree  # type: ignore[import-untyped]
 
 from presenter_core.errors import CoreDomainError, invalid_request, reject_unknown_fields
-from presenter_core.presentation.fidelity import _NS, FidelityGeometry, inspect_pptx_snapshot
+from presenter_core.presentation.fidelity import (
+    _NS,
+    FidelityGeometry,
+    has_unsafe_extension_lists,
+    inspect_pptx_snapshot,
+)
 from presenter_core.presentation.text_fit import apply_fit, calculate, validate_body
 from presenter_core.presentation.text_inheritance import TextInheritance
 
@@ -22,9 +27,8 @@ def supported_shape(shape: Any) -> bool:
     if (
         body is None
         or len(shape.findall("p:txBody", _NS)) != 1
-        or shape.xpath(
-            ".//a:extLst | .//p:extLst | .//a:hlinkClick | .//a:hlinkMouseOver", namespaces=_NS
-        )
+        or has_unsafe_extension_lists(shape)
+        or shape.xpath(".//a:hlinkClick | .//a:hlinkMouseOver", namespaces=_NS)
     ):
         return False
     allowed = {f"{{{_NS['a']}}}{n}" for n in ["bodyPr", "lstStyle", "p"]}
