@@ -41,7 +41,10 @@ def request(params, operations, kind="column"):
     }
 
 
-@pytest.mark.parametrize("kind", ["column", "bar", "line", "pie"])
+@pytest.mark.parametrize(
+    "kind",
+    ["column", "bar", "stacked_column", "stacked_bar", "line", "area", "pie", "doughnut"],
+)
 def test_chart_native_review_preserves_deck_embeds_literal_workbook_and_reindexes(
     tmp_path: Path, kind: str
 ):

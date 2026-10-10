@@ -1,3 +1,4 @@
+import { pieLike } from "./chart-kinds";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isCoreError, unwrapInvokeResult } from "../shared/protocol";
@@ -174,7 +175,7 @@ export function ChartLabels({
       show_category: index === "all" ? false : state?.show_category || false,
       show_series: index === "all" ? false : state?.show_series || false,
       show_percent:
-        item?.data?.chart_type === "pie" &&
+        pieLike(item?.data?.chart_type) &&
         index !== "all" &&
         (state?.show_percent || false),
     });
@@ -473,7 +474,7 @@ export function ChartLabels({
                         disabled={
                           position === "hidden" ||
                           (key === "show_percent" &&
-                            selected?.data?.chart_type !== "pie")
+                            !pieLike(selected?.data?.chart_type))
                         }
                         onChange={(e) => {
                           setFlags({ ...flags, [key]: e.target.checked });

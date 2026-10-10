@@ -26,7 +26,7 @@ def imported(core, directory, kind="column", *, shared=False, mutation=None):
         values = CategoryChartData()
         values.categories = ["Baseline", "Pilot", "Target"]
         values.add_series("Revenue", [10, 12.25, 15])
-        if kind != "pie":
+        if kind not in {"pie", "doughnut"}:
             values.add_series("Cost", [8, 9, 10])
         chart = slide.shapes.add_chart(
             KINDS[kind], Inches(1), Inches(2), Inches(7), Inches(4), values

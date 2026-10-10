@@ -215,6 +215,16 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- More chart types: native charts can be created and edited as stacked
+  column, stacked bar (bar groupings `stacked` with full overlap), area and
+  doughnut, besides column, bar, line and pie (GUI chart-type menu, Copilot
+  plans). Doughnut shares pie's rules (one nonnegative series, per-point
+  colors, category legend, percentage labels); data-label positions follow
+  what PowerPoint allows per type (no outside placement on stacked bars, none
+  on area or doughnut). PowerPoint reads the created charts back as
+  xlColumnStacked, xlBarStacked, xlArea and xlDoughnut, and the preview
+  renders them close to PowerPoint (slide MAE 2.2-3.9%).
+  `test_presentation_charts.py` (8 types); `test-chart-types.mjs` 2/2.
 - Paragraph animations: an animation effect can target one paragraph of a text
   object (`paragraph` index, `p:txEl/p:pRg`), so PowerPoint's "by paragraph"
   builds (one on-click step per paragraph, the first with the chosen start,

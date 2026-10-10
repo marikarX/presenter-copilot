@@ -41,9 +41,15 @@ NS = {**_NS, "c": CNS}
 KINDS = {
     "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
     "bar": XL_CHART_TYPE.BAR_CLUSTERED,
+    "stacked_column": XL_CHART_TYPE.COLUMN_STACKED,
+    "stacked_bar": XL_CHART_TYPE.BAR_STACKED,
     "line": XL_CHART_TYPE.LINE,
+    "area": XL_CHART_TYPE.AREA,
     "pie": XL_CHART_TYPE.PIE,
+    "doughnut": XL_CHART_TYPE.DOUGHNUT,
 }
+# One series whose points (categories) carry the colors and the legend.
+PIE_LIKE = frozenset({"pie", "doughnut"})
 COLORS = ("2563EB", "D97706", "059669", "9333EA", "DC2626", "0891B2")
 
 
@@ -51,7 +57,9 @@ def validate_data(params: dict[str, Any]) -> dict[str, Any]:
     title = PresentationCreationService._text(params.get("title"), "title", 120)
     kind = params.get("chart_type")
     if not isinstance(kind, str) or kind not in KINDS:
-        raise invalid_request("Choose column, bar, line or pie.")
+        raise invalid_request(
+            "Choose column, bar, stacked column, stacked bar, line, area, pie or doughnut."
+        )
     categories = params.get("categories")
     if not isinstance(categories, list) or not 1 <= len(categories) <= 24:
         raise invalid_request("Provide 1–24 categories.")
@@ -75,10 +83,12 @@ def validate_data(params: dict[str, Any]) -> dict[str, Any]:
         ):
             raise invalid_request("Provide one finite number per category, within ±1 trillion.")
         values.append({"name": name, "values": numbers})
-    if kind == "pie" and (
+    if kind in PIE_LIKE and (
         len(values) != 1 or any(n < 0 for n in values[0]["values"]) or sum(values[0]["values"]) <= 0
     ):
-        raise invalid_request("Pie charts need one nonnegative series with a positive total.")
+        raise invalid_request(
+            "Pie and doughnut charts need one nonnegative series with a positive total."
+        )
     return {"title": title, "chart_type": kind, "categories": categories, "series": values}
 
 
@@ -107,7 +117,7 @@ def read_chart(root: Any) -> dict[str, Any] | None:
     kinds = [
         (node, name)
         for node in plots[0]
-        for name in ("barChart", "lineChart", "pieChart")
+        for name in ("barChart", "lineChart", "pieChart", "areaChart", "doughnutChart")
         if node.tag == f"{{{CNS}}}{name}"
     ]
     if len(kinds) != 1 or any(
@@ -126,16 +136,23 @@ def read_chart(root: Any) -> dict[str, Any] | None:
             direction is None
             or direction.get("val") not in {"bar", "col"}
             or grouping is None
-            or grouping.get("val") != "clustered"
+            or grouping.get("val") not in {"clustered", "stacked"}
         ):
             return None
         kind = "bar" if direction.get("val") == "bar" else "column"
-    else:
-        if name == "lineChart":
-            grouping = node.find("c:grouping", NS)
-            if grouping is None or grouping.get("val") != "standard":
+        if grouping.get("val") == "stacked":
+            # Stacked bars overlap fully; anything else is a custom layout.
+            overlap = node.find("c:overlap", NS)
+            if overlap is None or overlap.get("val") != "100":
                 return None
-        kind = "line" if name == "lineChart" else "pie"
+            kind = "stacked_" + kind
+    elif name in {"lineChart", "areaChart"}:
+        grouping = node.find("c:grouping", NS)
+        if grouping is None or grouping.get("val") != "standard":
+            return None
+        kind = "line" if name == "lineChart" else "area"
+    else:
+        kind = "pie" if name == "pieChart" else "doughnut"
     title = (
         "\n".join(
             "".join(node.text or "" for node in paragraph.findall(".//a:t", NS))
@@ -270,7 +287,7 @@ def generated_chart(data: dict[str, Any], geometry: Any) -> tuple[Any, bytes, by
     space.insert(space.index(space.find("c:chart", NS)) + 1, properties)
     chart.has_title = True
     chart.chart_title.text_frame.text = data["title"]
-    if data["chart_type"] == "pie":
+    if data["chart_type"] in PIE_LIKE:
         title = chart.chart_title._element
         layout = title.find("c:layout", NS)
         if layout is None:
@@ -282,7 +299,7 @@ def generated_chart(data: dict[str, Any], geometry: Any) -> tuple[Any, bytes, by
     for run in chart.chart_title.text_frame.paragraphs[0].runs:
         run.font.size = Pt(20)
         run.font.color.rgb = rgb("182132")
-    chart.has_legend = len(data["series"]) > 1 or data["chart_type"] == "pie"
+    chart.has_legend = len(data["series"]) > 1 or data["chart_type"] in PIE_LIKE
     if chart.has_legend:
         chart.legend.position = XL_LEGEND_POSITION.BOTTOM
         chart.legend.include_in_layout = False
@@ -290,7 +307,7 @@ def generated_chart(data: dict[str, Any], geometry: Any) -> tuple[Any, bytes, by
         series.format.fill.solid()
         series.format.fill.fore_color.rgb = rgb(COLORS[index])
         series.format.line.color.rgb = rgb(COLORS[index])
-        if data["chart_type"] == "pie":
+        if data["chart_type"] in PIE_LIKE:
             for offset, point in enumerate(series.points):
                 point.format.fill.solid()
                 point.format.fill.fore_color.rgb = rgb(COLORS[offset % len(COLORS)])

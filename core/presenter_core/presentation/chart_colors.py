@@ -60,7 +60,7 @@ def inspect_colors(chart: Any, data: dict[str, Any]) -> dict[str, Any]:
         "editable": editable,
         "reason": reason,
         "series": series,
-        "series_editable": editable and data["chart_type"] != "pie",
+        "series_editable": editable and data["chart_type"] not in {"pie", "doughnut"},
         "points_editable": editable and data["chart_type"] != "line",
     }
 

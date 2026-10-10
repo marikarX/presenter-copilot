@@ -170,7 +170,9 @@ _CELLS = {
 }
 _CHART_DATA = {
     "title": _text(120, 1),
-    "chart_type": _choice("column", "bar", "line", "pie"),
+    "chart_type": _choice(
+        "column", "bar", "stacked_column", "stacked_bar", "line", "area", "pie", "doughnut"
+    ),
     "categories": {"type": "array", "minItems": 1, "maxItems": 24, "items": _text(80, 1)},
     "series": {
         "type": "array",

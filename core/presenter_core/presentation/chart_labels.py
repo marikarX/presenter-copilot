@@ -36,6 +36,12 @@ ALLOWED = {
     "bar": ["default", "center", "inside_end", "inside_base", "outside_end"],
     "line": ["default", "center", "above", "below", "left", "right"],
     "pie": ["default", "center", "inside_end", "outside_end", "best_fit"],
+    # PowerPoint offers no outside placement on stacked bars, and no placement at all on
+    # area or doughnut charts.
+    "stacked_column": ["default", "center", "inside_end", "inside_base"],
+    "stacked_bar": ["default", "center", "inside_end", "inside_base"],
+    "area": ["default"],
+    "doughnut": ["default"],
 }
 ORDER = [
     "idx",
@@ -227,8 +233,8 @@ def validate(params: dict[str, Any], kind: str) -> None:
         raise invalid_request("Choose explicit label content flags.")
     if params["position"] != "hidden" and not any(params[field] for field in FLAGS):
         raise invalid_request("Choose at least one label content field.")
-    if params["show_percent"] and kind != "pie":
-        raise invalid_request("Percentage labels are supported on pie charts.")
+    if params["show_percent"] and kind not in {"pie", "doughnut"}:
+        raise invalid_request("Percentage labels are supported on pie and doughnut charts.")
     fmt = params.get("number_format")
     if fmt is not None and (
         not isinstance(fmt, str)

@@ -6,6 +6,7 @@ import { ChartMarkers } from "./ChartMarkers";
 import { ChartAxes } from "./ChartAxes";
 import { ChartLabels } from "./ChartLabels";
 import { ChartLegend } from "./ChartLegend";
+import { pieLike } from "./chart-kinds";
 import { isCoreError, unwrapInvokeResult } from "../shared/protocol";
 import { usePowerPointAppearance } from "./NativeAppearance";
 import {
@@ -368,7 +369,7 @@ export function NativeCharts({
       categories < 1 ||
       categories > 24 ||
       series < 1 ||
-      series > (kind === "pie" ? 1 : 6)
+      series > (pieLike(kind) ? 1 : 6)
     )
       return;
     setCells(
@@ -396,7 +397,7 @@ export function NativeCharts({
     if (busy || saved.current || !selected?.structure_editable) return;
     const originals = axis === "category" ? categorySources : seriesSources;
     const active = axis === "category" ? activeCategory : activeSeries;
-    const limit = axis === "category" ? 24 : kind === "pie" ? 1 : 6;
+    const limit = axis === "category" ? 24 : pieLike(kind) ? 1 : 6;
     if (action === "remove" ? originals.length <= 1 : originals.length >= limit)
       return;
     const index = active + (action === "after" ? 1 : 0);
@@ -621,15 +622,19 @@ export function NativeCharts({
                     disabled={busy || saved.current || Boolean(choice)}
                     onChange={(event) => {
                       setKind(event.target.value);
-                      if (event.target.value === "pie")
+                      if (pieLike(event.target.value))
                         setCells(cells.map((row) => row.slice(0, 2)));
                       setReviewed(false);
                     }}
                   >
                     <option value="column">Column</option>
                     <option value="bar">Bar</option>
+                    <option value="stacked_column">Stacked column</option>
+                    <option value="stacked_bar">Stacked bar</option>
                     <option value="line">Line</option>
+                    <option value="area">Area</option>
                     <option value="pie">Pie</option>
+                    <option value="doughnut">Doughnut</option>
                   </select>
                 </label>
                 <div className="pw-geometry-fields">
@@ -656,7 +661,7 @@ export function NativeCharts({
                       aria-label="Chart series count"
                       type="number"
                       min={1}
-                      max={kind === "pie" ? 1 : 6}
+                      max={pieLike(kind) ? 1 : 6}
                       value={(cells[0]?.length || 2) - 1}
                       disabled={busy || saved.current || Boolean(choice)}
                       onChange={(event) =>
@@ -719,7 +724,7 @@ export function NativeCharts({
                                     : count >=
                                       (axis === "category"
                                         ? 24
-                                        : kind === "pie"
+                                        : pieLike(kind)
                                           ? 1
                                           : 6)
                                 }
@@ -831,8 +836,8 @@ export function NativeCharts({
                 </div>
                 <p className="muted">
                   Up to 24 categories and 6 series. Values must be finite and
-                  within ±1 trillion. Pie charts use one nonnegative series with
-                  a positive total.
+                  within ±1 trillion. Pie and doughnut charts use one
+                  nonnegative series with a positive total.
                 </p>
                 <button
                   type="button"

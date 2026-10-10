@@ -31,7 +31,12 @@ def structure_reason(chart: Any, data: dict[str, Any]) -> str | None:
         for tag, limit in [
             ("dPt", len(data["categories"])),
             ("dLbl", len(data["categories"])),
-            ("legendEntry", len(data["categories"]) if data["chart_type"] == "pie" else len(nodes)),
+            (
+                "legendEntry",
+                len(data["categories"])
+                if data["chart_type"] in {"pie", "doughnut"}
+                else len(nodes),
+            ),
         ]:
             children = container.findall(f"c:{tag}", NS)
             ids = [_index(child) for child in children]
@@ -123,7 +128,11 @@ def reshape_chart(
         _remap(labels, "dLbl", categories)
     legend = chart.find("c:chart/c:legend", NS)
     if legend is not None:
-        _remap(legend, "legendEntry", categories if old["chart_type"] == "pie" else series_sources)
+        _remap(
+            legend,
+            "legendEntry",
+            categories if old["chart_type"] in {"pie", "doughnut"} else series_sources,
+        )
 
 
 def replace_cache(
