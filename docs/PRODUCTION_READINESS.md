@@ -171,7 +171,8 @@ Commits this session:
   does. Previously deleting any slide in a sectioned deck was refused and
   inserts left new slides outside every section. PowerPoint reads back the
   same section names and slide runs after split, move-to-front, delete and
-  duplicate. `test-slide-sections.mjs` 5/5.
+  duplicate. Section names also head their first slide in the slide strip.
+  `test-slide-sections.mjs` 5/5.
   Real-deck acceptance (33 decks): sections applied on 32 (one single-slide
   deck skipped); duplicate + delete inside the new sections kept every
   section consistent on 31 decks (after the media/notes fixes below; the one

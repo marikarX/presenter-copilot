@@ -2604,3 +2604,13 @@ h1 {
   width: auto;
   min-width: 0;
 }
+
+.pw-slide-section {
+  display: block;
+  margin: 8px 0 2px;
+  padding: 0 6px;
+  color: var(--muted, var(--ink));
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

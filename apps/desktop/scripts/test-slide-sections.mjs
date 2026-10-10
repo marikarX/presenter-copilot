@@ -173,8 +173,17 @@ try {
     ["Main points", [2, 3]],
   ]);
   assert.equal(await apply.isDisabled(), true, "Controls read back the save");
+  const strip = page.getByRole("navigation", {
+    name: "Presentation slides",
+    exact: true,
+  });
+  await strip.getByText("Main points", { exact: true }).waitFor();
+  assert.deepEqual(await strip.locator(".pw-slide-section").allTextContents(), [
+    "Opening",
+    "Main points",
+  ]);
   checks.push(
-    "GUI splits the deck into Opening and Main points as one native revision",
+    "GUI splits the deck into Opening and Main points as one native revision, shown in the slide strip",
   );
   await page.screenshot({ path: path.join(output, "slide-sections.png") });
 

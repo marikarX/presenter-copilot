@@ -4826,6 +4826,22 @@ export function PresentationWorkspace({
     };
   }, [currentRevision, loadedSourceId, project.id, selectedSource]);
 
+  // Section names shown above the slide that starts each section.
+  const sectionStarts = useMemo(() => {
+    const starts = new Map<number, string>();
+    if (
+      !slideSections ||
+      slideSections.revision_id !== currentRevision?.revision_id
+    )
+      return starts;
+    for (const section of slideSections.sections) {
+      const first = section.slide_ids[0];
+      const index = first ? slideSections.slide_ids.indexOf(first) : -1;
+      if (index >= 0) starts.set(index + 1, section.name || "Untitled section");
+    }
+    return starts;
+  }, [currentRevision?.revision_id, slideSections]);
+
   const saveSlideSections = useCallback(
     async (sections: SlideSectionDraft[]) => {
       const source = selectedSource;
@@ -7186,6 +7202,11 @@ export function PresentationWorkspace({
                   (_, index) => index + 1,
                 ).map((slideNumber) => (
                   <li key={slideNumber}>
+                    {sectionStarts.get(slideNumber) ? (
+                      <span className="pw-slide-section">
+                        {sectionStarts.get(slideNumber)}
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       className={
