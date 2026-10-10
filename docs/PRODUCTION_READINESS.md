@@ -159,6 +159,10 @@ Commits this session:
   Links marked `ahyp:hlinkClr val="tx"` keep the run's text color in the
   preview. Corpus mean unchanged at 2.908% (4 better, 3 slightly worse from
   overflowing text that previously overlapped PowerPoint pixels).
+- Shape style `fillRef` indices 1001+ now resolve to the theme's background
+  fill styles (the renderer only did this for slide backgrounds), so text
+  boxes styled with background gradients render like PowerPoint (open
+  education slide 21 MAE 7.97% -> 5.16%; corpus mean 2.903%).
   Remaining visible gaps: 3D perspective/bevel SmartArt renders flat and
   small hanging bullets sit slightly high.
 - Line breaks (`a:br`) no longer block formatting; such shapes are never
