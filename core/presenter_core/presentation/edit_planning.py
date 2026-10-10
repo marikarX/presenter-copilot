@@ -728,9 +728,16 @@ class PresentationEditPlanningService:
             result["speaker_notes_editable"] = False
         for obj in result["objects"]:
             obj.pop("ooxml_id")
-            # Accessibility metadata is edited in the Objects panel, not by plans.
-            obj.pop("alt_text", None)
-            obj.pop("decorative", None)
+            # Plans see only whether a visual object still needs alt text.
+            alt_text = obj.pop("alt_text", None)
+            decorative = obj.pop("decorative", False)
+            if (
+                obj.get("kind") in {"pic", "graphicFrame", "grpSp"}
+                and alt_text is not None
+                and not alt_text.strip()
+                and not decorative
+            ):
+                obj["alt_text_missing"] = True
             obj.pop("geometry_inherited", None)
             obj.pop("group_id", None)
             # Present edit capabilities in the units the plan schema uses.
@@ -1036,6 +1043,11 @@ class PresentationEditPlanningService:
                         {k: target[k] for k in ["geometry_pt", "paragraphs", "cached_font_scale"]}
                     )
                 )
+        elif kind == "set_alt_text":
+            if obj.alt_text is None:
+                raise invalid_request("The proposed alt text target is not editable.")
+            params["expected_alt_text"] = obj.alt_text
+            params["expected_decorative"] = obj.decorative
         elif kind == "set_text_hyperlink":
             if obj.hyperlink is None:
                 raise invalid_request("The proposed text link is not editable.")

@@ -36,6 +36,7 @@ PLAN_OPERATIONS = frozenset(
         "set_theme_colors",
         "set_slide_sections",
         "set_text_hyperlink",
+        "set_alt_text",
         "replace_picture_image",
         "reorder_slides",
         "apply_slide_layout",

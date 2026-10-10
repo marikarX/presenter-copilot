@@ -214,6 +214,9 @@ PARAMETER_SCHEMAS = {
     "crop_picture": _object({**_TARGET, "replacement_crop": _CROP}),
     "adjust_picture": _object({**_TARGET, "replacement_adjustment": _ADJUSTMENT}),
     "rotate_object": _object({**_TARGET, "replacement_rotation": _ROTATION}),
+    "set_alt_text": _object(
+        {**_TARGET, "alt_text": _text(2000), "decorative": {"type": "boolean"}}
+    ),
     "set_text_hyperlink": _object(
         {
             **_TARGET,

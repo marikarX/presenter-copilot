@@ -1359,3 +1359,101 @@ def test_provider_deck_theme_and_sections_need_whole_deck_and_apply(tmp_path: Pa
         ]
     finally:
         core.close()
+
+
+def test_provider_alt_text_sees_missing_flag_binds_and_applies(tmp_path: Path) -> None:
+    import io
+
+    from PIL import Image
+    from pptx import Presentation
+    from pptx.util import Inches
+    from test_presentation_workspace_source import _import_presentation, _open
+
+    source = tmp_path / "alt.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[5])
+    slide.shapes.title.text = "Revenue"
+    image = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(image, "PNG")
+    image.seek(0)
+    picture = slide.shapes.add_picture(image, Inches(1), Inches(2), Inches(2), Inches(2))
+    picture.name = "Chart image"
+    picture._element.xpath("./p:nvPicPr/p:cNvPr")[0].attrib.pop("descr", None)
+    deck.save(source)
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        project = call(core, "project.create", {"name": "Alt text", "privacy_mode": "local_only"})[
+            "project"
+        ]["id"]
+        document = _import_presentation(core, project, source)["id"]
+        revision = _open(core, project, document)["revision_id"]
+        scope = {"project_id": project, "document_id": document}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": revision, "slide_number": 1},
+        )
+        target = next(o for o in inventory["objects"] if o["name"] == "Chart image")
+        captured: list[dict[str, Any]] = []
+
+        def modify(output: dict[str, Any], invocation: Any) -> None:
+            snapshot = json.loads(invocation.request.current_slide_summary)
+            captured.append(snapshot["presentation_edit_snapshot"]["slides"][0])
+            output["operations"] = [
+                {
+                    "type": "set_alt_text",
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "object_id": target["object_id"],
+                        "alt_text": "Revenue rose 12% during the pilot",
+                        "decorative": False,
+                    },
+                    "rationale": "Describe the chart for screen readers",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(
+            core,
+            "presentation.workspace.propose_edit_plan",
+            {
+                **scope,
+                "expected_revision_id": revision,
+                "instruction": "Add alt text to the chart.",
+                "slide_numbers": [1],
+            },
+        )
+        flagged = [o for o in captured[0]["objects"] if o.get("alt_text_missing")]
+        assert [o["object_id"] for o in flagged] == [target["object_id"]]
+        bound = proposal["operations"][0]["params"]
+        assert (bound["expected_alt_text"], bound["expected_decorative"]) == ("", False)
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        after = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": result["revision_id"], "slide_number": 1},
+        )
+        described = next(o for o in after["objects"] if o["name"] == "Chart image")
+        assert described["alt_text"] == "Revenue rose 12% during the pilot"
+    finally:
+        core.close()

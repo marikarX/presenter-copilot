@@ -213,6 +213,11 @@ Commits this session:
   current revision. Corpus (33 decks, 701 slides): 688 pictures, 159 groups,
   73 graphics and 2 charts without alt text; 227 slides without a title.
   `test-picture-adjust.mjs` 6/6.
+  Copilot plans can fix these too: the planning snapshot flags visual objects
+  with `alt_text_missing`, and `set_alt_text` (bound to the current alt text
+  and decorative flag) writes a description or marks an object decorative;
+  the prompt asks for descriptions only from supplied chart data and text,
+  never invented picture content.
 - Grouping and graphic-frame moves no longer treat PowerPoint's per-object
   identity (`a16:creationId`) or decorative extensions as unsupported
   content: group-eligible objects across the corpus went from 573 to 1135 of

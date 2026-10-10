@@ -82,6 +82,7 @@ const labels: Record<string, string> = {
   set_slide_hidden: "Hide or show a slide in the slide show",
   set_slide_transition: "Change the slide transition",
   set_slide_animations: "Change the slide animations",
+  set_alt_text: "Change the alt text",
   set_theme_fonts: "Change the theme fonts",
   set_theme_colors: "Change the theme colors",
   set_slide_sections: "Change the slide sections",
