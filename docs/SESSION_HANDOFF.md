@@ -133,7 +133,9 @@ Commits this session:
 - Real-deck acceptance of the edits above (`.local/session2/corpus_new_edits.py`,
   33 corpus decks, edits chained on one revision series per deck): rotate 33,
   move an already-rotated object 13, picture adjustment 18, underline + font
-  32, text link 32, slide background 31, deck-wide replace 31; no edit errors.
+  32, text link 32, slide background 31, deck-wide replace 31, slide
+  transition 26 (7 decks use read-only alternate-content effects), hide slide
+  32; no edit errors.
   All 28 decks eligible for the PowerPoint gate open with the expected slide
   count; the other 5 are blocked before any edit by pre-existing active or
   external content. The run found and fixed two bugs: find/replace and links
