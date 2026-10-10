@@ -196,6 +196,9 @@
             "presentation.workspace.list_project_pictures",
             "presentation.workspace.read_project_picture",
             "presentation.workspace.delete_project_picture",
+            "presentation.workspace.save_component",
+            "presentation.workspace.list_components",
+            "presentation.workspace.delete_component",
             "presentation.workspace.list_picture_assets",
             "presentation.workspace.read_picture_asset",
             "presentation.workspace.change_object_layer",
@@ -325,7 +328,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 23
+          "project_schema_version": 24
         }
       }
     },
@@ -487,6 +490,9 @@
             "presentation.workspace.list_project_pictures",
             "presentation.workspace.read_project_picture",
             "presentation.workspace.delete_project_picture",
+            "presentation.workspace.save_component",
+            "presentation.workspace.list_components",
+            "presentation.workspace.delete_component",
             "presentation.workspace.list_picture_assets",
             "presentation.workspace.read_picture_asset",
             "presentation.workspace.change_object_layer",
@@ -605,7 +611,7 @@
         "migration_status": "ready",
         "storage": {
           "app_schema_version": 2,
-          "project_schema_version": 23
+          "project_schema_version": 24
         }
       }
     },

@@ -10,7 +10,7 @@ from pathlib import Path
 from presenter_core.errors import CoreDomainError
 
 APP_SCHEMA_VERSION = 2
-PROJECT_SCHEMA_VERSION = 23
+PROJECT_SCHEMA_VERSION = 24
 
 Migration = tuple[int, Callable[[sqlite3.Connection], None]]
 
@@ -1370,6 +1370,29 @@ def _migrate_project_v23(connection: sqlite3.Connection) -> None:
     connection.execute("UPDATE project SET schema_version = ?", (23,))
 
 
+def _migrate_project_v24(connection: sqlite3.Connection) -> None:
+    """Named, reusable object selections that reference an immutable revision."""
+    connection.execute("""
+        CREATE TABLE presentation_components (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+            presentation_id TEXT NOT NULL REFERENCES presentations(id) ON DELETE CASCADE,
+            revision_id TEXT NOT NULL,
+            slide_id TEXT NOT NULL,
+            object_ids_json TEXT NOT NULL CHECK (length(object_ids_json) BETWEEN 2 AND 4096),
+            names_json TEXT NOT NULL CHECK (length(names_json) BETWEEN 2 AND 65536),
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (revision_id, presentation_id)
+                REFERENCES presentation_revisions(id, presentation_id)
+        )
+    """)
+    connection.execute(
+        "CREATE INDEX presentation_components_created_idx "
+        "ON presentation_components (created_at DESC, id DESC)"
+    )
+    connection.execute("UPDATE project SET schema_version = ?", (24,))
+
+
 def connect_app_database(path: str | Path) -> sqlite3.Connection:
     """Migrate and open an app database with foreign keys enabled."""
     database_path = Path(path)
@@ -1418,6 +1441,7 @@ def connect_project_database(path: str | Path) -> sqlite3.Connection:
             (21, _migrate_project_v21),
             (22, _migrate_project_v22),
             (23, _migrate_project_v23),
+            (24, _migrate_project_v24),
         ),
         latest_version=PROJECT_SCHEMA_VERSION,
     )

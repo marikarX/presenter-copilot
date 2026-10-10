@@ -35,6 +35,7 @@ def test_populated_schema21_upgrade_preserves_reviews_audits_recording_and_nativ
         "presentation_rehearsal_reviews",
     )
     with sqlite3.connect(paths.database) as db:
+        db.execute("DROP TABLE presentation_components")
         db.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
         db.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         db.execute("DROP TABLE presentation_rehearsal_objection_findings")
@@ -47,8 +48,8 @@ def test_populated_schema21_upgrade_preserves_reviews_audits_recording_and_nativ
         }
     migrated = connect_project_database(paths.database)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
-        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 23
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 24
         for table in tables:
             assert [
                 tuple(r) for r in migrated.execute(f"SELECT * FROM {table} ORDER BY rowid")

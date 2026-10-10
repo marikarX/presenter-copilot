@@ -103,7 +103,7 @@ def test_core_hello_exposes_implemented_capabilities(tmp_path: Path) -> None:
         "debrief.deterministic-local",
     ]
     assert result["migration_status"] == "ready"
-    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 23}
+    assert result["storage"] == {"app_schema_version": 2, "project_schema_version": 24}
 
 
 def test_core_health_is_successful(tmp_path: Path) -> None:

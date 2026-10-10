@@ -444,6 +444,7 @@ def test_project_v7_migration_backfills_original_presentation_revision(tmp_path:
             connection.execute("ALTER TABLE sessions DROP COLUMN presentation_revision_id")
             connection.execute("DROP INDEX source_units_presentation_revision_idx")
             connection.execute("ALTER TABLE source_units DROP COLUMN presentation_revision_id")
+            connection.execute("DROP TABLE presentation_components")
             connection.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
             connection.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
             connection.execute("DROP TABLE presentation_rehearsal_objection_findings")

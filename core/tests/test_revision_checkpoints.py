@@ -165,6 +165,7 @@ def test_v18_checkpoint_migration_preserves_existing_rows(tmp_path: Path):
     latest.commit()
     latest.close()
     with sqlite3.connect(target) as old:
+        old.execute("DROP TABLE presentation_components")
         old.execute("DROP TABLE presentation_rehearsal_objection_comparison_candidates")
         old.execute("DROP TABLE presentation_rehearsal_objection_comparisons")
         old.execute("DROP TABLE presentation_rehearsal_objection_findings")
@@ -174,7 +175,7 @@ def test_v18_checkpoint_migration_preserves_existing_rows(tmp_path: Path):
         old.execute("PRAGMA user_version = 18")
     migrated = connect_project_database(target)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 24
         assert migrated.execute("SELECT value FROM sentinel").fetchone()[0] == "preserved"
         assert (
             migrated.execute("SELECT COUNT(*) FROM presentation_revision_checkpoints").fetchone()[0]

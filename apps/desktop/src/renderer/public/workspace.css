@@ -2655,3 +2655,42 @@ h1 {
 .pw-accessibility-list li {
   flex-wrap: wrap;
 }
+.pw-component-library {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.pw-component-library legend {
+  padding: 0 5px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.pw-component-library p {
+  margin: 0;
+}
+.pw-component-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.pw-component-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pw-component-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.pw-component-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

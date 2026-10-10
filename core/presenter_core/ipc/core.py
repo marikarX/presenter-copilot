@@ -135,6 +135,11 @@ class CoreService:
         self._project_picture_assets = ProjectPictureAssetService(
             self._storage, self._presentation_edits
         )
+        from presenter_core.presentation.components import PresentationComponentService
+
+        self._presentation_components = PresentationComponentService(
+            self._storage, self._presentation_edits
+        )
         self._presentation_edit_plans = PresentationEditPlanService(
             self._storage, self._presentation_edits, self._presentation_workspace_sources
         )
@@ -1141,6 +1146,18 @@ class CoreService:
         if method == "presentation.workspace.delete_project_picture":
             return make_response(
                 request_id, result=self._project_picture_assets.delete_picture(params)
+            )
+        if method == "presentation.workspace.save_component":
+            return make_response(
+                request_id, result=self._presentation_components.save_component(params)
+            )
+        if method == "presentation.workspace.list_components":
+            return make_response(
+                request_id, result=self._presentation_components.list_components(params)
+            )
+        if method == "presentation.workspace.delete_component":
+            return make_response(
+                request_id, result=self._presentation_components.delete_component(params)
             )
         if method == "presentation.workspace.list_picture_assets":
             return make_response(

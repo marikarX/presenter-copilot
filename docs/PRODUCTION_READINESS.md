@@ -204,6 +204,15 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Reusable components (project schema 24, `presentation_components`):
+  `presentation.workspace.save_component` stores a named selection of 1-20
+  top-level objects that pass the paste checks, as a reference to one slide
+  of an immutable revision; `list_components` / `delete_component` manage the
+  library (200 per project). The "Components" panel in the Objects inspector
+  saves the current selection and inserts a component on the active slide of
+  any deck in the project through the existing paste review, so the insert
+  still works after the original objects are edited or deleted.
+  `test_components.py`; `test-components.mjs` 3/3.
 - Click actions on shapes, pictures and groups
   (`presentation.workspace.set_click_action`, "Click action" in the Objects
   panel): nothing, open a web link (http/https/mailto only), go to a slide,

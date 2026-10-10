@@ -48,6 +48,11 @@ import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
+import {
+  ComponentLibrary,
+  type ComponentSelection,
+  type PresentationComponent,
+} from "./ComponentLibrary";
 import { ClickActionEditor, type ClickAction } from "./ClickActionEditor";
 import {
   AccessibilityCheck,
@@ -6715,6 +6720,61 @@ export function PresentationWorkspace({
       `Copied ${objects.length} objects from revision ${currentRevision.revision_number}. Navigate to a destination slide and paste.`,
     );
   };
+  const componentSelection: ComponentSelection | string = (() => {
+    if (
+      !currentRevision ||
+      !selectedSource ||
+      loadedSourceId !== selectedSource.id
+    )
+      return "Open a presentation to save components.";
+    const ids =
+      canvasSelectionEnabled && canvasSelectedIds.length
+        ? canvasSelectedIds
+        : selectedObject
+          ? [selectedObject.object_id]
+          : [];
+    const objects = workspaceObjects.filter((o) => ids.includes(o.object_id));
+    if (!objects.length) return "Select objects on the slide to save them.";
+    if (
+      objects.length !== ids.length ||
+      objects.length > 20 ||
+      objects.some(
+        (o) =>
+          o.group_child ||
+          !o.delete_editable ||
+          !o.geometry_editable ||
+          !o.geometry,
+      )
+    )
+      return "Select 1–20 supported objects without placeholder, connector or animation dependencies.";
+    return {
+      document_id: selectedSource.id,
+      revision_id: currentRevision.revision_id,
+      slide_id: activeSlideId,
+      object_ids: objects.map((o) => o.object_id),
+      names: objects.map((o) => o.name),
+    };
+  })();
+  const insertComponent = (component: PresentationComponent) => {
+    if (
+      loading ||
+      voiceWorkflowActive ||
+      !currentRevision ||
+      !selectedSource ||
+      loadedSourceId !== selectedSource.id ||
+      !UUID_PATTERN.test(activeSlideId)
+    )
+      return;
+    setInspectorPanel("objects");
+    setPendingObjectPaste({
+      names: component.names,
+      source_document_id: component.document_id,
+      source_revision_id: component.revision_id,
+      source_slide_id: component.slide_id,
+      object_ids: component.object_ids,
+      slide_id: activeSlideId,
+    });
+  };
   const pasteWorkspaceObjects = () => {
     if (
       !objectClipboard ||
@@ -11601,6 +11661,22 @@ export function PresentationWorkspace({
                   <p className="muted">Open a slide to inspect its objects.</p>
                 )}
               </section>
+              <ComponentLibrary
+                projectId={project.id}
+                selection={componentSelection}
+                sourceNames={Object.fromEntries(
+                  sources.map((item) => [item.id, item.original_name]),
+                )}
+                canInsert={
+                  !!currentRevision &&
+                  !!selectedSource &&
+                  loadedSourceId === selectedSource.id &&
+                  UUID_PATTERN.test(activeSlideId)
+                }
+                disabled={loading || voiceWorkflowActive}
+                request={requestCore}
+                onInsert={insertComponent}
+              />
             </div>
             <div
               id="pw-panel-notes"

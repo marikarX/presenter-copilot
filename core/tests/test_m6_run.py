@@ -545,8 +545,8 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
             ]
     assert connection is not None
     migrated = connect_project_database(path)
-    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 23
-    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 23
+    assert migrated.execute("PRAGMA user_version").fetchone()[0] == PROJECT_SCHEMA_VERSION == 24
+    assert migrated.execute("SELECT schema_version FROM project").fetchone()[0] == 24
     tables = {
         row[0]
         for row in migrated.execute(
@@ -579,6 +579,7 @@ def test_project_v6_migration_and_future_rejection_preserve_existing_rows(tmp_pa
         "presentation_rehearsal_objection_findings",
         "presentation_rehearsal_objection_analyses",
         "presentation_rehearsal_analyses",
+        "presentation_components",
     }
     for table, rows in before_rows.items():
         after_rows = [
