@@ -2618,3 +2618,25 @@ h1 {
 .pw-slide-drop-target > button {
   box-shadow: inset 0 3px 0 var(--accent, #3b5bdb);
 }
+
+.pw-accessibility-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.pw-accessibility-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pw-accessibility-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

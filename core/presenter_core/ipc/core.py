@@ -935,6 +935,10 @@ class CoreService:
             result = self._presentation_edits.set_text_hyperlink(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.check_accessibility":
+            return make_response(
+                request_id, result=self._presentation_edits.check_accessibility(params)
+            )
         if method == "presentation.workspace.set_alt_text":
             result = self._presentation_edits.set_alt_text(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

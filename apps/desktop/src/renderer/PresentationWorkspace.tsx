@@ -49,6 +49,12 @@ import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
 import {
+  AccessibilityCheck,
+  isAccessibilityResult,
+  type AccessibilityIssue,
+  type AccessibilityResult,
+} from "./AccessibilityCheck";
+import {
   SlideSections,
   isSlideSectionState,
   type SlideSectionDraft,
@@ -1439,6 +1445,8 @@ export function PresentationWorkspace({
   } | null>(null);
   const [slideAnimations, setSlideAnimations] =
     useState<SlideAnimationState | null>(null);
+  const [accessibility, setAccessibility] =
+    useState<AccessibilityResult | null>(null);
   const [slideSections, setSlideSections] = useState<SlideSectionState | null>(
     null,
   );
@@ -4850,6 +4858,42 @@ export function PresentationWorkspace({
     }
     return starts;
   }, [currentRevision?.revision_id, slideSections]);
+
+  const checkAccessibility = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (!source || !revision || loadedSourceId !== source.id || loading) return;
+    setError(null);
+    try {
+      const result = await requestCore<unknown>(
+        "presentation.workspace.check_accessibility",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          revision_id: revision.revision_id,
+        },
+      );
+      if (!isAccessibilityResult(result))
+        throw new Error(
+          "The accessibility check returned an unexpected result.",
+        );
+      setAccessibility(result);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The accessibility check could not run.",
+      );
+    }
+  }, [currentRevision, loadedSourceId, loading, project.id, selectedSource]);
+
+  const goToAccessibilityIssue = useCallback(
+    (issue: AccessibilityIssue) => {
+      if (issue.object_id) setInspectorPanel("objects");
+      void loadPresentation(issue.slide_number, issue.object_id ?? undefined);
+    },
+    [loadPresentation],
+  );
 
   const saveAltText = useCallback(
     async (text: string, decorative: boolean) => {
@@ -8287,6 +8331,15 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                <AccessibilityCheck
+                  result={accessibility}
+                  current={
+                    accessibility?.revision_id === currentRevision?.revision_id
+                  }
+                  disabled={loading || !currentRevision || !loadedSourceId}
+                  onCheck={() => void checkAccessibility()}
+                  onGo={goToAccessibilityIssue}
+                />
                 {slideSections &&
                 slideSections.revision_id === currentRevision?.revision_id ? (
                   <SlideSections

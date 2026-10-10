@@ -204,6 +204,15 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Accessibility check (`presentation.workspace.check_accessibility`,
+  "Accessibility" in slide actions): lists pictures, charts, other graphics
+  and top-level groups without alt text (decorative objects and tables
+  excluded) and slides without a title, PowerPoint Accessibility Checker's two
+  most common errors; "Go to" opens the slide and selects the object for the
+  Alt text controls. Runs on demand and notes when results predate the
+  current revision. Corpus (33 decks, 701 slides): 688 pictures, 159 groups,
+  73 graphics and 2 charts without alt text; 227 slides without a title.
+  `test-picture-adjust.mjs` 6/6.
 - Grouping and graphic-frame moves no longer treat PowerPoint's per-object
   identity (`a16:creationId`) or decorative extensions as unsupported
   content: group-eligible objects across the corpus went from 573 to 1135 of
@@ -627,7 +636,7 @@ Next: remaining preview fidelity gaps (3D perspective/bevel SmartArt,
 sub-pixel line pitch, glyph rasterization), further Workspace authoring as needed (this session also added theme colors, entrance animations, sections, alt text, Copilot deck-wide plans, and lifted extension/placeholder limits on tables, text fit, grouping and placeholder geometry), and the
 human-gated items above. Corpus mean slide RGB MAE this session went from
 3.170% to 2.845% (median 2.714% -> 2.479%) on the same 563 slides; real-deck
-edit acceptance passes on all 33 decks. Last full check 2020 Core + 327
+edit acceptance passes on all 33 decks. Last full check 2021 Core + 329
 renderer tests; Workspace GUI 117/117; focused harnesses all pass. Signing
 and clean Windows validation remain accepted debt.
 

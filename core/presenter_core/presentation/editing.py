@@ -2171,6 +2171,11 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def check_accessibility(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.accessibility import check_accessibility
+
+        return check_accessibility(self, params)
+
     def set_alt_text(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.alt_text import set_alt_text
 

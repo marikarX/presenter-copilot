@@ -239,6 +239,38 @@ try {
   checks.push(
     "GUI writes alt text, then marks the picture decorative, as native revisions",
   );
+
+  await page.getByText("Slide actions & layout", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Check accessibility", exact: true })
+    .click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "0 missing alt text · 1 slides without a title" })
+    .waitFor();
+  await page.getByLabel("Mark as decorative", { exact: true }).uncheck();
+  await altApply.click();
+  await workspace.getByText("Current · Revision 6", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Check again", exact: true }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "1 missing alt text · 1 slides without a title" })
+    .waitFor();
+  await page
+    .getByRole("button", {
+      name: "Go to Adjust target on slide 1",
+      exact: true,
+    })
+    .click();
+  await page.waitForFunction(
+    (id) =>
+      document.querySelector('select[aria-label="Object to edit"]')?.value ===
+      id,
+    initial.object_id,
+  );
+  checks.push(
+    "Accessibility check lists the undescribed picture and untitled slide, and Go to selects the picture",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),
