@@ -155,6 +155,9 @@ Commits this session:
   verbatim), no edit errors, all 28 PowerPoint-eligible decks open. Read-only
   slides found: by-paragraph text or triggers 33, part-by-part builds 15,
   emphasis/exit/motion 10, audio/video playback 5.
+  Copilot edit plans can propose `set_slide_animations`: the planning
+  snapshot lists each editable slide's sequence (`animations_editable`,
+  `animations`), and Core binds the timing fingerprint before review.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null

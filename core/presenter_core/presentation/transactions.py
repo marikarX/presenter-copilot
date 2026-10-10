@@ -31,6 +31,7 @@ PLAN_OPERATIONS = frozenset(
         "set_slide_background",
         "set_slide_hidden",
         "set_slide_transition",
+        "set_slide_animations",
         "set_text_hyperlink",
         "replace_picture_image",
         "reorder_slides",

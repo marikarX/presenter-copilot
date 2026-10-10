@@ -224,6 +224,11 @@ def _state(root: etree._Element, objects: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def slide_animation_state(root: etree._Element, slide: Any) -> dict[str, Any]:
+    """The animation state of one parsed slide part, as get_slide_animations reports it."""
+    return _state(root, {obj.ooxml_id: obj for obj in slide.objects})
+
+
 def _element(tag: str, parent: etree._Element | None = None, **attributes: str) -> etree._Element:
     if parent is None:
         return etree.Element(f"{P}{tag}", **attributes)

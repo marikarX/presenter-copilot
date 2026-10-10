@@ -1186,3 +1186,85 @@ def test_planning_snapshot_is_compact_and_uses_schema_units(tmp_path: Path) -> N
         assert rotated and all("rotation_degrees" in item or item == {} for item in rotated)
     finally:
         core.close()
+
+
+def test_provider_animations_see_sequence_bind_fingerprint_and_apply(tmp_path: Path) -> None:
+    provider = PlanProvider(locality="local")
+    core = CoreService(
+        data_root=tmp_path / "data",
+        reasoning_provider=provider,
+        embedding_adapter=DeterministicEmbeddingAdapter(dimension=2),
+    )
+    try:
+        params = context(core)
+        scope = {key: params[key] for key in ("project_id", "document_id")}
+        inventory = call(
+            core,
+            "presentation.workspace.list_text_targets",
+            {**scope, "revision_id": params["expected_revision_id"], "slide_number": 1},
+        )
+        targets = [obj["object_id"] for obj in inventory["objects"]][:2]
+        captured: list[dict[str, Any]] = []
+
+        def modify(output: dict[str, Any], invocation: Any) -> None:
+            snapshot = json.loads(invocation.request.current_slide_summary)
+            captured.append(snapshot["presentation_edit_snapshot"]["slides"][0])
+            output["operations"] = [
+                {
+                    "type": "set_slide_animations",
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "effects": [
+                            {"object_id": targets[0], "effect": "fade", "start": "on_click"},
+                            {"object_id": targets[1], "effect": "wipe", "start": "after_previous"},
+                        ],
+                    },
+                    "rationale": "Reveal the decision before its detail",
+                    "evidence_ids": [],
+                }
+            ]
+
+        provider.modifier = modify
+        proposal = call(core, "presentation.workspace.propose_edit_plan", params)
+        assert captured[0]["animations_editable"] is True
+        assert captured[0]["animations"] == []
+        state = call(
+            core,
+            "presentation.workspace.get_slide_animations",
+            {
+                **scope,
+                "expected_revision_id": params["expected_revision_id"],
+                "slide_id": inventory["slide_id"],
+            },
+        )
+        assert proposal["operations"][0]["params"]["expected_fingerprint"] == state["fingerprint"]
+        call(
+            core,
+            "presentation.workspace.open_edit_plan_preview",
+            {**scope, "plan_id": proposal["plan_id"]},
+        )
+        result = call(
+            core,
+            "presentation.workspace.apply_edit_plan",
+            {
+                **scope,
+                "plan_id": proposal["plan_id"],
+                "confirm": True,
+                "reviewed_sha256": proposal["sha256"],
+            },
+        )
+        after = call(
+            core,
+            "presentation.workspace.get_slide_animations",
+            {
+                **scope,
+                "expected_revision_id": result["revision_id"],
+                "slide_id": inventory["slide_id"],
+            },
+        )
+        assert [(e["object_id"], e["effect"], e["start"]) for e in after["effects"]] == [
+            (targets[0], "fade", "on_click"),
+            (targets[1], "wipe", "after_previous"),
+        ]
+    finally:
+        core.close()

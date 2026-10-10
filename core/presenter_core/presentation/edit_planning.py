@@ -131,6 +131,9 @@ class PresentationEditPlanningService:
         data_context = self._data_context(
             self._edits, project_id, document_id, revision_id, selected
         )
+        animation_context = self._animation_context(
+            self._edits, project_id, document_id, revision_id, selected
+        )
         snapshot = {
             "slide_width_emu": baseline.slide_width_emu,
             "slide_height_emu": baseline.slide_height_emu,
@@ -139,6 +142,7 @@ class PresentationEditPlanningService:
             "slides": [
                 {
                     **self._slide_context(slide),
+                    **_animations(animation_context[slide.slide_id]),
                     "diagrams": [
                         {k: v for k, v in item.items() if k != "fingerprint"}
                         for item in diagram_context.get(slide.slide_id, [])
@@ -509,6 +513,34 @@ class PresentationEditPlanningService:
                 result[slide.slide_id] = items
         return result
 
+    def _animation_context(
+        self,
+        editor: PresentationEditService,
+        project: str,
+        document: str,
+        revision: str,
+        slides: list[Any],
+    ) -> dict[str, dict[str, Any]]:
+        from presenter_core.presentation.editing import _verified_source_archive
+        from presenter_core.presentation.fidelity import _parse_xml_part
+        from presenter_core.presentation.slide_animations import slide_animation_state
+
+        source = editor._current_revision_source(project, document)
+        if source["revision_id"] != revision:
+            raise editor._revision_conflict()
+        path = self._storage.paths.snapshot_path(
+            project, source["local_snapshot_path"], require_exists=True
+        )
+        with _verified_source_archive(
+            path, expected_sha256=source["sha256"], expected_byte_size=source["byte_size"]
+        ) as archive:
+            return {
+                slide.slide_id: slide_animation_state(
+                    _parse_xml_part(archive, archive.getinfo(slide.part_name)), slide
+                )
+                for slide in slides
+            }
+
     def _data_context(
         self,
         editor: PresentationEditService,
@@ -674,6 +706,11 @@ class PresentationEditPlanningService:
             params["expected_transition"] = slide.transition
         if kind == "set_slide_hidden":
             params["expected_hidden"] = slide.hidden
+        if kind == "set_slide_animations":
+            animations = self._animation_context(editor, project, document, revision, [slide])
+            if not animations[slide.slide_id]["editable"]:
+                raise invalid_request("The proposed slide animations are not editable.")
+            params["expected_fingerprint"] = animations[slide.slide_id]["fingerprint"]
         if kind == "set_slide_background":
             if slide.background is None:
                 raise invalid_request("The proposed slide background is not editable.")
@@ -969,6 +1006,19 @@ class PresentationEditPlanningService:
                     "grayscale": obj.picture_adjustment.grayscale,
                 }
         return params
+
+
+def _animations(state: dict[str, Any]) -> dict[str, Any]:
+    """Planning view of a slide's entrance sequence; absent means read-only."""
+    if not state["editable"]:
+        return {}
+    return {
+        "animations_editable": True,
+        "animations": [
+            {key: effect[key] for key in ("object_id", "effect", "start")}
+            for effect in state["effects"]
+        ],
+    }
 
 
 def _compact(value: Any, *, drop_false: bool = False) -> Any:

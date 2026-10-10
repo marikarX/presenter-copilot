@@ -222,6 +222,22 @@ PARAMETER_SCHEMAS = {
         }
     ),
     "set_slide_hidden": _object({"slide_id": _ID, "hidden": {"type": "boolean"}}),
+    "set_slide_animations": _object(
+        {
+            "slide_id": _ID,
+            "effects": {
+                "type": "array",
+                "maxItems": 50,
+                "items": _object(
+                    {
+                        "object_id": _ID,
+                        "effect": _choice("appear", "fade", "fly_in", "wipe", "zoom", "custom"),
+                        "start": _choice("on_click", "with_previous", "after_previous"),
+                    }
+                ),
+            },
+        }
+    ),
     "set_slide_transition": _object(
         {"slide_id": _ID, "transition": _choice("none", "fade", "push", "wipe", "split", "cut")}
     ),
