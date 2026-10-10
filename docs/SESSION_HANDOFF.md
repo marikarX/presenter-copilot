@@ -496,6 +496,14 @@ Fast Decisions live local acceptance (2026-10-09):
   `accept-fast-decisions-local.mjs` 2/2 live GUI suggestions correct and saved
   after review (556-1319 ms provider latency); `decision_acceptance` 8/10
   correct, 10/10 valid structured responses, median 821 ms, p95 2103 ms.
+- Re-verified again 2026-10-10 after this session's later Core and GUI
+  changes, against the user's running LM Studio app server (model
+  `qwen3.8-4b-distill`, `127.0.0.1:1234`): `accept-fast-decisions-local.mjs`
+  returned live suggestions for both slides (1942-2123 ms provider latency,
+  2.4-3.3 s GUI round trip), saved only after review; one of the two matched
+  the expected purpose (the Agenda slide again came back "recommendation").
+  `decision_acceptance`: 9/10 correct, 10/10 valid structured responses,
+  median 1148 ms, p95 3887 ms. Synthetic smoke only; no quality claim.
 - Bug found and fixed: saving the local reasoning provider did not refresh
   Fast Decisions status, so the panel kept showing the local model as "not
   configured" and Save stayed disabled until Settings was reopened.
