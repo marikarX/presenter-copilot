@@ -538,8 +538,14 @@ Gate decisions (2026-10-09, by the user):
 
 Remaining human-gated items:
 
-- Rerun `PRESENTER_CHATGPT_LIVE_ACCEPTANCE=1 pnpm accept:chatgpt-live`
-  against the signed release candidate.
+- Sign in with ChatGPT live acceptance re-run 2026-10-10 against the current
+  (unsigned dev) build with the user's account: all 7 steps passed
+  (first-time consent in 21 s, returning sign-in after restart, 3 models
+  listed, disclosures visible, one synthetic finite-choice decision in
+  2.8 s round trip with `requires_user_review` and no confidence, catalog
+  refresh, sign-out with remote revocation confirmed). Token-free receipt in
+  `.local/chatgpt-live/`. Re-run once more on the signed release candidate
+  (signing remains accepted debt).
 - Optional: a human-labeled set for a stronger calibration claim. Live
   local integration is now exercised (see above); rerun with
   `PRESENTER_DECISION_LIVE_MODEL=<id> node apps/desktop/scripts/accept-fast-decisions-local.mjs`
