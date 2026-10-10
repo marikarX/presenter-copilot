@@ -168,6 +168,29 @@ try {
   await workspace.getByText("Current · Revision 1", { exact: true }).waitFor();
   assert.equal((await footers()).slide_numbers, "none");
   checks.push("Undo removes the slide numbers and footers");
+  await page.getByLabel("Theme heading font", { exact: true }).fill("Georgia");
+  await page.getByLabel("Theme body font", { exact: true }).fill("Segoe UI");
+  await page
+    .getByRole("button", { name: "Apply theme fonts", exact: true })
+    .click();
+  await workspace.getByText("Current · Revision 3", { exact: true }).waitFor();
+  const fonts = await ask("presentation.workspace.get_theme_fonts", {
+    project_id: project,
+    document_id: document,
+    expected_revision_id: (
+      await ask("presentation.workspace.list_revisions", {
+        project_id: project,
+        document_id: document,
+      })
+    ).current_revision_id,
+  });
+  assert.deepEqual(
+    [fonts.heading_font, fonts.body_font],
+    ["Georgia", "Segoe UI"],
+  );
+  checks.push(
+    "GUI changes the theme heading and body fonts as one native revision",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

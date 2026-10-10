@@ -1383,6 +1383,15 @@ export function PresentationWorkspace({
   const [linkDraft, setLinkDraft] = useState({ objectId: "", value: "" });
   const [slideHidden, setSlideHidden] = useState<boolean | null>(null);
   const [footerState, setFooterState] = useState<SlideFooterState | null>(null);
+  const [themeFonts, setThemeFonts] = useState<{
+    heading_font: string | null;
+    body_font: string | null;
+    editable: boolean;
+  } | null>(null);
+  const [themeFontDraft, setThemeFontDraft] = useState({
+    heading: "",
+    body: "",
+  });
   const [footerDraft, setFooterDraft] = useState({
     numbers: false,
     text: "",
@@ -4680,6 +4689,110 @@ export function PresentationWorkspace({
     };
   }, [currentRevision, loadedSourceId, project.id, selectedSource]);
 
+  useEffect(() => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (!source || !revision || loadedSourceId !== source.id) {
+      setThemeFonts(null);
+      return;
+    }
+    let cancelled = false;
+    void requestCore<{
+      heading_font: string | null;
+      body_font: string | null;
+      editable: boolean;
+    }>("presentation.workspace.get_theme_fonts", {
+      project_id: project.id,
+      document_id: source.id,
+      expected_revision_id: revision.revision_id,
+    })
+      .then((state) => {
+        if (cancelled || typeof state?.editable !== "boolean") return;
+        setThemeFonts(state);
+        setThemeFontDraft({
+          heading: state.heading_font ?? "",
+          body: state.body_font ?? "",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setThemeFonts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRevision, loadedSourceId, project.id, selectedSource]);
+
+  const saveThemeFonts = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const state = themeFonts;
+    if (!source || !revision || !state?.editable || loading) return;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.set_theme_fonts",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          expected_heading_font: state.heading_font,
+          expected_body_font: state.body_font,
+          heading_font: themeFontDraft.heading.trim(),
+          body_font: themeFontDraft.body.trim(),
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id)
+      ) {
+        throw new Error("The theme font revision could not be verified.");
+      }
+      if (!result.changed) {
+        setNotice("The theme fonts are unchanged.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, selectedObjectId || undefined);
+      setNotice(
+        `Saved revision ${result.revision_number} with the new theme fonts.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The theme fonts could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    currentRevision,
+    loadPresentation,
+    loading,
+    project.id,
+    selectedObjectId,
+    selectedSlide,
+    selectedSource,
+    themeFontDraft,
+    themeFonts,
+  ]);
+
   const saveSlideFooters = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
@@ -7617,6 +7730,63 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                {themeFonts?.editable ? (
+                  <fieldset className="pw-picture-crop">
+                    <legend>Theme fonts</legend>
+                    <p className="muted">
+                      Text that uses the theme fonts changes across the whole
+                      deck; text with its own font keeps it.
+                    </p>
+                    <label>
+                      Heading font
+                      <input
+                        type="text"
+                        list="pw-font-family-suggestions"
+                        maxLength={31}
+                        aria-label="Theme heading font"
+                        value={themeFontDraft.heading}
+                        onChange={(event) =>
+                          setThemeFontDraft((current) => ({
+                            ...current,
+                            heading: event.target.value,
+                          }))
+                        }
+                        disabled={loading}
+                      />
+                    </label>
+                    <label>
+                      Body font
+                      <input
+                        type="text"
+                        list="pw-font-family-suggestions"
+                        maxLength={31}
+                        aria-label="Theme body font"
+                        value={themeFontDraft.body}
+                        onChange={(event) =>
+                          setThemeFontDraft((current) => ({
+                            ...current,
+                            body: event.target.value,
+                          }))
+                        }
+                        disabled={loading}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void saveThemeFonts()}
+                      disabled={
+                        loading ||
+                        !themeFontDraft.heading.trim() ||
+                        !themeFontDraft.body.trim() ||
+                        (themeFontDraft.heading === themeFonts.heading_font &&
+                          themeFontDraft.body === themeFonts.body_font)
+                      }
+                    >
+                      Apply theme fonts
+                    </button>
+                  </fieldset>
+                ) : null}
                 {footerState ? (
                   <fieldset className="pw-picture-crop">
                     <legend>Slide numbers &amp; footer</legend>

@@ -2146,6 +2146,16 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def get_theme_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.theme_fonts import get_theme_fonts
+
+        return get_theme_fonts(self, params)
+
+    def set_theme_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.theme_fonts import set_theme_fonts
+
+        return set_theme_fonts(self, params)
+
     def get_slide_footers(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_footers import get_slide_footers
 

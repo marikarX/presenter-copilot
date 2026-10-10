@@ -118,6 +118,12 @@ Commits this session:
   verified unchanged. PowerPoint's HeadersFooters API reports the number and
   footer on content slides and none on the title slide.
   `test-slide-footers.mjs` 3/3.
+- Theme fonts: deck-wide heading (major) and body (minor) Latin typefaces
+  across every slide master's theme (`presentation.workspace.get_theme_fonts`
+  / `set_theme_fonts`, "Theme fonts" in slide actions); text using the theme
+  fonts follows, explicit typefaces stay. PowerPoint reports the new theme
+  fonts and a theme-font title rendering in Georgia.
+  `test-slide-footers.mjs` 4/4.
 - Copilot planning snapshot compaction: the many capability fields added this
   session pushed a near-limit whole-deck request past the 48k context limit
   (caught by the Workspace GUI suite). Object and slide context now drop null
