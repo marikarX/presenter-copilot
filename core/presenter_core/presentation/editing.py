@@ -38,6 +38,7 @@ from presenter_core.presentation.fidelity import (
     _PARAGRAPH_BULLET_TYPE_NAMES,
     DRAWING_NS,
     EMU_PER_POINT,
+    LINE_END_TYPES,
     MAX_BULLET_SIZE_PERCENT,
     MAX_NUMBERING_START,
     MAX_SHAPE_LINE_WIDTH_PT,
@@ -567,7 +568,7 @@ class PresentationEditService:
                 "This shape outline uses a style the color editor cannot safely retain.",
             )
         if (
-            replacement_style.keys() & {"line_width_pt", "line_dash"}
+            replacement_style.keys() & {"line_width_pt", "line_dash", "line_start", "line_end"}
             and not style.line_format_editable
         ):
             raise CoreDomainError(
@@ -2035,8 +2036,8 @@ class PresentationEditService:
         )
         slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
         shape_type = params.get("shape_type")
-        if not isinstance(shape_type, str) or shape_type not in {"rect", "ellipse"}:
-            raise invalid_request("shape_type must be rect or ellipse.", field="shape_type")
+        if not isinstance(shape_type, str) or shape_type not in {"rect", "ellipse", "line"}:
+            raise invalid_request("shape_type must be rect, ellipse or line.", field="shape_type")
         geometry = self._geometry_field(params.get("geometry"), "geometry")
         style = self._shape_style_field(
             {
@@ -8003,7 +8004,7 @@ class PresentationEditService:
         for property_name in replacement_style:
             editable_field = (
                 "line_format_editable"
-                if property_name in {"line_width_pt", "line_dash"}
+                if property_name in {"line_width_pt", "line_dash", "line_start", "line_end"}
                 else "fill_editable"
                 if property_name == "fill_transparency_percent"
                 else "shadow_editable"
@@ -8060,6 +8061,8 @@ class PresentationEditService:
                     shape,
                     width_pt=replacement_style.get("line_width_pt"),
                     dash=replacement_style.get("line_dash"),
+                    start=replacement_style.get("line_start"),
+                    end=replacement_style.get("line_end"),
                 )
                 if "shape_geometry" in replacement_style:
                     geometry = shape.find(f"{{{PRESENTATION_NS}}}spPr/{{{DRAWING_NS}}}prstGeom")
@@ -8308,10 +8311,15 @@ class PresentationEditService:
 
     @staticmethod
     def _replace_shape_line_format(
-        shape: etree._Element, *, width_pt: float | None, dash: str | None
+        shape: etree._Element,
+        *,
+        width_pt: float | None,
+        dash: str | None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> None:
-        """Set outline width (ln@w) and preset dash, keeping the outline color."""
-        if width_pt is None and dash is None:
+        """Set outline width (ln@w), preset dash and arrowheads, keeping the color."""
+        if width_pt is None and dash is None and start is None and end is None:
             return
         shape_properties = shape.find(f"{{{PRESENTATION_NS}}}spPr")
         if shape_properties is None:
@@ -8349,6 +8357,25 @@ class PresentationEditService:
                 if child.tag in fills:
                     position = index + 1
             line.insert(position, preset)
+        for tag, kind in (("headEnd", start), ("tailEnd", end)):
+            if kind is None:
+                continue
+            for child in line.findall(f"{{{DRAWING_NS}}}{tag}"):
+                line.remove(child)
+            if kind == "none":
+                continue
+            arrow = etree.Element(f"{{{DRAWING_NS}}}{tag}", type=kind)
+            # Sequence: fill, dash, join, headEnd, tailEnd, extLst.
+            later = {"tailEnd", "extLst"} if tag == "headEnd" else {"extLst"}
+            position = next(
+                (
+                    index
+                    for index, child in enumerate(line)
+                    if etree.QName(child).localname in later
+                ),
+                len(line),
+            )
+            line.insert(position, arrow)
 
     @staticmethod
     def _insert_ordered_shape_property(
@@ -8688,9 +8715,9 @@ class PresentationEditService:
         replacement_style: dict[str, Any],
     ) -> str:
         """Add one simple direct-color shape without changing other package parts."""
-        if shape_type not in {"rect", "ellipse"}:
-            raise invalid_request("shape_type must be rect or ellipse.", field="shape_type")
-        expected_name = {"rect": "Rectangle", "ellipse": "Ellipse"}[shape_type]
+        if shape_type not in {"rect", "ellipse", "line"}:
+            raise invalid_request("shape_type must be rect, ellipse or line.", field="shape_type")
+        expected_name = {"rect": "Rectangle", "ellipse": "Ellipse", "line": "Line"}[shape_type]
         fill_color = replacement_style["fill_color"].removeprefix("#")
         line_color = replacement_style["line_color"].removeprefix("#")
 
@@ -8794,10 +8821,14 @@ class PresentationEditService:
                 preset = etree.SubElement(shape_properties, f"{{{DRAWING_NS}}}prstGeom")
                 preset.set("prst", shape_type)
                 etree.SubElement(preset, f"{{{DRAWING_NS}}}avLst")
-                fill = etree.SubElement(shape_properties, f"{{{DRAWING_NS}}}solidFill")
-                etree.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", val=fill_color)
+                if shape_type == "line":
+                    # A line has no interior; its outline is the line itself.
+                    etree.SubElement(shape_properties, f"{{{DRAWING_NS}}}noFill")
+                else:
+                    fill = etree.SubElement(shape_properties, f"{{{DRAWING_NS}}}solidFill")
+                    etree.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", val=fill_color)
                 line = etree.SubElement(shape_properties, f"{{{DRAWING_NS}}}ln")
-                line.set("w", "12700")
+                line.set("w", "19050" if shape_type == "line" else "12700")
                 line_fill = etree.SubElement(line, f"{{{DRAWING_NS}}}solidFill")
                 etree.SubElement(line_fill, f"{{{DRAWING_NS}}}srgbClr", val=line_color)
 
@@ -8893,7 +8924,7 @@ class PresentationEditService:
             or not new_object.delete_editable
             or new_style is None
             or not new_style.editable
-            or new_style.fill_color != f"#{fill_color}"
+            or new_style.fill_color != (None if shape_type == "line" else f"#{fill_color}")
             or new_style.line_color != f"#{line_color}"
             or new_object.object_id in {item.object_id for item in source_slide.objects}
             or revised_slide.objects[:-1] != source_slide.objects
@@ -9252,6 +9283,8 @@ class PresentationEditService:
             "line_color",
             "line_width_pt",
             "line_dash",
+            "line_start",
+            "line_end",
         }
         if not isinstance(value, dict):
             raise invalid_request("replacement_style must be an object.", field="replacement_style")
@@ -9297,6 +9330,14 @@ class PresentationEditService:
                     raise invalid_request(
                         "replacement_style.fill_transparency_percent must be 0 to 100.",
                         field="replacement_style.fill_transparency_percent",
+                    )
+                result[name] = color
+                continue
+            if name in {"line_start", "line_end"}:
+                if color not in LINE_END_TYPES:
+                    raise invalid_request(
+                        f"replacement_style.{name} must be a supported arrowhead.",
+                        field=f"replacement_style.{name}",
                     )
                 result[name] = color
                 continue
@@ -9416,8 +9457,10 @@ class PresentationEditService:
             (not allow_offslide and (x_emu < 0 or y_emu < 0))
             or abs(x_emu) > MAX_SLIDE_DIMENSION_EMU
             or abs(y_emu) > MAX_SLIDE_DIMENSION_EMU
-            or width_emu <= 0
-            or height_emu <= 0
+            # A horizontal or vertical line has one zero dimension.
+            or width_emu < 0
+            or height_emu < 0
+            or width_emu + height_emu == 0
             or any(number > MAX_SLIDE_DIMENSION_EMU for number in coordinates)
         ):
             raise invalid_request(

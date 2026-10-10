@@ -264,6 +264,9 @@ class FidelityShapeStyle:
     line_width_pt: float | None = None
     line_dash: str | None = None
     line_format_editable: bool = False
+    # Arrowheads at the outline's start (a:headEnd) and end (a:tailEnd).
+    line_start: str | None = None
+    line_end: str | None = None
 
 
 DECORATIVE_EXT_URI = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
@@ -385,6 +388,7 @@ SHAPE_GEOMETRIES = frozenset(
         "chevron",
         "homePlate",
         "wedgeRoundRectCallout",
+        "line",
     }
 )
 
@@ -392,6 +396,8 @@ SHAPE_GEOMETRIES = frozenset(
 SHAPE_LINE_DASHES = frozenset(
     {"solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"}
 )
+# Arrowhead types exposed for editing (a:headEnd / a:tailEnd @type).
+LINE_END_TYPES = frozenset({"none", "triangle", "stealth", "diamond", "oval", "arrow"})
 EMU_PER_QUARTER_POINT = 3175
 MAX_SHAPE_LINE_WIDTH_PT = 20
 
@@ -418,6 +424,26 @@ def _shape_line_format(line: etree._Element | None) -> tuple[float | None, str |
         if set(preset.attrib) != {"val"} or len(preset) or dash not in SHAPE_LINE_DASHES:
             return width, None, False
     return width, dash, True
+
+
+def _line_ends(line: etree._Element | None) -> tuple[str | None, str | None, bool]:
+    """Start and end arrowheads, and whether both are editable; absent means none."""
+    if line is None:
+        return "none", "none", True
+    ends: list[str | None] = []
+    for tag in ("headEnd", "tailEnd"):
+        found = line.findall(f"{{{DRAWING_NS}}}{tag}")
+        if not found:
+            ends.append("none")
+            continue
+        end = found[0]
+        kind = end.get("type", "none")
+        if len(found) > 1 or len(end) or set(end.attrib) - {"type", "w", "len"}:
+            return None, None, False
+        if kind not in LINE_END_TYPES:
+            return None, None, False
+        ends.append(kind)
+    return ends[0], ends[1], True
 
 
 @dataclass(frozen=True)
@@ -686,6 +712,8 @@ class FidelityDocument:
                             "line_width_pt": obj.shape_style.line_width_pt,
                             "line_dash": obj.shape_style.line_dash,
                             "line_format_editable": obj.shape_style.line_format_editable,
+                            "line_start": obj.shape_style.line_start,
+                            "line_end": obj.shape_style.line_end,
                         }
                         if obj.shape_style is not None
                         else None
@@ -1579,6 +1607,10 @@ def _shape_style(
     line_width_pt, line_dash, line_format_editable = (
         _shape_line_format(lines[0] if lines else None) if structure_ok else (None, None, False)
     )
+    line_start, line_end, ends_editable = (
+        _line_ends(lines[0] if lines else None) if structure_ok else (None, None, False)
+    )
+    line_format_editable = line_format_editable and ends_editable
     shadow_editable, shadow = _shape_shadow(shape_properties)
     if kind == "pic":
         # A picture's fill is its image: only the border and shadow are styled here.
@@ -1603,6 +1635,8 @@ def _shape_style(
         line_width_pt=line_width_pt,
         line_dash=line_dash,
         line_format_editable=line_format_editable,
+        line_start=line_start,
+        line_end=line_end,
     )
 
 
@@ -2056,9 +2090,15 @@ def _geometry_for_object(
     ]
     # Objects may extend past the slide edge (bleeds, parked objects): they can still be
     # moved back, resized or deleted; every edit's replacement must lie on the slide.
+    # Only a straight line may be flat (zero width or height, never both).
+    flat_allowed = kind == "sp" and bool(
+        candidate.xpath("./p:spPr/a:prstGeom[@prst='line']", namespaces=_NS)
+    )
+    minimum = 0 if flat_allowed else 1
     in_slide_bounds = (
-        geometry.width_emu > 0
-        and geometry.height_emu > 0
+        geometry.width_emu >= minimum
+        and geometry.height_emu >= minimum
+        and geometry.width_emu + geometry.height_emu > 0
         and abs(geometry.x_emu) <= 4 * slide_width_emu
         and abs(geometry.y_emu) <= 4 * slide_height_emu
         and geometry.width_emu <= 8 * slide_width_emu

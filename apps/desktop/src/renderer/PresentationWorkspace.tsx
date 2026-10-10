@@ -405,6 +405,8 @@ type ShapeStyle = {
   line_width_pt: number | null;
   line_dash: string | null;
   line_format_editable: boolean;
+  line_start?: string | null;
+  line_end?: string | null;
   fill_transparency_percent?: number | null;
   shadow?: boolean | null;
   shadow_editable?: boolean;
@@ -422,6 +424,16 @@ const SHAPE_GEOMETRIES: ReadonlyArray<[string, string]> = [
   ["chevron", "Chevron"],
   ["homePlate", "Pentagon arrow"],
   ["wedgeRoundRectCallout", "Callout"],
+  ["line", "Line"],
+];
+
+const LINE_END_TYPES: ReadonlyArray<[string, string]> = [
+  ["none", "None"],
+  ["triangle", "Triangle arrow"],
+  ["arrow", "Open arrow"],
+  ["stealth", "Stealth arrow"],
+  ["diamond", "Diamond"],
+  ["oval", "Oval"],
 ];
 
 type SlideFooterState = {
@@ -542,9 +554,11 @@ type ShapeStyleDraft = {
   line_color: string;
   line_width_pt: string;
   line_dash: string;
+  line_start: string;
+  line_end: string;
 };
 
-type NewShapeType = "rect" | "ellipse";
+type NewShapeType = "rect" | "ellipse" | "line";
 
 const FONT_FAMILY_SUGGESTIONS = [
   "+mn-lt",
@@ -915,6 +929,8 @@ function draftForShapeStyle(style: ShapeStyle | null): ShapeStyleDraft {
     fill_transparency_percent:
       style?.fill_transparency_percent?.toString() ?? "",
     line_dash: style?.line_dash ?? "",
+    line_start: style?.line_start ?? "",
+    line_end: style?.line_end ?? "",
   };
 }
 
@@ -979,8 +995,8 @@ function geometryFromDraft(
     height === null ||
     x < 0 ||
     y < 0 ||
-    width < 1 ||
-    height < 1 ||
+    // One side may be zero (a straight line), never both.
+    width + height < 1 ||
     x + width > slideWidthEmu ||
     y + height > slideHeightEmu
   ) {
@@ -1017,8 +1033,10 @@ function isPresentationObject(value: unknown): value is PresentationObject {
         geometry.width_emu,
         geometry.height_emu,
       ].every((coordinate) => Number.isSafeInteger(coordinate)) &&
-      geometry.width_emu > 0 &&
-      geometry.height_emu > 0 &&
+      // A straight line may be flat: one dimension zero, never both.
+      geometry.width_emu >= 0 &&
+      geometry.height_emu >= 0 &&
+      geometry.width_emu + geometry.height_emu > 0 &&
       (candidate.geometry_editable !== true ||
         (geometry.x_emu >= 0 && geometry.y_emu >= 0)));
   const pictureCrop = candidate.picture_crop;
@@ -1099,6 +1117,12 @@ function isPresentationObject(value: unknown): value is PresentationObject {
       (shapeStyle.line_dash === null ||
         SHAPE_LINE_DASHES.some(([value]) => value === shapeStyle.line_dash)) &&
       typeof shapeStyle.line_format_editable === "boolean" &&
+      [shapeStyle.line_start, shapeStyle.line_end].every(
+        (end) =>
+          end === undefined ||
+          end === null ||
+          LINE_END_TYPES.some(([value]) => value === end),
+      ) &&
       (shapeStyle.fill_transparency_percent == null ||
         (Number.isInteger(shapeStyle.fill_transparency_percent) &&
           shapeStyle.fill_transparency_percent >= 0 &&
@@ -4334,7 +4358,17 @@ export function PresentationWorkspace({
   const createShapeRevision = useCallback(async () => {
     const source = selectedSource;
     const revision = currentRevision;
-    const geometry = newShapeGeometry;
+    // A new line runs horizontally through the middle of the drawn box.
+    const geometry =
+      newShapeGeometry && newShapeType === "line"
+        ? {
+            ...newShapeGeometry,
+            y_emu:
+              newShapeGeometry.y_emu +
+              Math.round(newShapeGeometry.height_emu / 2),
+            height_emu: 0,
+          }
+        : newShapeGeometry;
     if (
       !source ||
       !revision ||
@@ -4396,7 +4430,12 @@ export function PresentationWorkspace({
         // The immutable revision remains current and can be re-indexed later.
       }
       await loadPresentation(selectedSlide, createdObjectId);
-      const shapeLabel = newShapeType === "rect" ? "rectangle" : "ellipse";
+      const shapeLabel =
+        newShapeType === "rect"
+          ? "rectangle"
+          : newShapeType === "line"
+            ? "line"
+            : "ellipse";
       setNotice(
         indexedRevision
           ? "Added a " +
@@ -6620,6 +6659,13 @@ export function PresentationWorkspace({
           objectStyleDraft.line_dash !== (style?.line_dash ?? "")
         )
           replacement.line_dash = objectStyleDraft.line_dash;
+        for (const end of ["line_start", "line_end"] as const) {
+          if (
+            objectStyleDraft[end] !== "" &&
+            objectStyleDraft[end] !== (style?.[end] ?? "")
+          )
+            replacement[end] = objectStyleDraft[end];
+        }
       } else if (
         (property === "fill_color" || property === "line_color") &&
         /^#[0-9A-F]{6}$/.test(objectStyleDraft[property])
@@ -11159,6 +11205,7 @@ export function PresentationWorkspace({
                     >
                       <option value="rect">Rectangle</option>
                       <option value="ellipse">Ellipse</option>
+                      <option value="line">Line</option>
                     </select>
                   </label>
                   <div className="pw-shape-color-control">
@@ -11976,6 +12023,34 @@ export function PresentationWorkspace({
                                 ))}
                               </select>
                             </label>
+                            {(
+                              [
+                                ["line_start", "Start arrowhead"],
+                                ["line_end", "End arrowhead"],
+                              ] as const
+                            ).map(([end, label]) => (
+                              <label key={end}>
+                                {label}
+                                <select
+                                  aria-label={label}
+                                  value={objectStyleDraft[end]}
+                                  onChange={(event) =>
+                                    setObjectStyleDraft((current) => ({
+                                      ...current,
+                                      [end]: event.target.value,
+                                    }))
+                                  }
+                                  disabled={!loadedSourceId || loading}
+                                >
+                                  <option value="">Keep current</option>
+                                  {LINE_END_TYPES.map(([value, name]) => (
+                                    <option key={value} value={value}>
+                                      {name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            ))}
                             <button
                               type="button"
                               className="secondary-button"
@@ -11990,7 +12065,13 @@ export function PresentationWorkspace({
                                     selectedObject.shape_style.line_width_pt) &&
                                   (objectStyleDraft.line_dash === "" ||
                                     objectStyleDraft.line_dash ===
-                                      selectedObject.shape_style.line_dash))
+                                      selectedObject.shape_style.line_dash) &&
+                                  (["line_start", "line_end"] as const).every(
+                                    (end) =>
+                                      objectStyleDraft[end] === "" ||
+                                      objectStyleDraft[end] ===
+                                        selectedObject.shape_style?.[end],
+                                  ))
                               }
                             >
                               Apply outline style

@@ -31,8 +31,9 @@ function guideTargets(
       !Object.values(g).every(Number.isSafeInteger) ||
       g.x_emu < 0 ||
       g.y_emu < 0 ||
-      g.width_emu < 1 ||
-      g.height_emu < 1 ||
+      g.width_emu < 0 ||
+      g.height_emu < 0 ||
+      g.width_emu + g.height_emu < 1 ||
       g.x_emu + g.width_emu > size.width ||
       g.y_emu + g.height_emu > size.height
     )

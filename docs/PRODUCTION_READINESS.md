@@ -204,6 +204,18 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Lines and arrows: `create_shape` accepts `line` (a straight `p:sp` line with
+  no fill and a 1.5 pt outline; the GUI draws it horizontally through the
+  chosen box), `line` joins the shape types, and the shape style reports and
+  edits arrowheads (`line_start` / `line_end` = `a:headEnd` / `a:tailEnd`:
+  none, triangle, arrow, stealth, diamond, oval) through
+  `format_shape_style`, the "Start/End arrowhead" outline controls and
+  Copilot plans. A line may be flat (zero height or width, never both), so
+  geometry validation accepts one zero side; fidelity allows that only for
+  the `line` preset, the canvas gives flat lines a clickable target, and
+  canvas resizing keeps them flat. PowerPoint reads the result back as a
+  line (msoLine) with the chosen arrowheads, dash and weight.
+  `test_lines.py`; `test-lines.mjs` 3/3.
 - Video and audio (`presentation.workspace.insert_media`, main-process only;
   "Insert video or audio…" in the Objects panel): the desktop main process
   shows the file dialog and passes the path to Core, which never returns it

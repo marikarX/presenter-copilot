@@ -58,8 +58,9 @@ export function translationOperations(
     // Objects may extend past the slide edge; a move brings them fully back onto it.
     if (
       !Object.values(g).every(Number.isSafeInteger) ||
-      g.width_emu < 1 ||
-      g.height_emu < 1
+      g.width_emu < 0 ||
+      g.height_emu < 0 ||
+      g.width_emu + g.height_emu < 1
     )
       throw new Error("A selected object has an invalid size.");
     return { ...object, geometry: g };
@@ -122,8 +123,9 @@ export function layoutOperations(
       !Object.values(geometry).every(Number.isSafeInteger) ||
       geometry.x_emu < 0 ||
       geometry.y_emu < 0 ||
-      geometry.width_emu < 1 ||
-      geometry.height_emu < 1
+      geometry.width_emu < 0 ||
+      geometry.height_emu < 0 ||
+      geometry.width_emu + geometry.height_emu < 1
     )
       throw new Error("The selected geometry is invalid.");
     return { ...object, geometry, replacement: { ...geometry } };
@@ -278,7 +280,18 @@ export function resizeOperations(
   if (east) r = clamp(right + snap(dx), left + minWidth, size.width);
   if (north) t = clamp(top + snap(dy), 0, bottom - minHeight);
   if (south) b = clamp(bottom + snap(dy), top + minHeight, size.height);
-  if (proportional && (west || east) && (north || south)) {
+  // A flat selection (a lone horizontal or vertical line) keeps its zero side.
+  const flatX = width === 0;
+  const flatY = height === 0;
+  if (flatX) {
+    l = left;
+    r = right;
+  }
+  if (flatY) {
+    t = top;
+    b = bottom;
+  }
+  if (proportional && !flatX && !flatY && (west || east) && (north || south)) {
     const sx = 1 + (west ? -snap(dx) : snap(dx)) / width;
     const sy = 1 + (north ? -snap(dy) : snap(dy)) / height;
     const scale = Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy;
@@ -301,20 +314,31 @@ export function resizeOperations(
   }
   return selected.flatMap((o) => {
     const g = o.geometry!;
-    const x = Math.round(l + ((g.x_emu - left) * (r - l)) / width);
-    const y = Math.round(t + ((g.y_emu - top) * (b - t)) / height);
+    const x = flatX
+      ? g.x_emu
+      : Math.round(l + ((g.x_emu - left) * (r - l)) / width);
+    const y = flatY
+      ? g.y_emu
+      : Math.round(t + ((g.y_emu - top) * (b - t)) / height);
     const replacement = {
       x_emu: x,
       y_emu: y,
-      width_emu:
-        Math.round(l + ((g.x_emu + g.width_emu - left) * (r - l)) / width) - x,
-      height_emu:
-        Math.round(t + ((g.y_emu + g.height_emu - top) * (b - t)) / height) - y,
+      width_emu: flatX
+        ? g.width_emu
+        : Math.round(l + ((g.x_emu + g.width_emu - left) * (r - l)) / width) -
+          x,
+      height_emu: flatY
+        ? g.height_emu
+        : Math.round(t + ((g.y_emu + g.height_emu - top) * (b - t)) / height) -
+          y,
     };
     if (
       Object.values(replacement).some((v) => !Number.isSafeInteger(v)) ||
-      replacement.width_emu < 1 ||
-      replacement.height_emu < 1
+      // A flat line stays flat; everything else keeps a positive size.
+      (replacement.width_emu < 1 && g.width_emu !== 0) ||
+      (replacement.height_emu < 1 && g.height_emu !== 0) ||
+      replacement.width_emu < 0 ||
+      replacement.height_emu < 0
     )
       throw new Error("The selection is too small to resize safely.");
     if (

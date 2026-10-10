@@ -112,6 +112,7 @@ _SHAPE_STYLE = _object(
                     "chevron",
                     "homePlate",
                     "wedgeRoundRectCallout",
+                    "line",
                 ),
                 {"type": "null"},
             ]
@@ -124,6 +125,18 @@ _SHAPE_STYLE = _object(
                 _choice(
                     "solid", "dash", "dot", "dashDot", "lgDash", "lgDashDot", "sysDash", "sysDot"
                 ),
+                {"type": "null"},
+            ]
+        },
+        "line_start": {
+            "anyOf": [
+                _choice("none", "triangle", "stealth", "diamond", "oval", "arrow"),
+                {"type": "null"},
+            ]
+        },
+        "line_end": {
+            "anyOf": [
+                _choice("none", "triangle", "stealth", "diamond", "oval", "arrow"),
                 {"type": "null"},
             ]
         },

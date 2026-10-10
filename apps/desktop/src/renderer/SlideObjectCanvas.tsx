@@ -539,6 +539,7 @@ export function SlideObjectCanvas({
             }}
           >
             {movable.map((object) => {
+              const hitPad = size.width / 120;
               const g = object.geometry!,
                 selected = selectedIds.includes(object.object_id);
               const choose = (additive: boolean) =>
@@ -556,10 +557,11 @@ export function SlideObjectCanvas({
                   tabIndex={0}
                   aria-label={`Select ${object.name} on slide`}
                   aria-pressed={selected}
-                  x={g.x_emu}
-                  y={g.y_emu}
-                  width={g.width_emu}
-                  height={g.height_emu}
+                  // A flat line still gets a target thick enough to click.
+                  x={g.x_emu - Math.max(0, hitPad - g.width_emu) / 2}
+                  y={g.y_emu - Math.max(0, hitPad - g.height_emu) / 2}
+                  width={Math.max(g.width_emu, hitPad)}
+                  height={Math.max(g.height_emu, hitPad)}
                   transform={rotationTransform(object, g)}
                   vectorEffect="non-scaling-stroke"
                   className={selected ? "is-selected" : ""}
