@@ -170,7 +170,8 @@ def test_full_bleed_picture_outside_slide_bounds_can_be_adjusted(tmp_path: Path)
             },
         )["result"]
         target = next(o for o in inventory["objects"] if o["name"] == "Bleed")
-        assert target["geometry_editable"] is False
+        # Objects past the slide edge can be moved back (every replacement stays on the slide).
+        assert target["geometry_editable"] is True
         reply = _call(
             core,
             "adjust",

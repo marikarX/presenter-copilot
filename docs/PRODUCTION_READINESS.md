@@ -239,6 +239,12 @@ Commits this session:
   object selected (it previously reloaded slide 1 and selected the first
   movable object, which the Workspace GUI suite caught once titles became
   movable).
+- Objects extending past the slide edge (bleeds, parked objects) can now be
+  moved, resized, deleted and duplicated; every replacement position must
+  still lie on the slide, and a canvas drag brings such a selection fully back
+  onto the slide. Movable shapes/pictures in the corpus went from 2506/725 to
+  2651/780, and PowerPoint places each sampled object exactly at its new
+  on-slide position (6 of 6 decks, off the left, top, right or bottom edge).
 - Integration sweep after this session's shared fidelity changes: all 44
   focused GUI harnesses pass besides `test-workspace.mjs` (117/117).
   `test-outline-evidence.mjs` must be run from the repository root.

@@ -198,7 +198,7 @@ describe("reviewed canvas translations", () => {
       }),
     ).toHaveLength(1);
   });
-  it("rejects stale/read-only selection, out-of-bounds geometry and nonfinite movement", () => {
+  it("rejects stale/read-only selection, oversized selection and nonfinite movement", () => {
     expect(() =>
       translationOperations(pair, ["missing"], "slide", 1, 2, {
         width: 1000,
@@ -215,12 +215,20 @@ describe("reviewed canvas translations", () => {
         { width: 1000, height: 800 },
       ),
     ).toThrow("cannot be moved");
+    // A selection extending past the slide edge is moved fully back onto it.
+    const recovered = translationOperations(pair, ["a", "b"], "slide", 1, 2, {
+      width: 500,
+      height: 800,
+    });
+    expect(recovered.map((op) => op.params.replacement_geometry.x_emu)).toEqual(
+      [0, 300],
+    );
     expect(() =>
       translationOperations(pair, ["a", "b"], "slide", 1, 2, {
-        width: 500,
+        width: 400,
         height: 800,
       }),
-    ).toThrow("outside the slide");
+    ).toThrow("larger than the slide");
     expect(() =>
       translationOperations(pair, ["a"], "slide", Infinity, 2, {
         width: 1000,

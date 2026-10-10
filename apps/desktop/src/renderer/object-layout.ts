@@ -51,16 +51,13 @@ export function translationOperations(
     if (!object?.geometry_editable || !object.geometry)
       throw new Error("A selected object cannot be moved. Refresh the slide.");
     const g = object.geometry;
+    // Objects may extend past the slide edge; a move brings them fully back onto it.
     if (
       !Object.values(g).every(Number.isSafeInteger) ||
-      g.x_emu < 0 ||
-      g.y_emu < 0 ||
       g.width_emu < 1 ||
-      g.height_emu < 1 ||
-      g.x_emu + g.width_emu > size.width ||
-      g.y_emu + g.height_emu > size.height
+      g.height_emu < 1
     )
-      throw new Error("A selected object lies outside the slide.");
+      throw new Error("A selected object has an invalid size.");
     return { ...object, geometry: g };
   });
   const left = Math.min(...selected.map((o) => o.geometry.x_emu)),
@@ -71,6 +68,8 @@ export function translationOperations(
     bottom = Math.max(
       ...selected.map((o) => o.geometry.y_emu + o.geometry.height_emu),
     );
+  if (right - left > size.width || bottom - top > size.height)
+    throw new Error("The selection is larger than the slide.");
   const x = Math.round(
     Math.max(
       -left,

@@ -682,7 +682,7 @@ class PresentationEditService:
         slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
         object_id = self._uuid_field(params.get("object_id"), "object_id")
         expected_geometry = self._geometry_field(
-            params.get("expected_geometry"), "expected_geometry"
+            params.get("expected_geometry"), "expected_geometry", allow_offslide=True
         )
         replacement_geometry = self._geometry_field(
             params.get("replacement_geometry"), "replacement_geometry"
@@ -2266,7 +2266,7 @@ class PresentationEditService:
         slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
         object_id = self._uuid_field(params.get("object_id"), "object_id")
         expected_geometry = self._geometry_field(
-            params.get("expected_geometry"), "expected_geometry"
+            params.get("expected_geometry"), "expected_geometry", allow_offslide=True
         )
 
         source = self._current_revision_source(project_id, document_id)
@@ -2345,7 +2345,7 @@ class PresentationEditService:
         slide_id = self._uuid_field(params.get("slide_id"), "slide_id")
         object_id = self._uuid_field(params.get("object_id"), "object_id")
         expected_geometry = self._geometry_field(
-            params.get("expected_geometry"), "expected_geometry"
+            params.get("expected_geometry"), "expected_geometry", allow_offslide=True
         )
 
         source = self._current_revision_source(project_id, document_id)

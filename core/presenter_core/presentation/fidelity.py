@@ -1913,13 +1913,15 @@ def _geometry_for_object(
         f"{{{DRAWING_NS}}}off",
         f"{{{DRAWING_NS}}}ext",
     ]
+    # Objects may extend past the slide edge (bleeds, parked objects): they can still be
+    # moved back, resized or deleted; every edit's replacement must lie on the slide.
     in_slide_bounds = (
-        geometry.x_emu >= 0
-        and geometry.y_emu >= 0
-        and geometry.width_emu > 0
+        geometry.width_emu > 0
         and geometry.height_emu > 0
-        and geometry.x_emu + geometry.width_emu <= slide_width_emu
-        and geometry.y_emu + geometry.height_emu <= slide_height_emu
+        and abs(geometry.x_emu) <= 4 * slide_width_emu
+        and abs(geometry.y_emu) <= 4 * slide_height_emu
+        and geometry.width_emu <= 8 * slide_width_emu
+        and geometry.height_emu <= 8 * slide_height_emu
     )
     return (
         geometry,
