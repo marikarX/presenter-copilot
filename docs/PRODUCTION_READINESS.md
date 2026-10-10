@@ -204,6 +204,21 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Format painter (`presentation.workspace.copy_object_format`, "Copy
+  format" / "Paste format" in the slide toolbar): copies one shape's fill,
+  outline, effects, 3-D, theme style reference and first-run text
+  formatting onto 1-20 shapes, text boxes or pictures on the same slide as
+  one revision. With a picture involved only the outline and effects are
+  copied. Each target run keeps its language and its own links, and
+  placeholders keep their layout's text formatting. Fills that refer to
+  package parts (picture fills) are refused, as are objects stored as
+  alternate content. Validation re-reads the written slide and checks that
+  each target carries the source's formatting XML and that nothing else
+  changed. PowerPoint reads back the painted fill, outline, font and link.
+  Corpus: 78 paints across 28 decks, 6 alternate-content refusals, no
+  errors; all 28 eligible decks open in PowerPoint
+  (`.local/session2/corpus_format_painter.py`). `test_format_painter.py`;
+  `test-format-painter.mjs` 3/3.
 - Reusable components (project schema 24, `presentation_components`):
   `presentation.workspace.save_component` stores a named selection of 1-20
   top-level objects that pass the paste checks, as a reference to one slide

@@ -2171,6 +2171,11 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def copy_object_format(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.format_painter import copy_object_format
+
+        return copy_object_format(self, params)
+
     def set_click_action(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.click_actions import set_click_action
 

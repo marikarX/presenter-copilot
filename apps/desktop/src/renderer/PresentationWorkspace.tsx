@@ -1502,6 +1502,12 @@ export function PresentationWorkspace({
     ObjectPasteRequest,
     "slide_id"
   > | null>(null);
+  const [formatSource, setFormatSource] = useState<{
+    document_id: string;
+    slide_id: string;
+    object_id: string;
+    name: string;
+  } | null>(null);
   const [pendingObjectPaste, setPendingObjectPaste] =
     useState<ObjectPasteRequest | null>(null);
   const [pendingObjectAction, setPendingObjectAction] =
@@ -1509,6 +1515,7 @@ export function PresentationWorkspace({
   useEffect(() => {
     setPendingObjectAction(null);
     setObjectClipboard(null);
+    setFormatSource(null);
     setPendingObjectPaste(null);
     restoredCanvasSelection.current = null;
   }, [project.id]);
@@ -6775,6 +6782,134 @@ export function PresentationWorkspace({
       slide_id: activeSlideId,
     });
   };
+  const formatTargets = (() => {
+    if (
+      !formatSource ||
+      !selectedSource ||
+      formatSource.document_id !== selectedSource.id ||
+      formatSource.slide_id !== activeSlideId
+    )
+      return [];
+    const ids =
+      canvasSelectionEnabled && canvasSelectedIds.length
+        ? canvasSelectedIds
+        : selectedObject
+          ? [selectedObject.object_id]
+          : [];
+    const objects = workspaceObjects.filter(
+      (o) =>
+        ids.includes(o.object_id) &&
+        o.object_id !== formatSource.object_id &&
+        (o.kind === "sp" || o.kind === "pic"),
+    );
+    return objects.length === ids.length && objects.length <= 20 ? objects : [];
+  })();
+  const copyObjectFormat = () => {
+    const object =
+      canvasSelectionEnabled && canvasSelectedIds.length === 1
+        ? workspaceObjects.find((o) => o.object_id === canvasSelectedIds[0])
+        : !canvasSelectedIds.length
+          ? selectedObject
+          : null;
+    if (
+      !object ||
+      !selectedSource ||
+      !UUID_PATTERN.test(activeSlideId) ||
+      (object.kind !== "sp" && object.kind !== "pic")
+    ) {
+      setError("Select one shape, text box or picture to copy its format.");
+      return;
+    }
+    setFormatSource({
+      document_id: selectedSource.id,
+      slide_id: activeSlideId,
+      object_id: object.object_id,
+      name: object.name,
+    });
+    setError(null);
+    setNotice(
+      `Copied the format of ${object.name}. Select objects on this slide and paste the format.`,
+    );
+  };
+  const pasteObjectFormat = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const painter = formatSource;
+    const targets = formatTargets;
+    if (
+      !source ||
+      !revision ||
+      !painter ||
+      !targets.length ||
+      loadedSourceId !== source.id ||
+      loading
+    )
+      return;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestCore<TextEditResult>(
+        "presentation.workspace.copy_object_format",
+        {
+          project_id: project.id,
+          document_id: source.id,
+          expected_revision_id: revision.revision_id,
+          slide_id: painter.slide_id,
+          source_object_id: painter.object_id,
+          target_object_ids: targets.map((o) => o.object_id),
+        },
+      );
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id) ||
+        !Number.isSafeInteger(result.revision_number)
+      ) {
+        throw new Error("The format revision could not be verified.");
+      }
+      if (!result.changed) {
+        setNotice("Those objects already have this format.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, targets[0]?.object_id);
+      setNotice(
+        `Saved revision ${result.revision_number} with the format of ${painter.name} on ${targets.length} object${targets.length === 1 ? "" : "s"}.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The format could not be pasted.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    currentRevision,
+    formatSource,
+    formatTargets,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    selectedSlide,
+    selectedSource,
+  ]);
   const pasteWorkspaceObjects = () => {
     if (
       !objectClipboard ||
@@ -7996,6 +8131,36 @@ export function PresentationWorkspace({
                 onClick={() => reviewSelectionAction("ungroup")}
               >
                 Ungroup selection
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={
+                  loading ||
+                  voiceWorkflowActive ||
+                  (!canvasSelectedIds.length && !selectedObject)
+                }
+                onClick={copyObjectFormat}
+              >
+                Copy format
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={
+                  loading ||
+                  voiceWorkflowActive ||
+                  !currentRevision ||
+                  !formatTargets.length
+                }
+                title={
+                  formatSource
+                    ? `Paste the format of ${formatSource.name}`
+                    : "Copy a format first"
+                }
+                onClick={() => void pasteObjectFormat()}
+              >
+                Paste format
               </button>
               {objectClipboard ? (
                 <span className="muted">
