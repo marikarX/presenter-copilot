@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
+import dataclasses
 import hashlib
 import io
 import math
@@ -178,6 +179,19 @@ def _verified_source_archive(
         source_handle.seek(0)
         with zipfile.ZipFile(source_handle, "r") as archive:
             yield archive
+
+
+def _without_inherited_geometry(obj: Any) -> Any:
+    """Inherited placeholder geometry follows the slide layout; compare everything else."""
+    if not obj.geometry_inherited:
+        return obj
+    return dataclasses.replace(
+        obj,
+        geometry=None,
+        geometry_editable=False,
+        group_editable=False,
+        group_reason=None,
+    )
 
 
 class PresentationEditService:
@@ -3123,6 +3137,32 @@ class PresentationEditService:
                     )
                 slide_info = source_archive.getinfo(slide.part_name)
                 slide_root = _parse_xml_part(source_archive, slide_info)
+                if obj.geometry_inherited and obj.geometry is not None:
+                    # A placeholder that inherits its layout position gets an explicit one.
+                    node = PresentationEditService._find_object_node(
+                        slide_root, ooxml_id=obj.ooxml_id, kind=obj.kind
+                    )
+                    properties = node.find("p:spPr", _NS)
+                    if properties is None or properties.find("a:xfrm", _NS) is not None:
+                        raise CoreDomainError(
+                            "PRESENTATION_EDIT_STALE_TARGET",
+                            "The object position or size changed. Refresh and try again.",
+                            retryable=True,
+                        )
+                    transform = etree.Element(f"{{{DRAWING_NS}}}xfrm")
+                    etree.SubElement(
+                        transform,
+                        f"{{{DRAWING_NS}}}off",
+                        x=str(obj.geometry.x_emu),
+                        y=str(obj.geometry.y_emu),
+                    )
+                    etree.SubElement(
+                        transform,
+                        f"{{{DRAWING_NS}}}ext",
+                        cx=str(obj.geometry.width_emu),
+                        cy=str(obj.geometry.height_emu),
+                    )
+                    properties.insert(0, transform)
                 offset, extent = PresentationEditService._find_transform(
                     slide_root,
                     ooxml_id=obj.ooxml_id,
@@ -5697,7 +5737,7 @@ class PresentationEditService:
             original.slide_id != revised.slide_id
             or len(original.objects) != len(revised.objects)
             or any(
-                old != new
+                _without_inherited_geometry(old) != _without_inherited_geometry(new)
                 if old.object_id not in expected_remapped
                 else (
                     old.object_id,

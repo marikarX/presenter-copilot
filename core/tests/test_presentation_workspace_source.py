@@ -957,8 +957,12 @@ def test_object_transform_commits_safe_slide_geometry_revision(tmp_path: Path) -
         inventory = target_result["result"]
         assert inventory["slide_width_emu"] == 9_144_000
         assert inventory["slide_height_emu"] == 6_858_000
-        target = next(item for item in inventory["objects"] if item["geometry_editable"])
-        assert target["name"] == "Workspace transform test shape"
+        target = next(
+            item
+            for item in inventory["objects"]
+            if item["name"] == "Workspace transform test shape"
+        )
+        assert target["geometry_editable"] is True
         assert target["delete_editable"] is True
         original_geometry = target["geometry"]
         replacement_geometry = {
@@ -2928,7 +2932,7 @@ def test_applying_existing_slide_layout_preserves_objects_and_is_revisioned(
                 "layout_source_slide_id": layout_source_slide_id,
             },
         )
-        assert applied["ok"] is True, applied
+        assert applied["ok"] is True, applied.get("error")
         result = applied["result"]
         assert result["changed"] is True
         assert result["revision_number"] == 2

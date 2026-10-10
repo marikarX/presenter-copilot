@@ -387,6 +387,7 @@ class FidelityObject:
     semantic_source_kind: str | None = None
     alt_text: str | None = None
     decorative: bool = False
+    geometry_inherited: bool = False
 
 
 @dataclass(frozen=True)
@@ -743,6 +744,7 @@ def inspect_pptx_snapshot(
                     slide_part_ids[_resolve_internal_part("ppt", relation[1])] = _stable_id(
                         f"{document_id}\0identity-v1\0slide\0{slide_ref.get('id')}"
                     )
+            layout_geometry: dict[str, dict[str, dict[str, FidelityGeometry]]] = {}
             for ordinal, slide_ref in enumerate(slide_ids, start=1):
                 ooxml_slide_id = slide_ref.get("id")
                 relationship_id = slide_ref.get(f"{{{REL_NS}}}id")
@@ -773,6 +775,9 @@ def inspect_pptx_snapshot(
                     group_picture_ids=grouping_picture_ids(archive, members, slide_root, part_name),
                     hyperlink_targets=slide_hyperlink_targets(
                         archive, members, part_name, slide_part_ids
+                    ),
+                    inherited_geometry=placeholder_geometry_map(
+                        archive, members, part_name, layout_geometry
                     ),
                 )
                 speaker_notes, notes_editable = _speaker_notes_for_slide(
@@ -1010,6 +1015,7 @@ def _objects_for_slide(
     chart_text: dict[str, str] | None = None,
     group_picture_ids: set[str] | None = None,
     hyperlink_targets: dict[str, tuple[str, str]] | None = None,
+    inherited_geometry: dict[str, dict[str, FidelityGeometry]] | None = None,
 ) -> tuple[FidelityObject, ...]:
     shape_tree = root.find(f".//{{{PRESENTATION_NS}}}spTree")
     if shape_tree is None:
@@ -1100,6 +1106,22 @@ def _objects_for_slide(
             slide_width_emu=slide_width_emu,
             slide_height_emu=slide_height_emu,
         )
+        geometry_inherited = False
+        if geometry is None and kind in {"sp", "pic"} and not alternate_content:
+            geometry = _inherited_placeholder_geometry(candidate, inherited_geometry or {})
+            geometry_inherited = geometry is not None
+            geometry_editable = bool(
+                geometry is not None
+                and candidate.getparent() is shape_tree
+                and candidate.xpath("./p:spPr", namespaces=_NS)
+                and not candidate.xpath("./p:spPr/a:xfrm", namespaces=_NS)
+                and geometry.x_emu >= 0
+                and geometry.y_emu >= 0
+                and geometry.width_emu > 0
+                and geometry.height_emu > 0
+                and geometry.x_emu + geometry.width_emu <= slide_width_emu
+                and geometry.y_emu + geometry.height_emu <= slide_height_emu
+            )
         if kind == "grpSp":
             geometry, _ = read_geometry(candidate)
             geometry_editable = bool(
@@ -1173,6 +1195,7 @@ def _objects_for_slide(
                 shape_style=shape_style,
                 alt_text=None if alternate_content else alt_text,
                 decorative=decorative,
+                geometry_inherited=geometry_inherited,
                 semantic_source_kind="native_text"
                 if text_edit_candidate and not alternate_content
                 else semantic_kind,
@@ -1731,6 +1754,116 @@ def object_rotation(
         rotation=int(raw) % 21_600_000,
         flip_horizontal=_FLIP_VALUES[flip_horizontal],
         flip_vertical=_FLIP_VALUES[flip_vertical],
+    )
+
+
+_MASTER_PLACEHOLDER_KINDS = {
+    "ctrTitle": "title",
+    "subTitle": "body",
+    "obj": "body",
+    "body": "body",
+    "chart": "body",
+    "tbl": "body",
+    "clipArt": "body",
+    "dgm": "body",
+    "media": "body",
+    "pic": "body",
+}
+
+
+def _placeholder_identity(node: etree._Element) -> tuple[str, str] | None:
+    placeholder = node.xpath("./*/p:nvPr/p:ph", namespaces=_NS)
+    if len(placeholder) != 1:
+        return None
+    return placeholder[0].get("idx", "0"), placeholder[0].get("type", "obj")
+
+
+def _explicit_geometry(node: etree._Element) -> FidelityGeometry | None:
+    transform = node.xpath("./p:spPr/a:xfrm", namespaces=_NS)
+    if len(transform) != 1 or transform[0].get("rot") not in {None, "0"}:
+        return None
+    offset, extent = transform[0].find("a:off", _NS), transform[0].find("a:ext", _NS)
+    if offset is None or extent is None:
+        return None
+    try:
+        return FidelityGeometry(
+            int(offset.get("x", "")),
+            int(offset.get("y", "")),
+            int(extent.get("cx", "")),
+            int(extent.get("cy", "")),
+        )
+    except ValueError:
+        return None
+
+
+def placeholder_geometry_map(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    slide_part: str,
+    cache: dict[str, dict[str, dict[str, FidelityGeometry]]] | None = None,
+) -> dict[str, dict[str, FidelityGeometry]]:
+    """Explicit layout placeholder geometry by idx and type, then master geometry by type."""
+    result: dict[str, dict[str, FidelityGeometry]] = {"idx": {}, "type": {}, "master": {}}
+
+    def related(part: str, kind: str) -> str | None:
+        directory, name = posixpath.split(part)
+        rels = members.get(f"{directory}/_rels/{name}.rels")
+        if rels is None:
+            return None
+        matches = [
+            target
+            for relation_type, target, mode in _relationships(
+                _parse_xml_part(archive, rels)
+            ).values()
+            if relation_type == f"{REL_NS}/{kind}" and mode.casefold() == "internal"
+        ]
+        if len(matches) != 1:
+            return None
+        resolved = _resolve_internal_part(directory, matches[0])
+        return resolved if resolved in members else None
+
+    layout = related(slide_part, "slideLayout")
+    if layout is None:
+        return result
+    if cache is not None and layout in cache:
+        return cache[layout]
+    if cache is not None:
+        cache[layout] = result
+    master = related(layout, "slideMaster")
+    for part, bucket in ((layout, "layout"), (master, "master")):
+        if part is None:
+            continue
+        tree = _parse_xml_part(archive, members[part]).find(
+            f"{{{PRESENTATION_NS}}}cSld/{{{PRESENTATION_NS}}}spTree"
+        )
+        if tree is None:
+            continue
+        for node in tree:
+            identity = _placeholder_identity(node)
+            geometry = _explicit_geometry(node)
+            if identity is None or geometry is None:
+                continue
+            idx, kind = identity
+            if bucket == "layout":
+                result["idx"].setdefault(idx, geometry)
+                result["type"].setdefault(kind, geometry)
+            else:
+                result["master"].setdefault(_MASTER_PLACEHOLDER_KINDS.get(kind, kind), geometry)
+    return result
+
+
+def _inherited_placeholder_geometry(
+    candidate: etree._Element, inherited: dict[str, dict[str, FidelityGeometry]]
+) -> FidelityGeometry | None:
+    """The layout (or master) position a slide placeholder without its own transform uses."""
+    identity = _placeholder_identity(candidate)
+    if identity is None or not inherited:
+        return None
+    idx, kind = identity
+    return (
+        inherited.get("idx", {}).get(idx)
+        or inherited.get("type", {}).get(kind)
+        or inherited.get("master", {}).get(_MASTER_PLACEHOLDER_KINDS.get(kind, kind))
     )
 
 

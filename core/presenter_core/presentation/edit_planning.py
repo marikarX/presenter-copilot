@@ -731,6 +731,7 @@ class PresentationEditPlanningService:
             # Accessibility metadata is edited in the Objects panel, not by plans.
             obj.pop("alt_text", None)
             obj.pop("decorative", None)
+            obj.pop("geometry_inherited", None)
             # Present edit capabilities in the units the plan schema uses.
             rotation = obj.get("rotation")
             if rotation is not None:

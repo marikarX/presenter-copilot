@@ -6107,7 +6107,7 @@ export function PresentationWorkspace({
       } catch {
         // Core excludes an unindexed revision from retrieval until retry.
       }
-      await loadPresentation();
+      await loadPresentation(selectedSlide, target.object_id);
       setNotice(
         indexedRevision
           ? `Saved revision ${result.revision_number} and refreshed the slide layout.`
@@ -6131,6 +6131,7 @@ export function PresentationWorkspace({
     replacementObjectGeometry,
     activeSlideId,
     selectedObject,
+    selectedSlide,
     selectedSource,
   ]);
 

@@ -227,6 +227,18 @@ Commits this session:
   the exact new position on all five sampled decks and the exact new height
   on four (on the fifth, the rows' text is taller than the scaled minimum
   heights, so PowerPoint grows the table further).
+- Placeholders that inherit their position from the layout or master (no
+  transform of their own; 670 shapes in the corpus, mostly titles and content
+  boxes) now report that resolved position and can be moved and resized; the
+  first move writes an explicit transform. Movable shapes in the corpus went
+  from 1836 to 2506 of 3930. PowerPoint places each sampled placeholder
+  exactly at the resolved position before the move and at the requested one
+  after it (8 of 8 decks). Applying a different layout still updates these
+  placeholders' inherited position as before.
+  Saving an object's position now keeps the current slide and the edited
+  object selected (it previously reloaded slide 1 and selected the first
+  movable object, which the Workspace GUI suite caught once titles became
+  movable).
 - Duplicated and pasted objects now get fresh `a16:creationId` identities,
   as PowerPoint gives a copy, instead of sharing the source's identity.
 - Copilot planning snapshot compaction: the many capability fields added this
