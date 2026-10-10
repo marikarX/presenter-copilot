@@ -311,6 +311,7 @@ PARAMETER_SCHEMAS = {
                             "custom_exit",
                         ),
                         "start": _choice("on_click", "with_previous", "after_previous"),
+                        "paragraph": {"anyOf": [_integer(0, 999), {"type": "null"}]},
                     }
                 ),
             },

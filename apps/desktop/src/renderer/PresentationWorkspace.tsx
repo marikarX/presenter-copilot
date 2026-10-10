@@ -5778,8 +5778,9 @@ export function PresentationWorkspace({
             expected_revision_id: revision.revision_id,
             slide_id: activeSlideId,
             expected_fingerprint: state.fingerprint,
-            effects: effects.map(({ object_id, effect, start }) => ({
+            effects: effects.map(({ object_id, effect, start, paragraph }) => ({
               object_id,
+              paragraph: paragraph ?? null,
               effect,
               start,
             })),

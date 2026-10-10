@@ -5,6 +5,8 @@ export type SlideAnimationEffect = {
   name: string;
   effect: string;
   start: string;
+  /** null animates the whole object; otherwise one paragraph of its text. */
+  paragraph?: number | null;
 };
 
 export type SlideAnimationState = {
@@ -12,7 +14,11 @@ export type SlideAnimationState = {
   editable: boolean;
   reason: string | null;
   effects: SlideAnimationEffect[];
-  candidates: Array<{ object_id: string; name: string }>;
+  candidates: Array<{
+    object_id: string;
+    name: string;
+    paragraphs?: Array<{ index: number; text: string }>;
+  }>;
   fingerprint: string;
 };
 
@@ -68,7 +74,15 @@ export function isSlideAnimationState(
 }
 
 const key = (effects: SlideAnimationEffect[]) =>
-  JSON.stringify(effects.map((e) => [e.object_id, e.effect, e.start]));
+  JSON.stringify(
+    effects.map((e) => [e.object_id, e.effect, e.start, e.paragraph ?? null]),
+  );
+
+/** "Box" for the whole object, "Box paragraph 2" for one of its paragraphs. */
+const targetName = (effect: SlideAnimationEffect) =>
+  effect.paragraph == null
+    ? effect.name
+    : `${effect.name} paragraph ${effect.paragraph + 1}`;
 
 /** Ordered entrance and exit effects for one slide; Apply writes them as one revision. */
 export function SlideAnimations({
@@ -81,20 +95,33 @@ export function SlideAnimations({
   onApply: (effects: SlideAnimationEffect[]) => void;
 }) {
   const [draft, setDraft] = useState(state.effects);
-  const [adding, setAdding] = useState({ objectId: "", effect: "fade" });
+  const [adding, setAdding] = useState({
+    objectId: "",
+    effect: "fade",
+    byParagraph: false,
+  });
   useEffect(() => {
     setDraft(state.effects);
-    setAdding({ objectId: "", effect: "fade" });
+    setAdding({ objectId: "", effect: "fade", byParagraph: false });
   }, [state]);
-  // Each object can have one entrance and one exit.
-  const taken = (objectId: string, exit: boolean) =>
-    draft.some((e) => e.object_id === objectId && isExit(e.effect) === exit);
-  const available = state.candidates.filter(
-    (candidate) =>
-      !taken(candidate.object_id, false) || !taken(candidate.object_id, true),
-  );
+  // Each object, or paragraph, can have one entrance and one exit.
+  const taken = (objectId: string, paragraph: number | null, exit: boolean) =>
+    draft.some(
+      (e) =>
+        e.object_id === objectId &&
+        (e.paragraph ?? null) === paragraph &&
+        isExit(e.effect) === exit,
+    );
+  const available = state.candidates;
+  const chosen = available.find((c) => c.object_id === adding.objectId);
+  const paragraphs = chosen?.paragraphs ?? [];
+  const steps: Array<number | null> =
+    adding.byParagraph && paragraphs.length > 1
+      ? paragraphs.map((p) => p.index)
+      : [null];
   const conflict =
-    !!adding.objectId && taken(adding.objectId, isExit(adding.effect));
+    !!chosen &&
+    steps.some((step) => taken(adding.objectId, step, isExit(adding.effect)));
   const update = (index: number, change: Partial<SlideAnimationEffect>) =>
     setDraft((current) =>
       current.map((effect, i) =>
@@ -126,19 +153,22 @@ export function SlideAnimations({
           {draft.map((effect, index) => {
             const exit = isExit(effect.effect);
             const custom = exit ? "custom_exit" : "custom";
+            const target = targetName(effect);
             // Entrance rows keep their established labels; exit rows say so.
             const label = (entrance: string, leaving: string) =>
               exit ? leaving : entrance;
             return (
-              <li key={`${effect.object_id}:${exit ? "exit" : "entrance"}`}>
+              <li
+                key={`${effect.object_id}:${effect.paragraph ?? "all"}:${exit ? "exit" : "entrance"}`}
+              >
                 <span>
-                  {index + 1}. {effect.name}
+                  {index + 1}. {target}
                   {exit ? " (exit)" : ""}
                 </span>
                 <select
                   aria-label={label(
-                    `Animation effect for ${effect.name}`,
-                    `Exit effect for ${effect.name}`,
+                    `Animation effect for ${target}`,
+                    `Exit effect for ${target}`,
                   )}
                   value={effect.effect}
                   onChange={(event) =>
@@ -161,8 +191,8 @@ export function SlideAnimations({
                 </select>
                 <select
                   aria-label={label(
-                    `Animation start for ${effect.name}`,
-                    `Exit start for ${effect.name}`,
+                    `Animation start for ${target}`,
+                    `Exit start for ${target}`,
                   )}
                   value={effect.start}
                   onChange={(event) =>
@@ -180,8 +210,8 @@ export function SlideAnimations({
                   type="button"
                   className="secondary-button"
                   aria-label={label(
-                    `Play ${effect.name} earlier`,
-                    `Play ${effect.name} exit earlier`,
+                    `Play ${target} earlier`,
+                    `Play ${target} exit earlier`,
                   )}
                   onClick={() => move(index, -1)}
                   disabled={disabled || index === 0}
@@ -192,8 +222,8 @@ export function SlideAnimations({
                   type="button"
                   className="secondary-button"
                   aria-label={label(
-                    `Play ${effect.name} later`,
-                    `Play ${effect.name} exit later`,
+                    `Play ${target} later`,
+                    `Play ${target} exit later`,
                   )}
                   onClick={() => move(index, 1)}
                   disabled={disabled || index === draft.length - 1}
@@ -204,8 +234,8 @@ export function SlideAnimations({
                   type="button"
                   className="secondary-button"
                   aria-label={label(
-                    `Remove animation from ${effect.name}`,
-                    `Remove exit from ${effect.name}`,
+                    `Remove animation from ${target}`,
+                    `Remove exit from ${target}`,
                   )}
                   onClick={() =>
                     setDraft((current) => current.filter((_, i) => i !== index))
@@ -266,26 +296,42 @@ export function SlideAnimations({
             ))}
           </optgroup>
         </select>
+        {paragraphs.length > 1 ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              aria-label="Animate by paragraph"
+              checked={adding.byParagraph}
+              onChange={(event) =>
+                setAdding((current) => ({
+                  ...current,
+                  byParagraph: event.target.checked,
+                }))
+              }
+              disabled={disabled}
+            />
+            By paragraph ({paragraphs.length} steps)
+          </label>
+        ) : null}
         <button
           type="button"
           className="secondary-button"
           onClick={() => {
-            const candidate = available.find(
-              (c) => c.object_id === adding.objectId,
-            );
-            if (!candidate || conflict) return;
+            if (!chosen || conflict) return;
+            // A by-paragraph build is one on-click step per paragraph, as in PowerPoint.
             setDraft((current) => [
               ...current,
-              {
-                object_id: candidate.object_id,
-                name: candidate.name,
+              ...steps.map((paragraph) => ({
+                object_id: chosen.object_id,
+                name: chosen.name,
                 effect: adding.effect,
                 start: "on_click",
-              },
+                paragraph,
+              })),
             ]);
             setAdding((current) => ({ ...current, objectId: "" }));
           }}
-          disabled={disabled || !adding.objectId || conflict}
+          disabled={disabled || !chosen || conflict}
           title={
             conflict
               ? "This object already has an effect of that kind."

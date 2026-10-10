@@ -1215,8 +1215,18 @@ def test_provider_animations_see_sequence_bind_fingerprint_and_apply(tmp_path: P
                     "params": {
                         "slide_id": inventory["slide_id"],
                         "effects": [
-                            {"object_id": targets[0], "effect": "fade", "start": "on_click"},
-                            {"object_id": targets[1], "effect": "wipe", "start": "after_previous"},
+                            {
+                                "object_id": targets[0],
+                                "effect": "fade",
+                                "start": "on_click",
+                                "paragraph": None,
+                            },
+                            {
+                                "object_id": targets[1],
+                                "effect": "wipe",
+                                "start": "after_previous",
+                                "paragraph": None,
+                            },
                         ],
                     },
                     "rationale": "Reveal the decision before its detail",

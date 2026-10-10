@@ -1,9 +1,11 @@
 """A slide's entrance and exit animations: which objects appear or leave, with what
 effect, in what order.
 
-Only the main click sequence of entrance and exit effects is editable; each object
-can have one of each. Emphasis and motion effects, triggers, by-paragraph or chart
-builds and alternate-content timing keep the slide read-only. Unchanged effects are
+Only the main click sequence of entrance and exit effects is editable. An effect
+targets a whole object or one of its paragraphs (PowerPoint's "by paragraph" builds
+are one step per paragraph); each target can have one entrance and one exit.
+Emphasis and motion effects, triggers, chart or diagram builds and alternate-content
+timing keep the slide read-only. Unchanged effects are
 carried over verbatim, so custom durations and delays survive reordering.
 """
 
@@ -75,6 +77,33 @@ def _targets(root: etree._Element) -> dict[str, bool]:
     return result
 
 
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+MAX_PARAGRAPH = 999
+
+
+def _paragraphs(root: etree._Element) -> dict[str, list[dict[str, Any]]]:
+    """Each top-level text shape's non-empty paragraphs: their index and text."""
+    result: dict[str, list[dict[str, Any]]] = {}
+    tree = root.find(f"{P}cSld/{P}spTree")
+    if tree is None:
+        return result
+    for child in tree:
+        tag = etree.QName(child).localname
+        if tag not in _TARGET_KINDS:
+            continue
+        body = child.find(f"{P}txBody")
+        nonvisual = child.find(f"{P}{_TARGET_KINDS[tag]}/{P}cNvPr")
+        if body is None or nonvisual is None or not nonvisual.get("id"):
+            continue
+        entries = []
+        for index, paragraph in enumerate(body.findall(f"{{{A_NS}}}p")):
+            text = "".join(paragraph.itertext()).strip()
+            if text:
+                entries.append({"index": index, "text": text[:80]})
+        result[nonvisual.get("id")] = entries
+    return result
+
+
 def _child(element: etree._Element, tag: str) -> etree._Element:
     """A child element, or an empty placeholder (lxml elements without children are falsy)."""
     found = element.find(tag)
@@ -117,7 +146,11 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
         for build in builds:
             if not isinstance(build.tag, str):
                 continue
-            if build.tag != f"{P}bldP" or build.get("build", "whole") != "whole" or len(build):
+            if (
+                build.tag != f"{P}bldP"
+                or build.get("build", "whole") not in {"whole", "p"}
+                or len(build)
+            ):
                 raise _ReadOnly(
                     "This slide builds text, charts or diagrams in parts; that stays read-only."
                 )
@@ -134,7 +167,7 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
     if len(sequences) != 1 or main is None or main.get("nodeType") != "mainSeq":
         raise _ReadOnly("This slide has trigger animations that stay read-only.")
     items: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, int | None, str]] = set()
     clicks = _children(_child(main, f"{P}childTnLst"), "par")
     for click_index, click in enumerate(clicks):
         click_node = _time_node(click)
@@ -167,25 +200,32 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
                     wanted = "clickEffect"
                 if node.get("nodeType") != wanted or wanted not in STARTS.values():
                     raise _ReadOnly("This slide uses custom animation timing that stays read-only.")
-                spids = {target.get("spid") for target in effect.iter(f"{P}spTgt")}
-                if (
-                    len(spids) != 1
-                    or any(len(target) for target in effect.iter(f"{P}spTgt"))
-                    or effect.xpath(".//p:cond[@evt] | .//p:cond/p:tn", namespaces=_NS)
+                # Every behavior targets one object, whole or one paragraph of it.
+                aimed = {
+                    (target.get("spid"), _paragraph_target(target))
+                    for target in effect.iter(f"{P}spTgt")
+                }
+                if len(aimed) != 1 or effect.xpath(
+                    ".//p:cond[@evt] | .//p:cond/p:tn", namespaces=_NS
                 ):
                     raise _ReadOnly(
-                        "This slide animates text by paragraph or uses triggers; read-only."
+                        "This slide animates text ranges or uses triggers; that stays read-only."
                     )
-                spid = next(iter(spids))
-                if spid not in targets or (spid, kind) in seen:
+                spid, paragraph = next(iter(aimed))
+                if paragraph == -1:
+                    raise _ReadOnly(
+                        "This slide animates text ranges or uses triggers; that stays read-only."
+                    )
+                if spid not in targets or (spid, paragraph, kind) in seen:
                     raise _ReadOnly(
                         "This slide animates nested or repeated targets; that stays read-only."
                     )
-                seen.add((spid, kind))
+                seen.add((spid, paragraph, kind))
                 preset = (node.get("presetID"), node.get("presetSubtype", "0"), kind)
                 items.append(
                     {
                         "ooxml_id": spid,
+                        "paragraph": paragraph,
                         "class": kind,
                         "effect": next(
                             (name for name, value in EFFECTS.items() if value == preset),
@@ -198,6 +238,20 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
     return items
 
 
+def _paragraph_target(target: etree._Element) -> int | None:
+    """None for a whole-object target, the paragraph index, or -1 when unsupported."""
+    children = [child for child in target if isinstance(child.tag, str)]
+    if not children:
+        return None
+    ranges = target.xpath("./p:txEl/p:pRg", namespaces=_NS)
+    if len(children) != 1 or len(ranges) != 1 or len(children[0]) != 1:
+        return -1
+    start, end = ranges[0].get("st"), ranges[0].get("end")
+    if start != end or start is None or not start.isdigit() or int(start) > MAX_PARAGRAPH:
+        return -1
+    return int(start)
+
+
 def _fingerprint(root: etree._Element) -> str:
     timing = root.find(f"{P}timing")
     data = b"" if timing is None else etree.tostring(timing, method="c14n")
@@ -206,8 +260,13 @@ def _fingerprint(root: etree._Element) -> str:
 
 def _state(root: etree._Element, objects: dict[str, Any]) -> dict[str, Any]:
     targets = _targets(root)
+    paragraphs = _paragraphs(root)
     candidates = [
-        {"object_id": obj.object_id, "name": obj.name}
+        {
+            "object_id": obj.object_id,
+            "name": obj.name,
+            "paragraphs": paragraphs.get(ooxml_id, []),
+        }
         for ooxml_id, obj in objects.items()
         if ooxml_id in targets
     ]
@@ -230,6 +289,7 @@ def _state(root: etree._Element, objects: dict[str, Any]) -> dict[str, Any]:
                 "name": objects[item["ooxml_id"]].name,
                 "effect": item["effect"],
                 "start": item["start"],
+                "paragraph": item["paragraph"],
             }
             for item in items
         ],
@@ -374,6 +434,15 @@ def _canonical_exit(spid: str, effect: str) -> etree._Element:
     return par
 
 
+def _aim(effect: etree._Element, paragraph: int | None) -> etree._Element:
+    """Point a freshly written effect at one paragraph of its object."""
+    if paragraph is not None:
+        for target in effect.iter(f"{P}spTgt"):
+            text = _element("txEl", target)
+            _element("pRg", text, st=str(paragraph), end=str(paragraph))
+    return effect
+
+
 def _int(value: str | None) -> int:
     return int(value) if value is not None and value.isdigit() else 0
 
@@ -391,7 +460,9 @@ def _length(effect: etree._Element) -> int:
 
 
 def _timing(
-    plan: list[tuple[str, str, etree._Element]], targets: dict[str, bool], old: Any
+    plan: list[tuple[str, str, etree._Element]],
+    targets: dict[str, bool],
+    old: Any,
 ) -> etree._Element:
     timing = _element("timing")
     root_node = _element(
@@ -410,7 +481,7 @@ def _timing(
         _element("sldTgt", _element("tgtEl", condition))
     group_effects: etree._Element | None = None
     click_effects: etree._Element | None = None
-    groups: dict[str, dict[int, int]] = {}
+    groups: dict[str, dict[tuple[str | None, bool], int]] = {}
     offset = end = 0
     for index, (_spid, start, effect) in enumerate(plan):
         if click_effects is None or start == "on_click":
@@ -430,8 +501,10 @@ def _timing(
             group_effects = _element("childTnLst", group)
         node = _time_node(effect)
         node.set("nodeType", STARTS[start])
-        # PowerPoint numbers each object's build groups in sequence order.
-        node.set("grpId", str(groups.setdefault(_spid, {}).setdefault(index, len(groups[_spid]))))
+        # PowerPoint numbers each object's build groups in sequence order; the steps
+        # of one paragraph build (same object and class) share a group.
+        build = (node.get("presetClass"), effect.find(f".//{P}txEl") is not None)
+        node.set("grpId", str(groups.setdefault(_spid, {}).setdefault(build, len(groups[_spid]))))
         group_effects.append(effect)
         end = max(end, offset + _length(effect))
     builds = _element("bldLst", timing)
@@ -443,15 +516,20 @@ def _timing(
     for spid, numbers in groups.items():
         if not targets.get(spid):
             continue
-        for number in sorted(numbers.values()):
+        for (_kind, by_paragraph), number in sorted(numbers.items(), key=lambda item: item[1]):
             kept = old_builds.get((spid, str(number)))
             if kept is None:
                 kept = old_builds.get((spid, "0"))
+            if kept is not None and (kept.get("build", "whole") == "p") != by_paragraph:
+                kept = None
             build = (
                 copy.deepcopy(kept)
                 if kept is not None
                 else _element("bldP", spid=spid, grpId="0", animBg="1")
             )
+            if kept is None and by_paragraph:
+                del build.attrib["animBg"]
+                build.set("build", "p")
             build.set("grpId", str(number))
             builds.append(build)
     if not len(builds):
@@ -504,7 +582,7 @@ def get_slide_animations(editor: PresentationEditService, params: dict[str, Any]
     return {"revision_id": revision, "slide_id": slide.slide_id, **_state(root, objects)}
 
 
-def _requested(value: Any) -> list[dict[str, str]]:
+def _requested(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) > MAX_EFFECTS:
         raise invalid_request(
             f"effects must be a list of at most {MAX_EFFECTS} entries.", field="effects"
@@ -513,7 +591,14 @@ def _requested(value: Any) -> list[dict[str, str]]:
     for entry in value:
         if (
             not isinstance(entry, dict)
-            or set(entry) != {"object_id", "effect", "start"}
+            or set(entry) - {"paragraph"} != {"object_id", "effect", "start"}
+            or (
+                entry.get("paragraph") is not None
+                and (
+                    type(entry["paragraph"]) is not int
+                    or not 0 <= entry["paragraph"] <= MAX_PARAGRAPH
+                )
+            )
             or not isinstance(entry["object_id"], str)
             or entry["effect"] not in CLASSES
             or entry["start"] not in STARTS
@@ -524,17 +609,27 @@ def _requested(value: Any) -> list[dict[str, str]]:
                 + ") and start (on_click, with_previous, after_previous).",
                 field="effects",
             )
-        result.append(dict(entry))
-    if len({(entry["object_id"], CLASSES[entry["effect"]]) for entry in result}) != len(result):
+        result.append({**entry, "paragraph": entry.get("paragraph")})
+    if len(
+        {(entry["object_id"], entry["paragraph"], CLASSES[entry["effect"]]) for entry in result}
+    ) != len(result):
         raise invalid_request(
-            "Each object can have one entrance and one exit effect.", field="effects"
+            "Each object or paragraph can have one entrance and one exit effect.",
+            field="effects",
         )
     return result
 
 
 def _comparable(obj: Any) -> Any:
-    # Animation targets are not deletable or groupable; everything else must stay equal.
-    return dataclasses.replace(obj, delete_editable=False, group_editable=False, group_reason=None)
+    # Animation targets are not deletable, groupable or (for groups) movable; everything
+    # else must stay equal.
+    return dataclasses.replace(
+        obj,
+        delete_editable=False,
+        group_editable=False,
+        group_reason=None,
+        geometry_editable=False,
+    )
 
 
 def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]) -> dict[str, Any]:
@@ -566,7 +661,8 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
         raise CoreDomainError("PRESENTATION_EDIT_UNSUPPORTED", before["reason"])
     by_object = {obj.object_id: obj.ooxml_id for obj in slide.objects}
     targets = _targets(root)
-    current = {(item["ooxml_id"], item["class"]): item for item in _parse(root)}
+    current = {(item["ooxml_id"], item["paragraph"], item["class"]): item for item in _parse(root)}
+    texts = _paragraphs(root)
     for entry in requested:
         spid = by_object.get(entry["object_id"])
         if spid not in targets:
@@ -575,20 +671,25 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
                 "An animated object is unavailable or nested inside a group.",
             )
         kind = CLASSES[entry["effect"]]
+        # A new paragraph target needs text; an existing one is kept as it is.
+        if (
+            entry["paragraph"] is not None
+            and (spid, entry["paragraph"], kind) not in current
+            and entry["paragraph"] not in {item["index"] for item in texts.get(spid or "", [])}
+        ):
+            raise invalid_request(
+                "An animated paragraph is empty or does not exist.", field="effects"
+            )
         if entry["effect"] == CUSTOM[kind] and (
-            current.get((spid, kind), {}).get("effect") != CUSTOM[kind]
+            current.get((spid, entry["paragraph"], kind), {}).get("effect") != CUSTOM[kind]
         ):
             raise invalid_request(
                 "Only an object that already has a custom effect can keep it.",
                 field="effects",
             )
-    wanted = [
-        {"object_id": entry["object_id"], "effect": entry["effect"], "start": entry["start"]}
-        for entry in requested
-    ]
-    if wanted == [
-        {key: item[key] for key in ("object_id", "effect", "start")} for item in before["effects"]
-    ]:
+    fields = ("object_id", "effect", "start", "paragraph")
+    wanted = [{key: entry[key] for key in fields} for entry in requested]
+    if wanted == [{key: item[key] for key in fields} for item in before["effects"]]:
         return {
             "changed": False,
             "revision_id": source["revision_id"],
@@ -608,15 +709,18 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
                     "The slide animations changed. Refresh and try again.",
                     retryable=True,
                 )
-            existing = {(item["ooxml_id"], item["class"]): item for item in _parse(slide_root)}
+            existing = {
+                (item["ooxml_id"], item["paragraph"], item["class"]): item
+                for item in _parse(slide_root)
+            }
             plan = []
             for entry in requested:
                 spid = by_object[entry["object_id"]]
-                kept = existing.get((spid, CLASSES[entry["effect"]]))
+                kept = existing.get((spid, entry["paragraph"], CLASSES[entry["effect"]]))
                 effect = (
                     copy.deepcopy(kept["element"])
                     if kept is not None and kept["effect"] == entry["effect"]
-                    else _canonical(spid, entry["effect"])
+                    else _aim(_canonical(spid, entry["effect"]), entry["paragraph"])
                 )
                 plan.append((spid, entry["start"], effect))
             old = slide_root.find(f"{P}timing")
@@ -666,8 +770,7 @@ def set_slide_animations(editor: PresentationEditService, params: dict[str, Any]
         if (
             after is None
             or not after["editable"]
-            or [{k: e[k] for k in ("object_id", "effect", "start")} for e in after["effects"]]
-            != wanted
+            or [{k: e[k] for k in fields} for e in after["effects"]] != wanted
             or {o.object_id: _comparable(o) for page in updated.slides for o in page.objects}
             != {o.object_id: _comparable(o) for page in fidelity.slides for o in page.objects}
         ):

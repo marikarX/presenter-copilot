@@ -53,6 +53,8 @@ class _Deck:
         )
         box.name = "Box"
         box.text = "Point"
+        for extra in ("Second", "", "Third"):
+            box.text_frame.add_paragraph().text = extra
         image = io.BytesIO()
         Image.new("RGB", (32, 24), (40, 120, 200)).save(image, "PNG")
         image.seek(0)
@@ -257,5 +259,71 @@ def test_exit_effects_follow_entrances(tmp_path: Path) -> None:
         kept = deck.apply([("Box", "fly_out", "on_click")])
         assert kept["ok"]
         assert _summary(deck.state()) == [("Box", "fly_out", "on_click")]
+    finally:
+        deck.core.close()
+
+
+def test_paragraph_builds_step_through_text(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path)
+    try:
+        box = next(c for c in deck.state()["candidates"] if c["name"] == "Box")
+        # Empty paragraphs cannot be animated, so index 2 is skipped.
+        assert [(p["index"], p["text"]) for p in box["paragraphs"]] == [
+            (0, "Point"),
+            (1, "Second"),
+            (3, "Third"),
+        ]
+
+        def entry(effect: str, start: str, paragraph: int | None) -> dict:
+            return {
+                "object_id": deck.ids["Box"],
+                "effect": effect,
+                "start": start,
+                "paragraph": paragraph,
+            }
+
+        def apply(entries: list[dict]) -> dict:
+            reply = _call(
+                deck.core,
+                "set",
+                "presentation.workspace.set_slide_animations",
+                {
+                    **deck.scope(),
+                    "expected_fingerprint": deck.state()["fingerprint"],
+                    "effects": entries,
+                },
+            )
+            if reply["ok"]:
+                deck.revision = reply["result"]["revision_id"]
+            return reply
+
+        build = [
+            entry("fade", "after_previous", 0),
+            entry("fade", "on_click", 1),
+            entry("fade", "on_click", 3),
+        ]
+        reply = apply(build)
+        assert reply["ok"], reply.get("error")
+        assert [(e["effect"], e["start"], e["paragraph"]) for e in deck.state()["effects"]] == [
+            ("fade", "after_previous", 0),
+            ("fade", "on_click", 1),
+            ("fade", "on_click", 3),
+        ]
+        timing = deck.timing()
+        ns = {"p": PRESENTATION_NS}
+        ranges = [(r.get("st"), r.get("end")) for r in timing.iterfind(".//p:pRg", ns)]
+        assert set(ranges) == {("0", "0"), ("1", "1"), ("3", "3")}
+        # One paragraph build: a single group and a build-by-paragraph entry.
+        assert {n.get("grpId") for n in timing.iterfind(".//p:cTn[@presetClass]", ns)} == {"0"}
+        assert [(b.get("build"), b.get("grpId")) for b in timing.iterfind(".//p:bldP", ns)] == [
+            ("p", "0")
+        ]
+
+        # The whole box can still leave afterwards; a missing paragraph is refused.
+        assert apply([*build, entry("fade_out", "on_click", None)])["ok"]
+        missing = apply([entry("fade", "on_click", 2)])
+        assert not missing["ok"] and missing["error"]["code"] == "INVALID_REQUEST"
+        twice = apply([entry("fade", "on_click", 1), entry("wipe", "on_click", 1)])
+        assert not twice["ok"] and twice["error"]["code"] == "INVALID_REQUEST"
     finally:
         deck.core.close()

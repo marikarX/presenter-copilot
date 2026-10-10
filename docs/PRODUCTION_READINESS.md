@@ -215,6 +215,19 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Paragraph animations: an animation effect can target one paragraph of a text
+  object (`paragraph` index, `p:txEl/p:pRg`), so PowerPoint's "by paragraph"
+  builds (one on-click step per paragraph, the first with the chosen start,
+  `bldP build="p"`, one build group) are read, kept and written; candidates
+  list each text object's non-empty paragraphs, and the GUI's "By paragraph"
+  option adds one step per paragraph. New paragraph targets need text;
+  existing ones are kept even on empty paragraphs. Validation ignores
+  movability that changes when a group's animation is removed. PowerPoint
+  reads the written build back as a first-level paragraph build on the right
+  paragraphs. Corpus (`.local/session2/corpus_animations.py`): 85 editable
+  animated slides (39 with paragraph effects), all 85 re-saved without their
+  last effect with no errors, and all 9 PowerPoint-checkable changed decks
+  open. `test_slide_animations.py` 6; `test-slide-animations.mjs` 7/7.
 - Lines and arrows: `create_shape` accepts `line` (a straight `p:sp` line with
   no fill and a 1.5 pt outline; the GUI draws it horizontally through the
   chosen box), `line` joins the shape types, and the shape style reports and

@@ -46,6 +46,9 @@ box=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,Inches(1),Inches(2),Inches(3),Inc
 box.name='Box'; box.text='Point'
 image=io.BytesIO(); Image.new('RGB',(32,24),(40,120,200)).save(image,'PNG'); image.seek(0)
 slide.shapes.add_picture(image,Inches(5),Inches(2),Inches(3),Inches(2)).name='Chart image'
+bullets=slide.shapes.add_textbox(Inches(1),Inches(4.5),Inches(4),Inches(2))
+bullets.name='Bullets'; bullets.text_frame.text='One'
+for t in ('Two','Three'): bullets.text_frame.add_paragraph().text=t
 deck.save(sys.argv[1])
 `,
     fixture,
@@ -259,6 +262,54 @@ try {
   ]);
   checks.push(
     "GUI gives Box a Fade entrance and a Fly out exit as one revision",
+  );
+
+  await page
+    .getByLabel("Object to animate", { exact: true })
+    .selectOption({ label: "Bullets" });
+  await page
+    .getByLabel("New animation effect", { exact: true })
+    .selectOption({ label: "Wipe" });
+  await page.getByLabel("Animate by paragraph", { exact: true }).check();
+  await page
+    .getByRole("button", { name: "Add animation", exact: true })
+    .click();
+  await page
+    .getByLabel("Animation start for Bullets paragraph 1", { exact: true })
+    .selectOption({ label: "After previous" });
+  await apply.click();
+  await workspace.getByText("Current · Revision 6", { exact: true }).waitFor();
+  const revision = (
+    await ask("presentation.workspace.list_revisions", {
+      project_id: project,
+      document_id: document,
+    })
+  ).current_revision_id;
+  const slideId = (
+    await ask("presentation.workspace.list_text_targets", {
+      project_id: project,
+      document_id: document,
+      revision_id: revision,
+      slide_number: 1,
+    })
+  ).slide_id;
+  const built = (
+    await ask("presentation.workspace.get_slide_animations", {
+      project_id: project,
+      document_id: document,
+      expected_revision_id: revision,
+      slide_id: slideId,
+    })
+  ).effects
+    .filter((e) => e.name === "Bullets")
+    .map((e) => [e.effect, e.start, e.paragraph]);
+  assert.deepEqual(built, [
+    ["wipe", "after_previous", 0],
+    ["wipe", "on_click", 1],
+    ["wipe", "on_click", 2],
+  ]);
+  checks.push(
+    "GUI builds Bullets by paragraph: one Wipe step per paragraph, the first after previous",
   );
   assert.deepEqual(errors, []);
   await writeFile(
