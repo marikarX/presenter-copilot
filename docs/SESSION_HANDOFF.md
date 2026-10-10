@@ -239,6 +239,13 @@ Commits this session:
   object selected (it previously reloaded slide 1 and selected the first
   movable object, which the Workspace GUI suite caught once titles became
   movable).
+- Integration sweep after this session's shared fidelity changes: all 44
+  focused GUI harnesses pass besides `test-workspace.mjs` (117/117).
+  `test-outline-evidence.mjs` must be run from the repository root.
+  `test-workspace-corpus-overflow.mjs` now skips placeholders with inherited
+  geometry to keep its explicitly positioned slide-7 title, and asserts that
+  title's renderer text matches Core exactly (both text shapes on that slide
+  now match, so the old "exactly one match" count no longer held).
 - Duplicated and pasted objects now get fresh `a16:creationId` identities,
   as PowerPoint gives a copy, instead of sharing the source's identity.
 - Copilot planning snapshot compaction: the many capability fields added this

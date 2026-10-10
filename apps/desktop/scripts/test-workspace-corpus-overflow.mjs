@@ -89,7 +89,8 @@ async function findReviewTarget() {
         const object = inventory.result.objects.find(
           (item) => item.object_id === target.object_id,
         );
-        if (!object?.geometry) continue;
+        // The overflow fixture targets an explicitly positioned title.
+        if (!object?.geometry || object.geometry_inherited) continue;
         chosen = {
           project_id: project.id,
           document_id: source.id,
@@ -230,6 +231,11 @@ try {
       shape_id_match_count: candidates.filter((candidate) =>
         targets.some((item) => item.ooxml_shape_id === candidate.shape_node_id),
       ).length,
+      target_exact_match: candidates.some(
+        (candidate) =>
+          candidate.shape_node_id === selectedTarget.shape_id &&
+          candidate.text === selectedTarget.text,
+      ),
       exact_text_match_count: candidates.filter((candidate) =>
         targets.some(
           (item) =>
@@ -239,7 +245,9 @@ try {
       ).length,
     };
   }, target);
-  assert.equal(targetMapping.exact_text_match_count, 1);
+  // Every Core text target the renderer shows must match; the reviewed title among them.
+  assert.equal(targetMapping.target_exact_match, true);
+  assert.ok(targetMapping.exact_text_match_count >= 1);
   const firstWord = target.text.match(/[\p{L}\p{N}]+/u)?.[0];
   assert.ok(
     firstWord && firstWord.length >= 4,

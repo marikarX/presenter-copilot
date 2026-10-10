@@ -593,6 +593,7 @@ class FidelityDocument:
                     "group_reason": obj.group_reason,
                     "alt_text": obj.alt_text,
                     "decorative": obj.decorative,
+                    "geometry_inherited": obj.geometry_inherited,
                     "shape_style": (
                         {
                             "editable": obj.shape_style.editable,
