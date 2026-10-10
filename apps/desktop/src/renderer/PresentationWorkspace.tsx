@@ -1447,6 +1447,11 @@ export function PresentationWorkspace({
     useState<SlideAnimationState | null>(null);
   const [accessibility, setAccessibility] =
     useState<AccessibilityResult | null>(null);
+  const [copilotPrefill, setCopilotPrefill] = useState<{
+    instruction: string;
+    scope: "slide" | "deck";
+    nonce: number;
+  } | null>(null);
   const [slideSections, setSlideSections] = useState<SlideSectionState | null>(
     null,
   );
@@ -4858,6 +4863,8 @@ export function PresentationWorkspace({
     }
     return starts;
   }, [currentRevision?.revision_id, slideSections]);
+
+  const clearCopilotPrefill = useCallback(() => setCopilotPrefill(null), []);
 
   const checkAccessibility = useCallback(async () => {
     const source = selectedSource;
@@ -8339,6 +8346,14 @@ export function PresentationWorkspace({
                   disabled={loading || !currentRevision || !loadedSourceId}
                   onCheck={() => void checkAccessibility()}
                   onGo={goToAccessibilityIssue}
+                  onAskCopilot={() =>
+                    setCopilotPrefill({
+                      instruction:
+                        "Add concise alt text to the charts, diagrams, groups and pictures flagged as missing alt text, using their data and slide text; mark purely decorative objects as decorative.",
+                      scope: "deck",
+                      nonce: Date.now(),
+                    })
+                  }
                 />
                 {slideSections &&
                 slideSections.revision_id === currentRevision?.revision_id ? (
@@ -8658,6 +8673,8 @@ export function PresentationWorkspace({
                   revisionId={currentRevision.revision_id}
                   slideNumber={selectedSlide}
                   disabled={loading || voiceWorkflowActive}
+                  prefill={copilotPrefill}
+                  onPrefillConsumed={clearCopilotPrefill}
                   onRestore={async (applied) => {
                     let indexed = true;
                     if (applied) {

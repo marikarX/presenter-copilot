@@ -218,6 +218,9 @@ Commits this session:
   and decorative flag) writes a description or marks an object decorative;
   the prompt asks for descriptions only from supplied chart data and text,
   never invented picture content.
+  "Ask Copilot to add alt text" in the Accessibility panel opens the Copilot
+  request prefilled for the whole presentation; nothing is sent until the
+  user submits it. `test-picture-adjust.mjs` 7/7.
 - Grouping and graphic-frame moves no longer treat PowerPoint's per-object
   identity (`a16:creationId`) or decorative extensions as unsupported
   content: group-eligible objects across the corpus went from 573 to 1135 of

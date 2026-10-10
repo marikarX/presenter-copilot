@@ -623,6 +623,8 @@ export function CopilotEditPlan({
   slideNumber,
   disabled,
   onRestore,
+  prefill,
+  onPrefillConsumed,
 }: {
   projectId: string;
   documentId: string;
@@ -630,11 +632,26 @@ export function CopilotEditPlan({
   slideNumber: number;
   disabled: boolean;
   onRestore: (applied: boolean) => Promise<void>;
+  /** Opens the request with a suggested instruction; nothing is sent until submitted. */
+  prefill?: {
+    instruction: string;
+    scope: "slide" | "deck";
+    nonce: number;
+  } | null;
+  onPrefillConsumed?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [refinement, setRefinement] = useState("");
   const [scopeChoice, setScopeChoice] = useState("slide");
+  useEffect(() => {
+    if (!prefill) return;
+    setOpen(true);
+    setInstruction(prefill.instruction);
+    setScopeChoice(prefill.scope);
+    // The panel remounts per revision: consume the prefill so it opens only once.
+    onPrefillConsumed?.();
+  }, [onPrefillConsumed, prefill]);
   const [attachments, setAttachments] = useState<Asset[]>([]);
   const [deckAssetBusy, setDeckAssetBusy] = useState(false);
   const [projectAssetBusy, setProjectAssetBusy] = useState(false);

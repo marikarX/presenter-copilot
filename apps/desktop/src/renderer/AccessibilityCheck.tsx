@@ -42,12 +42,14 @@ export function AccessibilityCheck({
   disabled,
   onCheck,
   onGo,
+  onAskCopilot,
 }: {
   result: AccessibilityResult | null;
   current: boolean;
   disabled: boolean;
   onCheck: () => void;
   onGo: (issue: AccessibilityIssue) => void;
+  onAskCopilot?: () => void;
 }) {
   const missingAlt =
     result?.issues.filter((item) => item.issue === "missing_alt_text") ?? [];
@@ -76,6 +78,16 @@ export function AccessibilityCheck({
               : `${missingAlt.length} missing alt text · ${missingTitles.length} slides without a title${result.truncated ? " (first 500 shown)" : ""}`}
             {current ? "" : " · results are from an earlier revision"}
           </p>
+          {missingAlt.length && onAskCopilot ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onAskCopilot}
+              disabled={disabled}
+            >
+              Ask Copilot to add alt text
+            </button>
+          ) : null}
           {result.issues.length ? (
             <ul className="pw-accessibility-list">
               {result.issues.map((item) => (

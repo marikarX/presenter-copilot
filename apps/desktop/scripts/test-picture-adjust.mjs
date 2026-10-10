@@ -271,6 +271,19 @@ try {
   checks.push(
     "Accessibility check lists the undescribed picture and untitled slide, and Go to selects the picture",
   );
+  await page
+    .getByRole("button", { name: "Ask Copilot to add alt text", exact: true })
+    .click();
+  const request = page.getByLabel("Copilot edit request", { exact: true });
+  await request.waitFor();
+  assert.match(await request.inputValue(), /^Add concise alt text/);
+  assert.equal(
+    await page.getByLabel("Copilot edit scope", { exact: true }).inputValue(),
+    "deck",
+  );
+  checks.push(
+    "Ask Copilot prefills a whole-presentation alt-text request without sending it",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),
