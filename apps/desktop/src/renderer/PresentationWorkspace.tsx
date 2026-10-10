@@ -379,6 +379,30 @@ type ShapeStyle = {
   shadow_editable?: boolean;
 };
 
+type SlideFooterState = {
+  slide_numbers: "all" | "some" | "none";
+  footers: "all" | "some" | "none";
+  footer_text: string | null;
+  supported_slides: number;
+  slide_count: number;
+  fingerprint: string;
+};
+
+function isSlideFooterState(value: unknown): value is SlideFooterState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<SlideFooterState>;
+  const coverage = ["all", "some", "none"];
+  return (
+    coverage.includes(state.slide_numbers ?? "") &&
+    coverage.includes(state.footers ?? "") &&
+    (state.footer_text === null || typeof state.footer_text === "string") &&
+    Number.isSafeInteger(state.supported_slides) &&
+    Number.isSafeInteger(state.slide_count) &&
+    typeof state.fingerprint === "string" &&
+    /^[0-9a-f]{64}$/.test(state.fingerprint)
+  );
+}
+
 const SLIDE_TRANSITIONS: ReadonlyArray<[string, string]> = [
   ["none", "No transition"],
   ["fade", "Fade"],
@@ -1340,6 +1364,12 @@ export function PresentationWorkspace({
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [linkDraft, setLinkDraft] = useState({ objectId: "", value: "" });
   const [slideHidden, setSlideHidden] = useState<boolean | null>(null);
+  const [footerState, setFooterState] = useState<SlideFooterState | null>(null);
+  const [footerDraft, setFooterDraft] = useState({
+    numbers: false,
+    text: "",
+    skipTitle: true,
+  });
   const [slideTransition, setSlideTransition] = useState<
     string | null | undefined
   >(undefined);
@@ -4602,6 +4632,115 @@ export function PresentationWorkspace({
     ],
   );
 
+  useEffect(() => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (!source || !revision || loadedSourceId !== source.id) {
+      setFooterState(null);
+      return;
+    }
+    let cancelled = false;
+    void requestCore<unknown>("presentation.workspace.get_slide_footers", {
+      project_id: project.id,
+      document_id: source.id,
+      expected_revision_id: revision.revision_id,
+    })
+      .then((state) => {
+        if (cancelled || !isSlideFooterState(state)) return;
+        setFooterState(state);
+        setFooterDraft((current) => ({
+          ...current,
+          numbers: state.slide_numbers !== "none",
+          text: state.footer_text ?? "",
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) setFooterState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRevision, loadedSourceId, project.id, selectedSource]);
+
+  const saveSlideFooters = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    const state = footerState;
+    if (
+      !source ||
+      !revision ||
+      !state ||
+      loadedSourceId !== source.id ||
+      loading
+    )
+      return;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestCore<
+        TextEditResult & { slides_changed?: number }
+      >("presentation.workspace.set_slide_footers", {
+        project_id: project.id,
+        document_id: source.id,
+        expected_revision_id: revision.revision_id,
+        expected_fingerprint: state.fingerprint,
+        slide_numbers: footerDraft.numbers,
+        footer_text: footerDraft.text.trim() ? footerDraft.text.trim() : null,
+        skip_title_slides: footerDraft.skipTitle,
+      });
+      if (
+        typeof result.changed !== "boolean" ||
+        !UUID_PATTERN.test(result.revision_id) ||
+        !Number.isSafeInteger(result.revision_number)
+      ) {
+        throw new Error("The slide footer revision could not be verified.");
+      }
+      if (!result.changed) {
+        setNotice("Slide numbers and footers are unchanged.");
+        return;
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      try {
+        await requestCore("source.reindex", {
+          project_id: project.id,
+          document_id: source.id,
+        });
+      } catch {
+        // Core excludes an unindexed revision from retrieval until retry.
+      }
+      await loadPresentation(selectedSlide, selectedObjectId || undefined);
+      setNotice(
+        `Saved revision ${result.revision_number}: updated slide numbers and footers on ${result.slides_changed ?? 0} slides.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Slide numbers and footers could not be saved.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    currentRevision,
+    footerDraft,
+    footerState,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    selectedObjectId,
+    selectedSlide,
+    selectedSource,
+  ]);
+
   const saveSlideTransitionRevision = useCallback(
     async (transition: string) => {
       const source = selectedSource;
@@ -7454,6 +7593,72 @@ export function PresentationWorkspace({
                     ? "Show slide in slide show"
                     : "Hide slide in slide show"}
                 </button>
+                {footerState ? (
+                  <fieldset className="pw-picture-crop">
+                    <legend>Slide numbers &amp; footer</legend>
+                    <p className="muted">
+                      Applies to every slide whose layout has these placeholders
+                      ({footerState.supported_slides} of{" "}
+                      {footerState.slide_count}). Slide numbers:{" "}
+                      {footerState.slide_numbers}; footers:{" "}
+                      {footerState.footers}.
+                    </p>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        aria-label="Show slide numbers"
+                        checked={footerDraft.numbers}
+                        onChange={(event) =>
+                          setFooterDraft((current) => ({
+                            ...current,
+                            numbers: event.target.checked,
+                          }))
+                        }
+                        disabled={loading}
+                      />
+                      Slide numbers
+                    </label>
+                    <label>
+                      Footer text (empty removes footers)
+                      <input
+                        type="text"
+                        maxLength={200}
+                        aria-label="Footer text"
+                        value={footerDraft.text}
+                        onChange={(event) =>
+                          setFooterDraft((current) => ({
+                            ...current,
+                            text: event.target.value,
+                          }))
+                        }
+                        disabled={loading}
+                      />
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        aria-label="Skip title slides"
+                        checked={footerDraft.skipTitle}
+                        onChange={(event) =>
+                          setFooterDraft((current) => ({
+                            ...current,
+                            skipTitle: event.target.checked,
+                          }))
+                        }
+                        disabled={loading}
+                      />
+                      Don&apos;t show on title slides
+                    </label>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void saveSlideFooters()}
+                      disabled={loading || footerState.supported_slides < 1}
+                    >
+                      Apply to all slides
+                    </button>
+                  </fieldset>
+                ) : null}
                 <label>
                   Slide transition
                   <select

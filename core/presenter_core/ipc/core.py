@@ -935,6 +935,14 @@ class CoreService:
             result = self._presentation_edits.set_text_hyperlink(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
             return make_response(request_id, result=result)
+        if method == "presentation.workspace.get_slide_footers":
+            return make_response(
+                request_id, result=self._presentation_edits.get_slide_footers(params)
+            )
+        if method == "presentation.workspace.set_slide_footers":
+            result = self._presentation_edits.set_slide_footers(params)
+            self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))
+            return make_response(request_id, result=result)
         if method == "presentation.workspace.set_slide_transition":
             result = self._presentation_edits.set_slide_transition(params)
             self._hybrid_retrieval.invalidate_project_mappings(str(params["project_id"]))

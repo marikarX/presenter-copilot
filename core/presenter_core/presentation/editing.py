@@ -2140,6 +2140,16 @@ class PresentationEditService:
 
         return set_text_hyperlink(self, params)
 
+    def get_slide_footers(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_footers import get_slide_footers
+
+        return get_slide_footers(self, params)
+
+    def set_slide_footers(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.slide_footers import set_slide_footers
+
+        return set_slide_footers(self, params)
+
     def set_slide_transition(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_transition import set_slide_transition
 

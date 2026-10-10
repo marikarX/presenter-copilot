@@ -101,6 +101,18 @@ Commits this session:
   transition" picker and Copilot plans); `p:transition` is placed before
   timing, and alternate-content (newer) effects stay read-only. PowerPoint
   reads back the push effect at medium speed. `test-slide-background.mjs` 6/6.
+- Deck-wide slide numbers and footer text, like PowerPoint's Header & Footer
+  "Apply to All" (`presentation.workspace.get_slide_footers` /
+  `set_slide_footers`, "Slide numbers & footer" in slide actions): each slide
+  gets or loses `sldNum`/`ftr` placeholders that copy its layout's `ph`
+  attributes so position and style stay inherited; title slides are skipped
+  by default; a state fingerprint guards stale requests; everything else is
+  verified unchanged. PowerPoint's HeadersFooters API reports the number and
+  footer on content slides and none on the title slide.
+  `test-slide-footers.mjs` 3/3.
+- 3D perspective SmartArt: the corpus has only 2 non-front cameras (one deck,
+  set by the SmartArt quick style on extruded shapes), so a 3D renderer is not
+  worth building; it stays a documented gap.
   `test-slide-background.mjs` 5/5.
 - Shape fill transparency (0-100%, solid fill `a:alpha`) is a shape-style
   property in the Objects panel and Copilot plans. Imported fills with a

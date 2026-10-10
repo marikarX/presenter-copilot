@@ -60,6 +60,7 @@
     "test:ui:slide-background": "pnpm build && node apps/desktop/scripts/test-slide-background.mjs",
     "test:ui:text-hyperlink": "pnpm build && node apps/desktop/scripts/test-text-hyperlink.mjs",
     "test:ui:find-replace": "pnpm build && node apps/desktop/scripts/test-find-replace.mjs",
+    "test:ui:slide-footers": "pnpm build && node apps/desktop/scripts/test-slide-footers.mjs",
     "test:ui:objection-comparison": "pnpm build && node apps/desktop/scripts/test-rehearsal-objection-comparison.mjs",
     "accept:chatgpt-live": "pnpm build && node apps/desktop/scripts/accept-chatgpt-live.mjs",
     "test:codex-containment": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-codex-containment.ps1",
