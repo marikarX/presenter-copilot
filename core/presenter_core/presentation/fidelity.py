@@ -1126,34 +1126,32 @@ def _objects_for_slide(
                 and geometry.y_emu + geometry.height_emu <= slide_height_emu
             )
         group_child = False
-        parent = candidate.getparent()
-        if (
-            kind in {"sp", "pic"}
-            and not alternate_content
-            and parent is not None
-            and parent.tag == f"{{{PRESENTATION_NS}}}grpSp"
-            and parent.getparent() is shape_tree
-        ):
+        if kind in {"sp", "pic"} and not alternate_content:
             from presenter_core.presentation.group_geometry import (
                 box_transform,
-                promoted_geometry,
+                group_chain,
                 simple_transform,
+                slide_geometry,
             )
 
-            # The group must be unrotated; a rotated or flipped child keeps its rotation.
-            if simple_transform(parent) and box_transform(candidate):
-                # Report slide coordinates; edits stay inside the group's frame.
-                outer, _ = read_geometry(parent)
-                geometry = promoted_geometry(parent, candidate)
+            chain = group_chain(candidate)
+            # Every enclosing group must be unrotated; a rotated child keeps its rotation.
+            if (
+                chain
+                and chain[-1].getparent() is shape_tree
+                and all(simple_transform(group) for group in chain)
+                and box_transform(candidate)
+            ):
+                frame = slide_geometry(chain[0])
+                geometry = slide_geometry(candidate)
                 group_child = True
                 geometry_editable = bool(
-                    outer is not None
-                    and geometry.width_emu > 0
+                    geometry.width_emu > 0
                     and geometry.height_emu > 0
-                    and outer.x_emu <= geometry.x_emu
-                    and outer.y_emu <= geometry.y_emu
-                    and geometry.x_emu + geometry.width_emu <= outer.x_emu + outer.width_emu
-                    and geometry.y_emu + geometry.height_emu <= outer.y_emu + outer.height_emu
+                    and frame.x_emu <= geometry.x_emu
+                    and frame.y_emu <= geometry.y_emu
+                    and geometry.x_emu + geometry.width_emu <= frame.x_emu + frame.width_emu
+                    and geometry.y_emu + geometry.height_emu <= frame.y_emu + frame.height_emu
                 )
         if kind == "grpSp":
             geometry, _ = read_geometry(candidate)

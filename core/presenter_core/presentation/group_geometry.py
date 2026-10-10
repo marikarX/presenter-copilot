@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import posixpath
 from typing import Any
 
@@ -200,102 +199,6 @@ def grouping_picture_ids(archive: Any, members: Any, root: Any, slide_part: str)
     return result
 
 
-def child_geometry(
-    group: Any, child: Any, target: FidelityGeometry
-) -> tuple[FidelityGeometry, FidelityGeometry]:
-    """Group-internal coordinates for a slide-space target, and where they actually land.
-
-    The target must lie inside the group's frame, so the group itself is unchanged. A
-    scaled group may not reach every EMU; the nearest position within one child-unit
-    step is used.
-    """
-    outer, transform = read_geometry(group)
-    assert outer is not None
-    if (
-        target.x_emu < outer.x_emu
-        or target.y_emu < outer.y_emu
-        or target.x_emu + target.width_emu > outer.x_emu + outer.width_emu
-        or target.y_emu + target.height_emu > outer.y_emu + outer.height_emu
-    ):
-        raise invalid_request("Keep an object inside its group's frame, or ungroup it first.")
-    offset, extent = transform.find("a:chOff", _NS), transform.find("a:chExt", _NS)
-
-    def inverse(value: int, axis: str, origin: int, size: int) -> int:
-        child_size = int(extent.get("c" + axis))
-        return int(offset.get(axis)) + ((value - origin) * child_size + size // 2) // size
-
-    def around(base: int) -> list[int]:
-        return [base + step for step in (0, -1, 1, -2, 2)]
-
-    def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:
-        return around(inverse(value, axis, origin, size))
-
-    _, child_transform = read_geometry(child)
-    if child_transform is not None and _swaps_axes(child_transform):
-        # Seed from the centre and swapped-axis sizes, then search the same neighbourhood.
-        center_x = inverse(target.x_emu + target.width_emu // 2, "x", outer.x_emu, outer.width_emu)
-        center_y = inverse(
-            target.y_emu + target.height_emu // 2, "y", outer.y_emu, outer.height_emu
-        )
-        child_width = target.width_emu * int(extent.get("cy")) // outer.height_emu
-        child_height = target.height_emu * int(extent.get("cx")) // outer.width_emu
-        seeds = {
-            "left": center_x - child_width // 2,
-            "right": center_x - child_width // 2 + child_width,
-            "top": center_y - child_height // 2,
-            "bottom": center_y - child_height // 2 + child_height,
-        }
-
-        def candidates(value: int, axis: str, origin: int, size: int) -> list[int]:  # noqa: F811
-            key = {
-                ("x", target.x_emu): "left",
-                ("x", target.x_emu + target.width_emu): "right",
-                ("y", target.y_emu): "top",
-                ("y", target.y_emu + target.height_emu): "bottom",
-            }[(axis, value)]
-            return around(seeds[key])
-
-    tolerance = 1 + max(
-        -(-outer.width_emu // int(extent.get("cx"))),
-        -(-outer.height_emu // int(extent.get("cy"))),
-    )
-    probe = copy.deepcopy(child)
-    _, probe_transform = read_geometry(probe)
-    probe_offset = probe_transform.find("a:off", _NS)
-    probe_extent = probe_transform.find("a:ext", _NS)
-    best: tuple[int, FidelityGeometry, FidelityGeometry] | None = None
-    for left in candidates(target.x_emu, "x", outer.x_emu, outer.width_emu):
-        for right in candidates(target.x_emu + target.width_emu, "x", outer.x_emu, outer.width_emu):
-            for top in candidates(target.y_emu, "y", outer.y_emu, outer.height_emu):
-                for bottom in candidates(
-                    target.y_emu + target.height_emu, "y", outer.y_emu, outer.height_emu
-                ):
-                    if right <= left or bottom <= top:
-                        continue
-                    probe_offset.set("x", str(left))
-                    probe_offset.set("y", str(top))
-                    probe_extent.set("cx", str(right - left))
-                    probe_extent.set("cy", str(bottom - top))
-                    landed = promoted_geometry(group, probe)
-                    error = max(
-                        abs(landed.x_emu - target.x_emu),
-                        abs(landed.y_emu - target.y_emu),
-                        abs(landed.width_emu - target.width_emu),
-                        abs(landed.height_emu - target.height_emu),
-                    )
-                    if best is None or error < best[0]:
-                        best = (
-                            error,
-                            FidelityGeometry(left, top, right - left, bottom - top),
-                            landed,
-                        )
-                    if error == 0:
-                        return best[1], best[2]
-    if best is None or best[0] > tolerance:
-        raise invalid_request("This scaled group cannot place the object at that position.")
-    return best[1], best[2]
-
-
 def _swaps_axes(transform: Any) -> bool:
     """PowerPoint scales a child rotated 45-135 or 225-315 degrees with swapped axes."""
     try:
@@ -305,10 +208,10 @@ def _swaps_axes(transform: Any) -> bool:
     return 45 <= degrees < 135 or 225 <= degrees < 315
 
 
-def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:
+def _box_in_parent(group: Any, box: FidelityGeometry, swaps: bool) -> FidelityGeometry:
+    """Map a box from a group's child space into the space the group itself lives in."""
     outer, transform = read_geometry(group)
-    geometry, child_transform = read_geometry(child)
-    assert outer is not None and geometry is not None
+    assert outer is not None
     offset, extent = transform.find("a:chOff", _NS), transform.find("a:chExt", _NS)
 
     def coordinate(value: int, axis: str, origin: int, size: int) -> int:
@@ -316,23 +219,153 @@ def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:
         numerator = (value - int(offset.get(axis))) * size
         return origin + (numerator + denominator // 2) // denominator
 
-    if child_transform is not None and _swaps_axes(child_transform):
+    if swaps:
         # The centre maps normally; the box takes the other axis' scale.
-        center_x = coordinate(
-            geometry.x_emu + geometry.width_emu // 2, "x", outer.x_emu, outer.width_emu
-        )
-        center_y = coordinate(
-            geometry.y_emu + geometry.height_emu // 2, "y", outer.y_emu, outer.height_emu
-        )
-        width = (geometry.width_emu * outer.height_emu + int(extent.get("cy")) // 2) // int(
-            extent.get("cy")
-        )
-        height = (geometry.height_emu * outer.width_emu + int(extent.get("cx")) // 2) // int(
-            extent.get("cx")
-        )
+        center_x = coordinate(box.x_emu + box.width_emu // 2, "x", outer.x_emu, outer.width_emu)
+        center_y = coordinate(box.y_emu + box.height_emu // 2, "y", outer.y_emu, outer.height_emu)
+        cx, cy = int(extent.get("cx")), int(extent.get("cy"))
+        width = (box.width_emu * outer.height_emu + cy // 2) // cy
+        height = (box.height_emu * outer.width_emu + cx // 2) // cx
         return FidelityGeometry(center_x - width // 2, center_y - height // 2, width, height)
-    left = coordinate(geometry.x_emu, "x", outer.x_emu, outer.width_emu)
-    top = coordinate(geometry.y_emu, "y", outer.y_emu, outer.height_emu)
-    right = coordinate(geometry.x_emu + geometry.width_emu, "x", outer.x_emu, outer.width_emu)
-    bottom = coordinate(geometry.y_emu + geometry.height_emu, "y", outer.y_emu, outer.height_emu)
+    left = coordinate(box.x_emu, "x", outer.x_emu, outer.width_emu)
+    top = coordinate(box.y_emu, "y", outer.y_emu, outer.height_emu)
+    right = coordinate(box.x_emu + box.width_emu, "x", outer.x_emu, outer.width_emu)
+    bottom = coordinate(box.y_emu + box.height_emu, "y", outer.y_emu, outer.height_emu)
     return FidelityGeometry(left, top, right - left, bottom - top)
+
+
+def promoted_geometry(group: Any, child: Any) -> FidelityGeometry:
+    """A direct child's box in the space its group lives in (slide space for top level)."""
+    geometry, transform = read_geometry(child)
+    assert geometry is not None
+    return _box_in_parent(group, geometry, transform is not None and _swaps_axes(transform))
+
+
+def group_chain(child: Any) -> list[Any]:
+    """The child's ancestor groups, innermost first, up to (not including) spTree."""
+    chain = []
+    parent = child.getparent()
+    while parent is not None and etree.QName(parent).localname == "grpSp":
+        chain.append(parent)
+        parent = parent.getparent()
+    return chain
+
+
+def slide_geometry(node: Any) -> FidelityGeometry:
+    """A shape, picture or group's box on the slide through every enclosing group."""
+    geometry, transform = read_geometry(node)
+    assert geometry is not None
+    swaps = (
+        etree.QName(node).localname != "grpSp" and transform is not None and _swaps_axes(transform)
+    )
+    for group in group_chain(node):
+        geometry = _box_in_parent(group, geometry, swaps)
+        swaps = False  # groups in a movable chain are unrotated
+    return geometry
+
+
+def child_geometry(
+    child: Any, target: FidelityGeometry
+) -> tuple[FidelityGeometry, FidelityGeometry]:
+    """Child-space coordinates for a slide-space target, and where they actually land.
+
+    The target must lie inside the immediate group's frame, so no group changes. A scaled
+    group may not reach every EMU; the nearest position within one unit step is used.
+    """
+    chain = group_chain(child)
+    frame = slide_geometry(chain[0])
+    if (
+        target.x_emu < frame.x_emu
+        or target.y_emu < frame.y_emu
+        or target.x_emu + target.width_emu > frame.x_emu + frame.width_emu
+        or target.y_emu + target.height_emu > frame.y_emu + frame.height_emu
+    ):
+        raise invalid_request("Keep an object inside its group's frame, or ungroup it first.")
+
+    def inverse_point(x: int, y: int) -> tuple[int, int]:
+        # Slide space to the child's own space, outermost group first.
+        for group in reversed(chain):
+            outer, transform = read_geometry(group)
+            assert outer is not None
+            offset, extent = transform.find("a:chOff", _NS), transform.find("a:chExt", _NS)
+            x = (
+                int(offset.get("x"))
+                + ((x - outer.x_emu) * int(extent.get("cx")) + outer.width_emu // 2)
+                // outer.width_emu
+            )
+            y = (
+                int(offset.get("y"))
+                + ((y - outer.y_emu) * int(extent.get("cy")) + outer.height_emu // 2)
+                // outer.height_emu
+            )
+        return x, y
+
+    def scale(axis: str) -> tuple[int, int]:
+        # Child units per slide unit along an axis, as (numerator, denominator).
+        numerator = denominator = 1
+        for group in chain:
+            outer, transform = read_geometry(group)
+            assert outer is not None
+            extent = transform.find("a:chExt", _NS)
+            numerator *= int(extent.get("c" + axis))
+            denominator *= outer.width_emu if axis == "x" else outer.height_emu
+        return numerator, denominator
+
+    _, transform = read_geometry(child)
+    if transform is not None and _swaps_axes(transform):
+        center = inverse_point(
+            target.x_emu + target.width_emu // 2, target.y_emu + target.height_emu // 2
+        )
+        ny, dy = scale("y")
+        nx, dx = scale("x")
+        width, height = target.width_emu * ny // dy, target.height_emu * nx // dx
+        seed_left, seed_top = center[0] - width // 2, center[1] - height // 2
+        seed_right, seed_bottom = seed_left + width, seed_top + height
+    else:
+        seed_left, seed_top = inverse_point(target.x_emu, target.y_emu)
+        seed_right, seed_bottom = inverse_point(
+            target.x_emu + target.width_emu, target.y_emu + target.height_emu
+        )
+    tolerance = 1
+    for axis in ("x", "y"):
+        numerator, denominator = scale(axis)
+        tolerance = max(tolerance, 1 + -(-denominator // numerator))
+    offset, extent = transform.find("a:off", _NS), transform.find("a:ext", _NS)
+    original = (offset.get("x"), offset.get("y"), extent.get("cx"), extent.get("cy"))
+    steps = (0, -1, 1, -2, 2)
+    best: tuple[int, FidelityGeometry, FidelityGeometry] | None = None
+    try:
+        for left in (seed_left + step for step in steps):
+            for right in (seed_right + step for step in steps):
+                for top in (seed_top + step for step in steps):
+                    for bottom in (seed_bottom + step for step in steps):
+                        if right <= left or bottom <= top:
+                            continue
+                        offset.set("x", str(left))
+                        offset.set("y", str(top))
+                        extent.set("cx", str(right - left))
+                        extent.set("cy", str(bottom - top))
+                        landed = slide_geometry(child)
+                        error = max(
+                            abs(landed.x_emu - target.x_emu),
+                            abs(landed.y_emu - target.y_emu),
+                            abs(landed.width_emu - target.width_emu),
+                            abs(landed.height_emu - target.height_emu),
+                        )
+                        if best is None or error < best[0]:
+                            best = (
+                                error,
+                                FidelityGeometry(left, top, right - left, bottom - top),
+                                landed,
+                            )
+                        if error == 0:
+                            return best[1], best[2]
+    finally:
+        # The search probes the real node (its ancestors matter); restore it.
+        offset.set("x", original[0])
+        offset.set("y", original[1])
+        extent.set("cx", original[2])
+        extent.set("cy", original[3])
+    if best is None or best[0] > tolerance:
+        raise invalid_request("This scaled group cannot place the object at that position.")
+    return best[1], best[2]

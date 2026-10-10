@@ -3179,7 +3179,7 @@ class PresentationEditService:
                 if obj.group_child:
                     from presenter_core.presentation.group_geometry import (
                         child_geometry,
-                        promoted_geometry,
+                        slide_geometry,
                     )
 
                     node = PresentationEditService._find_object_node(
@@ -3188,9 +3188,8 @@ class PresentationEditService:
                         kind=obj.kind,
                         include_group_children=True,
                     )
-                    group = node.getparent()
-                    current_geometry = promoted_geometry(group, node)
-                    child_target, landed = child_geometry(group, node, replacement_geometry)
+                    current_geometry = slide_geometry(node)
+                    child_target, landed = child_geometry(node, replacement_geometry)
                     # A scaled group may land within one child-unit step of the request.
                     replacement_geometry = landed
                 if current_geometry != expected_geometry:
@@ -8945,7 +8944,7 @@ class PresentationEditService:
             )
         if include_group_children and kind in {"sp", "pic"}:
             # Direct children of a top-level group (moved within the group's frame).
-            selector += f" | ./p:cSld/p:spTree/p:grpSp/p:{kind}"
+            selector += f" | ./p:cSld/p:spTree/p:grpSp//p:{kind}"
         matches = []
         for candidate in root.xpath(selector, namespaces=_NS):
             nonvisual = candidate.xpath(nonvisual_selector, namespaces=_NS)

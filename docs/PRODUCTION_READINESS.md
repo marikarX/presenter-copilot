@@ -274,6 +274,13 @@ Commits this session:
   ungroup places such children in scaled groups. PowerPoint matches the
   reported box within 1 EMU before and after moving rotated children on 8 of
   8 sampled decks (rotations from 10 to 357 degrees).
+  Children of nested groups are included too when every enclosing group is
+  unrotated (604 group children reported, 571 movable): positions map through
+  each group level, and a move stays inside the immediate group's frame.
+  PowerPoint matches nested children (2 and 3 levels deep) within 1 EMU
+  before and after a move on 4 sampled decks, with the outer group unchanged.
+  (`test-live-canvas.mjs` failed once after this change and then passed on
+  three consecutive re-runs; noted as an intermittent harness failure.)
   On the canvas a click still selects the whole group; children are edited
   from the Objects panel. Duplicating or pasting a group expects its children
   to move with it (the Workspace GUI suite caught the old expectation).

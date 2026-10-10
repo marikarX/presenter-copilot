@@ -94,5 +94,5 @@ def test_rotated_child_in_a_scaled_group_uses_swapped_axis_scaling() -> None:
     # (200 * 1) and x-scale on its height (400 * 2).
     assert promoted_geometry(group, child) == FidelityGeometry(1900, 1100, 200, 800)
     target = FidelityGeometry(1700, 1100, 200, 800)
-    internal, landed = child_geometry(group, child, target)
+    internal, landed = child_geometry(child, target)
     assert landed == target and internal.x_emu == 300
