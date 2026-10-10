@@ -282,6 +282,12 @@ BENIGN_NONVISUAL_EXTENSIONS = frozenset(
 )
 
 
+# p14:media on a video or audio picture's nvPr names the embedded media part. The
+# picture still renders as its poster image, and writers that move the object into
+# another package remap or refuse every relationship it names.
+MEDIA_EXT_URI = "{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}"
+
+
 def has_unsafe_extensions(node: etree._Element) -> bool:
     """Placeholders or extension lists other than benign non-visual metadata."""
     return bool(node.xpath(".//p:ph", namespaces=_NS)) or has_unsafe_extension_lists(node)
@@ -295,8 +301,15 @@ def has_unsafe_extension_lists(node: etree._Element) -> bool:
             parent is None
             or etree.QName(parent).localname not in {"cNvPr", "nvPr"}
             or any(
-                child.tag != f"{{{DRAWING_NS}}}ext"
-                or child.get("uri") not in BENIGN_NONVISUAL_EXTENSIONS
+                # cNvPr uses a:ext; nvPr (p14:modId) uses p:ext.
+                child.tag not in {f"{{{DRAWING_NS}}}ext", f"{{{PRESENTATION_NS}}}ext"}
+                or (
+                    child.get("uri") not in BENIGN_NONVISUAL_EXTENSIONS
+                    and not (
+                        child.get("uri") == MEDIA_EXT_URI
+                        and etree.QName(parent).localname == "nvPr"
+                    )
+                )
                 for child in extensions
                 if isinstance(child.tag, str)
             )

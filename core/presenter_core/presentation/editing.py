@@ -1617,6 +1617,11 @@ class PresentationEditService:
             ),
         }
 
+    def insert_media(self, params: dict[str, Any]) -> dict[str, Any]:
+        from presenter_core.presentation.media import insert_media
+
+        return insert_media(self, params)
+
     def reuse_slide(self, params: dict[str, Any]) -> dict[str, Any]:
         from presenter_core.presentation.slide_reuse import reuse_slide
 

@@ -6,6 +6,7 @@ import type {
   EventEnvelope,
   JsonObject,
   ImportSourceResult,
+  MediaInsertResult,
   PresentationExportResult,
   PresentationPdfResult,
   NativeAppearanceResult,
@@ -121,6 +122,19 @@ const api: PresenterCopilotApi = {
         expected_revision_id: expectedRevisionId,
         include_hidden: includeHidden,
       }) as Promise<InvokeResult<PresentationPdfResult | { cancelled: true }>>;
+    },
+    pickAndInsertMedia(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      slideId: string,
+    ): Promise<InvokeResult<MediaInsertResult | { cancelled: true }>> {
+      return ipcRenderer.invoke("presentation:pick-and-insert-media", {
+        project_id: projectId,
+        document_id: documentId,
+        expected_revision_id: expectedRevisionId,
+        slide_id: slideId,
+      }) as Promise<InvokeResult<MediaInsertResult | { cancelled: true }>>;
     },
     saveUnchangedCopy(
       projectId: string,

@@ -179,6 +179,7 @@ SUPPORTED_METHODS: Final[tuple[str, ...]] = (
     "presentation.workspace.duplicate_slide",
     "presentation.workspace.create_text_box",
     "presentation.workspace.create_picture",
+    "presentation.workspace.insert_media",
     "presentation.workspace.create_shape",
     "presentation.workspace.list_diagrams",
     "presentation.workspace.create_diagram",

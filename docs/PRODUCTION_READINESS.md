@@ -204,6 +204,21 @@ Commits this session:
   Objects panel change them as one revision, guarded by the previous values.
   PowerPoint reads back the written alt text and `Shape.Decorative`. The
   planning snapshot leaves these fields out. `test-picture-adjust.mjs` 5/5.
+- Video and audio (`presentation.workspace.insert_media`, main-process only;
+  "Insert video or audio…" in the Objects panel): the desktop main process
+  shows the file dialog and passes the path to Core, which never returns it
+  to the renderer. PyAV checks the file: MP4/M4V video (H.264, HEVC, MPEG-4)
+  or MP3, M4A, WAV audio, up to 512 MB and 3 hours. The media is embedded
+  (stored uncompressed in the package) as PowerPoint 2010+ does: a picture
+  with `a:videoFile`/`a:audioFile`, `p14:media` and a click-to-play action,
+  whose image is the first video frame or a speaker icon; video is centred at
+  up to 60% of the slide, audio as a 1/2" icon. Media pictures can be moved,
+  resized and deleted (the `p14:media` extension is accepted on `nvPr`).
+  PowerPoint reads them back as movie/sound media, embedded, with the right
+  length, and renders the poster. `test_media.py`; `test-media.mjs` 3/3.
+  The same change fixed the benign-extension check, which only accepted
+  `a:ext`, so `p14:modId` on `nvPr` (written as `p:ext`) no longer makes an
+  object read-only.
 - Reuse Slides (`presentation.workspace.reuse_slide`, "Reuse slides" under
   Slide actions & layout): copies a slide from another presentation in the
   project (from an immutable revision) to any position, PowerPoint's "use

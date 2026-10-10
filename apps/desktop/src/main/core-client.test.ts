@@ -134,6 +134,9 @@ describe("CoreProcessClient", () => {
     expect(isRendererCoreMethod("transcript.map_speaker")).toBe(true);
     expect(isRendererCoreMethod("audience.build_context")).toBe(false);
     expect(isRendererCoreMethod("source.import")).toBe(false);
+    expect(isRendererCoreMethod("presentation.workspace.insert_media")).toBe(
+      false,
+    );
     expect(isRendererCoreMethod("search.lexical")).toBe(false);
     expect(isRendererCoreMethod("core.hello")).toBe(false);
     expect(isRendererCoreMethod("core.shutdown")).toBe(false);

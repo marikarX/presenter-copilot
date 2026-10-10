@@ -5403,6 +5403,68 @@ export function PresentationWorkspace({
     themeFonts,
   ]);
 
+  const insertMedia = useCallback(async () => {
+    const source = selectedSource;
+    const revision = currentRevision;
+    if (
+      !source ||
+      !revision ||
+      loading ||
+      !UUID_PATTERN.test(activeSlideId) ||
+      loadedSourceId !== source.id
+    )
+      return;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = unwrapInvokeResult(
+        await window.presenterCopilot.presentation.pickAndInsertMedia(
+          project.id,
+          source.id,
+          revision.revision_id,
+          activeSlideId,
+        ),
+      );
+      if ("cancelled" in result) return;
+      if (
+        !UUID_PATTERN.test(result.revision_id) ||
+        !UUID_PATTERN.test(result.created_object_id)
+      ) {
+        throw new Error("The inserted media could not be verified.");
+      }
+      setCurrentRevision({
+        revision_id: result.revision_id,
+        revision_kind: "edited",
+        revision_number: result.revision_number,
+        sha256: result.sha256,
+        byte_size: result.byte_size,
+      });
+      await loadPresentation(selectedSlide, result.created_object_id);
+      const seconds = Math.round(result.duration_seconds);
+      setNotice(
+        `Saved revision ${result.revision_number} with ${result.media_kind === "video" ? "a video" : "an audio clip"} (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}). It plays in PowerPoint's slide show.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The media could not be inserted.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    activeSlideId,
+    currentRevision,
+    loadPresentation,
+    loadedSourceId,
+    loading,
+    project.id,
+    selectedSlide,
+    selectedSource,
+  ]);
+
   const reuseSlide = useCallback(
     async (reuse: ReuseRequest) => {
       const source = selectedSource;
@@ -10848,6 +10910,26 @@ export function PresentationWorkspace({
                   removed when they have no placeholder, connector, or animation
                   dependency. Changes save as a new revision.
                 </p>
+                <fieldset className="pw-picture-crop">
+                  <legend>Add video or audio</legend>
+                  <p className="muted">
+                    MP4 video or MP3, M4A or WAV audio, embedded in the deck.
+                    The preview shows the first frame; it plays in PowerPoint.
+                  </p>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={
+                      loading ||
+                      voiceWorkflowActive ||
+                      !currentRevision ||
+                      !UUID_PATTERN.test(activeSlideId)
+                    }
+                    onClick={() => void insertMedia()}
+                  >
+                    Insert video or audio…
+                  </button>
+                </fieldset>
                 <fieldset className="pw-picture-crop">
                   <legend>Add a picture</legend>
                   {selectedSource && currentRevision && slideSizeEmu ? (

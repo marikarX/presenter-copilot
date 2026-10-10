@@ -168,6 +168,7 @@ export const CORE_METHODS = [
   "presentation.workspace.duplicate_slide",
   "presentation.workspace.create_text_box",
   "presentation.workspace.create_picture",
+  "presentation.workspace.insert_media",
   "presentation.workspace.create_shape",
   "presentation.workspace.list_diagrams",
   "presentation.workspace.create_diagram",
@@ -691,6 +692,18 @@ export function isProjectSummary(value: unknown): value is ProjectSummary {
 export function unwrapInvokeResult<T>(response: InvokeResult<T>): T {
   if (response.ok) return response.result;
   throw response.error;
+}
+
+export interface MediaInsertResult {
+  changed: boolean;
+  revision_id: string;
+  revision_number: number;
+  sha256: string;
+  byte_size: number;
+  created_object_id: string;
+  media_kind: "video" | "audio";
+  duration_seconds: number;
+  media_byte_size: number;
 }
 
 export interface SourceSummary {
@@ -1778,6 +1791,12 @@ export interface PresenterCopilotApi {
       expectedRevisionId: string,
       includeHidden: boolean,
     ): Promise<InvokeResult<PresentationPdfResult | { cancelled: true }>>;
+    pickAndInsertMedia(
+      projectId: string,
+      documentId: string,
+      expectedRevisionId: string,
+      slideId: string,
+    ): Promise<InvokeResult<MediaInsertResult | { cancelled: true }>>;
     saveUnchangedCopy(
       projectId: string,
       documentId: string,

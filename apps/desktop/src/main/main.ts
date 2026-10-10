@@ -468,6 +468,38 @@ function validatePresentationExportRequest(value: unknown): {
   };
 }
 
+function validateMediaInsertRequest(value: unknown): {
+  projectId: string;
+  documentId: string;
+  expectedRevisionId: string;
+  slideId: string;
+} {
+  const fields = [
+    "project_id",
+    "document_id",
+    "expected_revision_id",
+    "slide_id",
+  ];
+  if (
+    !isJsonObject(value) ||
+    Object.keys(value).some((key) => !fields.includes(key)) ||
+    fields.some(
+      (key) =>
+        typeof value[key] !== "string" ||
+        (value[key] as string).length === 0 ||
+        (value[key] as string).length > 80,
+    )
+  ) {
+    throw new Error("The media insert target is invalid.");
+  }
+  return {
+    projectId: value.project_id as string,
+    documentId: value.document_id as string,
+    expectedRevisionId: value.expected_revision_id as string,
+    slideId: value.slide_id as string,
+  };
+}
+
 function validateManualShortcutRequest(value: unknown): ManualRunTarget {
   if (!isJsonObject(value)) throw new Error("A Run target is required.");
   const projectId = value.project_id;
@@ -1027,6 +1059,39 @@ function registerIpc(
       );
     });
   });
+  ipcMain.handle(
+    "presentation:pick-and-insert-media",
+    async (event, value: unknown) => {
+      assertTrustedRendererSender(event, rendererPolicy);
+      return invokeResult(async () => {
+        const request = validateMediaInsertRequest(value);
+        const selection = await dialog.showOpenDialog({
+          title: "Insert video or audio",
+          properties: ["openFile"],
+          filters: [
+            {
+              name: "Video or audio",
+              extensions: ["mp4", "m4v", "mp3", "m4a", "wav"],
+            },
+          ],
+        });
+        if (selection.canceled || selection.filePaths.length === 0)
+          return { cancelled: true };
+        // The chosen path stays in main, as for source import.
+        return requireClient().request(
+          "presentation.workspace.insert_media",
+          {
+            project_id: request.projectId,
+            document_id: request.documentId,
+            expected_revision_id: request.expectedRevisionId,
+            slide_id: request.slideId,
+            path: selection.filePaths[0],
+          },
+          120_000,
+        );
+      });
+    },
+  );
   ipcMain.handle(
     "presentation:save-unchanged-copy",
     async (event, value: unknown) => {
