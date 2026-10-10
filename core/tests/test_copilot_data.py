@@ -328,7 +328,10 @@ def test_existing_table_context_preserves_read_only_cells(tmp_path: Path, mutati
             seen.append(item)
             assert "fingerprint" not in item
             cells = copy.deepcopy(item.get("cells", [["Reviewed"]]))
-            cells[-1][-1] = "Confirmed"
+            if mutation == "mixed_runs":
+                cells[1][1] = "Confirmed"  # the locked rich-text cell
+            else:
+                cells[-1][-1] = "Confirmed"
             return {
                 "summary": "Review table cell",
                 "operations": operations(
@@ -354,7 +357,9 @@ def test_existing_table_context_preserves_read_only_cells(tmp_path: Path, mutati
         )
         assert seen and path(core, params).read_bytes() == baseline
         if mutation == "mixed_runs":
-            assert not seen[0]["editable"] and not core._presentation_edit_plans._plans
+            # The rich-text cell is locked; a plan changing it is refused before review.
+            assert seen[0]["locked_cells"] == [[1, 1]]
+            assert not core._presentation_edit_plans._plans
         else:
             assert seen[0]["cells"][1][1] == "$10M"
             assert proposal["review_operations"][0]["previous_data"]["cells"] == seen[0]["cells"]

@@ -885,6 +885,17 @@ class PresentationEditPlanningService:
                 raise invalid_request(
                     "The proposed table/chart target is not editable for this operation."
                 )
+            if kind == "replace_table_cells" and any(
+                isinstance(params.get("cells"), list)
+                and r < len(params["cells"])
+                and isinstance(params["cells"][r], list)
+                and c < len(params["cells"][r])
+                and params["cells"][r][c] != target["cells"][r][c]
+                for r, c in target.get("locked_cells", [])
+            ):
+                raise invalid_request(
+                    "The proposed edit changes a rich-text table cell; edit it in PowerPoint."
+                )
             if kind == "fit_table_rows":
                 if not target["fit"]["editable"]:
                     raise invalid_request(target["fit"]["reason"])
