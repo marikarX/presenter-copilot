@@ -235,6 +235,15 @@ Commits this session:
   corpus mean 2.406% -> 2.396% (median 2.051% -> 2.035%), 4 slides better
   by up to 2.8 points, 1 worse by 0.5. (Excluding normAutofit from the
   unwrapped-width shrink instead was measured and did not help.)
+- Preview lines with mixed run sizes are sized like PowerPoint: each line
+  takes the height of the runs on it, so a large first run (a bold 30 pt
+  lead-in in a 26 pt bullet) no longer raises the pitch of the paragraph's
+  later lines. The paragraph strut uses the smallest run size; the first and
+  last line spacing margins keep the first run as their basis. Corpus mean
+  2.396% -> 2.361% (median 2.035% -> 2.020%): 10 slides better by more than
+  0.3 points (9.13% -> 3.08% at best), 1 worse by 0.9, where Chromium's
+  Calibri Light measures about 2% wider than PowerPoint's and one title line
+  now wraps a word earlier (it had matched only through a wrong shrink).
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
