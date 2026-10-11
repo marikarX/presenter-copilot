@@ -95,6 +95,57 @@ const METRIC_FALLBACKS: ReadonlyMap<string, readonly MetricFallback[]> =
         { family: "Calibri", regular: "97.6%", bold: "98.1%" },
       ],
     ],
+    // Cloud fonts seen in real decks, matched within their style (humanist sans to
+    // Segoe UI, condensed to Arial Narrow, old-style serif to Times New Roman).
+    ["abadi", [{ family: "Segoe UI", regular: "97.7%", bold: "96.1%" }]],
+    ["lato", [{ family: "Segoe UI", regular: "100.7%", bold: "95.5%" }]],
+    ["nunito", [{ family: "Segoe UI", regular: "102.8%", bold: "99.3%" }]],
+    ["nunito sans", [{ family: "Segoe UI", regular: "102.6%", bold: "99.3%" }]],
+    ["roboto", [{ family: "Segoe UI", regular: "101.1%", bold: "96.1%" }]],
+    ["raleway", [{ family: "Segoe UI", regular: "105.5%", bold: "101.8%" }]],
+    ["open sans", [{ family: "Segoe UI", regular: "105.3%", bold: "105.1%" }]],
+    ["montserrat", [{ family: "Segoe UI", regular: "113.4%", bold: "111.3%" }]],
+    ["ubuntu", [{ family: "Segoe UI", regular: "102.5%", bold: "100.9%" }]],
+    [
+      "source sans pro",
+      [{ family: "Calibri", regular: "102.0%", bold: "105.7%" }],
+    ],
+    ["oswald", [{ family: "Arial Narrow", regular: "98.5%", bold: "91.8%" }]],
+    ["bembo", [{ family: "Times New Roman", regular: "99.5%", bold: "94.6%" }]],
+    [
+      "source code pro",
+      [{ family: "Courier New", regular: "100%", bold: "100%" }],
+    ],
+    ["inconsolata", [{ family: "Consolas", regular: "90.9%", bold: "90.9%" }]],
+  ]);
+
+/**
+ * Windows ascent and descent (OS/2 winAscent/winDescent, percent of the font size)
+ * of the cloud fonts, read from the cached Office font files. PowerPoint places
+ * text with these metrics (not the typo metrics Chromium prefers when a font sets
+ * USE_TYPO_METRICS), so the width-matched fallback takes them over and a line
+ * mixing it with other fonts keeps the height it has in PowerPoint.
+ */
+const CLOUD_FONT_METRICS: ReadonlyMap<string, readonly [number, number]> =
+  new Map([
+    ["aptos", [101, 27.5]],
+    ["aptos display", [101, 27.5]],
+    ["aptos narrow", [101, 27.5]],
+    ["aptos serif", [101, 27.5]],
+    ["abadi", [88.7, 24.6]],
+    ["lato", [111.7, 29.9]],
+    ["nunito", [107.7, 30]],
+    ["nunito sans", [110.2, 32.7]],
+    ["roboto", [95, 25]],
+    ["raleway", [115.4, 23.4]],
+    ["open sans", [106.9, 29.3]],
+    ["montserrat", [110.9, 27]],
+    ["ubuntu", [93.2, 18.9]],
+    ["source sans pro", [98.4, 27.3]],
+    ["oswald", [132.5, 37.7]],
+    ["bembo", [89.6, 23.3]],
+    ["source code pro", [98.4, 27.3]],
+    ["inconsolata", [100.4, 45.4]],
   ]);
 
 const FALLBACK_STYLES = [
@@ -339,14 +390,23 @@ export async function resolvePreviewFonts(
       for (const style of FALLBACK_STYLES) {
         const localName = `${candidate.family}${style.suffix}`;
         if (!(await checkLocalFont(localName))) continue;
+        const sizeAdjust =
+          style.descriptors.weight === "700"
+            ? candidate.bold
+            : candidate.regular;
         // size-adjust is a supported FontFace descriptor missing from lib.dom.
         const descriptors: FontFaceDescriptors & { sizeAdjust: string } = {
           ...style.descriptors,
-          sizeAdjust:
-            style.descriptors.weight === "700"
-              ? candidate.bold
-              : candidate.regular,
+          sizeAdjust,
         };
+        const metrics = CLOUD_FONT_METRICS.get(family.toLowerCase());
+        if (metrics) {
+          // Chromium scales the metric overrides by size-adjust as well.
+          const scale = parseFloat(sizeAdjust) / 100;
+          descriptors.ascentOverride = `${(metrics[0] / scale).toFixed(1)}%`;
+          descriptors.descentOverride = `${(metrics[1] / scale).toFixed(1)}%`;
+          descriptors.lineGapOverride = "0%";
+        }
         faces.push({
           family,
           source: `local("${escapeCssString(localName)}")`,

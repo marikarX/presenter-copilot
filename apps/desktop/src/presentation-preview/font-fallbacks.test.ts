@@ -139,6 +139,21 @@ describe("width-matched Office cloud font fallback", () => {
     ]);
   });
 
+  it("matches other cloud fonts within their style", async () => {
+    const resolution = await resolvePreviewFonts(
+      pptxFiles(
+        '<a:latin typeface="Abadi"/><a:latin typeface="Oswald"/><a:latin typeface="Bembo"/>',
+      ),
+      presentationData(),
+      local(["Segoe UI", "Arial Narrow", "Times New Roman", "Arial"]),
+    );
+    expect(resolution.substitutions).toEqual([
+      "Abadi → Segoe UI (width-matched)",
+      "Oswald → Arial Narrow (width-matched)",
+      "Bembo → Times New Roman (width-matched)",
+    ]);
+  });
+
   it("uses the generic fallback when no metric fallback is installed", async () => {
     const resolution = await resolvePreviewFonts(
       pptxFiles('<a:latin typeface="Aptos"/>'),

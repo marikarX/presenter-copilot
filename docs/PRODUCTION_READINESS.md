@@ -256,6 +256,18 @@ Commits this session:
   negative half-width offset leaves the image in place. Corpus mean 2.355%
   -> 2.312%: 14 slides better by more than 0.3 points (6.29% -> 1.95% at
   best), none worse.
+- More Office cloud fonts get width-matched preview fallbacks (Abadi, Lato,
+  Nunito, Nunito Sans, Roboto, Raleway, Open Sans, Montserrat, Ubuntu, Source
+  Sans Pro, Oswald, Bembo, Source Code Pro, Inconsolata), measured from the
+  cached Office font files against an installed face of the same style. Each
+  fallback (Aptos included) also takes over the cloud font's Windows ascent
+  and descent, which PowerPoint places text with: Chromium scales the metric
+  overrides by size-adjust, so they are divided by it. Width matching alone
+  made one slide 1.6 points worse where Roboto-styled spaces gave its lines
+  Segoe UI's taller metrics; Chromium's typo metrics instead of the Windows
+  ones lost most of Abadi's gain. Corpus mean 2.312% -> 2.302% (median 2.018%
+  -> 2.002%): 5 slides better by more than 0.3 points (4.52% -> 2.81% at
+  best), none worse.
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
