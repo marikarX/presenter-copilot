@@ -229,10 +229,12 @@ Commits this session:
   margins (no relative offsets, which autofit would measure as overflow).
   Probe slides 0.66/0.46/0.92% -> 0.27/0.27/0.25% MAE. Corpus mean 2.834% ->
   2.406% (median 2.473% -> 2.051%): 245 slides better by more than 0.2
-  points, 27 worse. The largest remaining regressions are normAutofit
-  bodies that overflow slightly and are shrunk by the renderer's fit loop
-  (excluding normAutofit from its unwrapped-width shrink was measured and
-  did not help overall).
+  points, 27 worse. normAutofit bodies already carry PowerPoint's fitted
+  fontScale/lnSpcReduction, so when the preview overflows them by at most
+  15% (metric differences) the text is shown instead of being shrunk again:
+  corpus mean 2.406% -> 2.396% (median 2.051% -> 2.035%), 4 slides better
+  by up to 2.8 points, 1 worse by 0.5. (Excluding normAutofit from the
+  unwrapped-width shrink instead was measured and did not help.)
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
