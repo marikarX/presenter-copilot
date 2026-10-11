@@ -244,6 +244,11 @@ Commits this session:
   0.3 points (9.13% -> 3.08% at best), 1 worse by 0.9, where Chromium's
   Calibri Light measures about 2% wider than PowerPoint's and one title line
   now wraps a word earlier (it had matched only through a wrong shrink).
+- Preview text with tabs wraps like PowerPoint: runs holding tabs keep their
+  tabs and spaces but may still wrap (only the whitespace-collapse longhand
+  is set, so wrap="none" bodies stay unwrapped). A long tabbed line used to
+  overflow and make autofit shrink the whole body. Corpus mean 2.361% ->
+  2.355%: 2 slides better (7.54% -> 5.78%, 3.87% -> 2.33%), none worse.
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
