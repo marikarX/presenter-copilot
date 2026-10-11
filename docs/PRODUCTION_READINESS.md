@@ -301,6 +301,19 @@ Commits this session:
   slides better by more than 0.3 points; 1 rotated slide measures 1 point
   worse although its text now sits closer to PowerPoint's (its remaining
   offset is unrelated).
+- Preview tables size their rows like PowerPoint. A row's h is its minimum
+  height; rows grow to fit their text and the table is as tall as its rows,
+  neither stretched nor clipped to the graphic frame (PowerPoint draws a
+  table past its frame when its rows grow). The renderer gave rows
+  percentage heights of a table forced to the frame and clipped the frame,
+  so grown rows squeezed the others (a header row lost a quarter of its
+  height) and the last rows were cut off. Measured one-line PowerPoint
+  cells also give the first line of an increased-spacing cell paragraph:
+  max(1.2, 0.9 x spacing + ~0.24) em (the constant is about the font's
+  descent), 0.05 em less than the text-box rule at 115%, the Google Slides
+  default; table cells use it, text boxes keep their measured rule. Corpus
+  mean 2.218% -> 2.197%: 9 slides better by more than 0.3 points (9.11% ->
+  6.78%, 5.52% -> 3.80%), 1 table slide 0.4 worse.
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)

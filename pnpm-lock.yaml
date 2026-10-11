@@ -13,7 +13,7 @@ overrides:
   undici@^7.0.0: 7.29.1
 
 patchedDependencies:
-  '@aiden0z/pptx-renderer@1.3.0': a6163f0c7e018c82a1c524d2f931c0fb0ee3924f6ea0f1f56ded1a278b1788f9
+  '@aiden0z/pptx-renderer@1.3.0': 3839e10f30ddf8dade19eeeee257fcd8f15ecafc978af88a090f50dbb387e424
 
 importers:
 
@@ -40,7 +40,7 @@ importers:
     devDependencies:
       '@aiden0z/pptx-renderer':
         specifier: 1.3.0
-        version: 1.3.0(patch_hash=a6163f0c7e018c82a1c524d2f931c0fb0ee3924f6ea0f1f56ded1a278b1788f9)(pdfjs-dist@5.4.624)
+        version: 1.3.0(patch_hash=3839e10f30ddf8dade19eeeee257fcd8f15ecafc978af88a090f50dbb387e424)(pdfjs-dist@5.4.624)
       '@eslint/js':
         specifier: 10.0.1
         version: 10.0.1(eslint@10.9.1(jiti@2.7.0)(supports-color@7.2.0))
@@ -2037,7 +2037,7 @@ packages:
 
 snapshots:
 
-  '@aiden0z/pptx-renderer@1.3.0(patch_hash=a6163f0c7e018c82a1c524d2f931c0fb0ee3924f6ea0f1f56ded1a278b1788f9)(pdfjs-dist@5.4.624)':
+  '@aiden0z/pptx-renderer@1.3.0(patch_hash=3839e10f30ddf8dade19eeeee257fcd8f15ecafc978af88a090f50dbb387e424)(pdfjs-dist@5.4.624)':
     dependencies:
       echarts: 6.1.0
       jszip: 3.10.2
