@@ -311,6 +311,20 @@ try {
   checks.push(
     "GUI builds Bullets by paragraph: one Wipe step per paragraph, the first after previous",
   );
+
+  await add("Chart image", "Pulse");
+  await page
+    .getByLabel("Emphasis start for Chart image", { exact: true })
+    .selectOption({ label: "With previous" });
+  await apply.click();
+  await workspace.getByText("Current · Revision 7", { exact: true }).waitFor();
+  assert.deepEqual(
+    (await state()).filter(([name]) => name === "Chart image"),
+    [["Chart image", "pulse", "with_previous"]],
+  );
+  checks.push(
+    "GUI adds a Pulse emphasis to the chart image with the previous step",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     path.join(output, "result.json"),

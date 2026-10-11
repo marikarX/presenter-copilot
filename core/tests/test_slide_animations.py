@@ -200,15 +200,29 @@ def test_custom_entrance_kept_and_guards(tmp_path: Path) -> None:
         deck.core.close()
 
 
-def test_emphasis_keeps_slide_read_only(tmp_path: Path) -> None:
+def test_custom_emphasis_is_kept_and_motion_paths_stay_read_only(tmp_path: Path) -> None:
     deck = _Deck(tmp_path, timing_class="emph")
     try:
-        state = deck.state()
-        assert not state["editable"] and "emphasis" in state["reason"]
-        reply = deck.apply([])
-        assert not reply["ok"] and reply["error"]["code"] == "PRESENTATION_EDIT_UNSUPPORTED"
+        assert _summary(deck.state()) == [("Box", "custom_emphasis", "on_click")]
+        reply = deck.apply(
+            [("Box", "custom_emphasis", "on_click"), ("Pic", "pulse", "after_previous")]
+        )
+        assert reply["ok"], reply.get("error")
+        assert _summary(deck.state()) == [
+            ("Box", "custom_emphasis", "on_click"),
+            ("Pic", "pulse", "after_previous"),
+        ]
     finally:
         deck.core.close()
+    (tmp_path / "motion").mkdir()
+    motion = _Deck(tmp_path / "motion", timing_class="path")
+    try:
+        state = motion.state()
+        assert not state["editable"] and "motion" in state["reason"]
+        reply = motion.apply([])
+        assert not reply["ok"] and reply["error"]["code"] == "PRESENTATION_EDIT_UNSUPPORTED"
+    finally:
+        motion.core.close()
 
 
 def test_media_timing_reason(tmp_path: Path) -> None:
@@ -324,6 +338,29 @@ def test_paragraph_builds_step_through_text(tmp_path: Path) -> None:
         missing = apply([entry("fade", "on_click", 2)])
         assert not missing["ok"] and missing["error"]["code"] == "INVALID_REQUEST"
         twice = apply([entry("fade", "on_click", 1), entry("wipe", "on_click", 1)])
+        assert not twice["ok"] and twice["error"]["code"] == "INVALID_REQUEST"
+    finally:
+        deck.core.close()
+
+
+def test_emphasis_effects_written_as_powerpoint_does(tmp_path: Path) -> None:
+    deck = _Deck(tmp_path)
+    try:
+        plan = [
+            ("Box", "fade", "on_click"),
+            ("Box", "grow_shrink", "on_click"),
+            ("Pic", "spin", "with_previous"),
+            ("Title 1", "teeter", "after_previous"),
+        ]
+        reply = deck.apply(plan)
+        assert reply["ok"], reply.get("error")
+        assert _summary(deck.state()) == plan
+        ns = {"p": PRESENTATION_NS}
+        emphasis = deck.timing().xpath(".//p:cTn[@presetClass='emph']", namespaces=ns)
+        assert [n.get("presetID") for n in emphasis] == ["6", "8", "32"]
+        assert emphasis[0].find(".//p:animScale/p:by", ns).get("x") == "150000"
+        assert len(emphasis[2].findall(".//p:animRot", ns)) == 5
+        twice = deck.apply([("Box", "spin", "on_click"), ("Box", "pulse", "on_click")])
         assert not twice["ok"] and twice["error"]["code"] == "INVALID_REQUEST"
     finally:
         deck.core.close()

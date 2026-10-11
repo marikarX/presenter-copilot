@@ -1,10 +1,10 @@
 """A slide's entrance and exit animations: which objects appear or leave, with what
 effect, in what order.
 
-Only the main click sequence of entrance and exit effects is editable. An effect
-targets a whole object or one of its paragraphs (PowerPoint's "by paragraph" builds
-are one step per paragraph); each target can have one entrance and one exit.
-Emphasis and motion effects, triggers, chart or diagram builds and alternate-content
+Only the main click sequence of entrance, emphasis and exit effects is editable.
+An effect targets a whole object or one of its paragraphs (PowerPoint's "by
+paragraph" builds are one step per paragraph); each target can have one effect of
+each kind. Motion paths, triggers, chart or diagram builds and alternate-content
 timing keep the slide read-only. Unchanged effects are
 carried over verbatim, so custom durations and delays survive reordering.
 """
@@ -47,9 +47,42 @@ EFFECTS = {
     "fly_out": ("2", "4", "exit"),
     "wipe_out": ("22", "4", "exit"),
     "zoom_out": ("23", "16", "exit"),
+    "grow_shrink": ("6", "0", "emph"),
+    "spin": ("8", "0", "emph"),
+    "pulse": ("26", "0", "emph"),
+    "teeter": ("32", "0", "emph"),
+}
+# Emphasis effects exactly as PowerPoint writes them (captured from PowerPoint's own
+# output); S marks the target shape id.
+_EMPHASIS = {
+    "grow_shrink": '<p:animScale><p:cBhvr><p:cTn id="0" dur="2000" fill="hold"/>'
+    '<p:tgtEl><p:spTgt spid="S"/></p:tgtEl></p:cBhvr><p:by x="150000" y="150000"/>'
+    "</p:animScale>",
+    "spin": '<p:animRot by="21600000"><p:cBhvr><p:cTn id="0" dur="2000" fill="hold"/>'
+    '<p:tgtEl><p:spTgt spid="S"/></p:tgtEl><p:attrNameLst><p:attrName>r</p:attrName>'
+    "</p:attrNameLst></p:cBhvr></p:animRot>",
+    "pulse": '<p:animEffect transition="out" filter="fade"><p:cBhvr>'
+    '<p:cTn id="0" dur="500" tmFilter="0, 0; .2, .5; .8, .5; 1, 0"/>'
+    '<p:tgtEl><p:spTgt spid="S"/></p:tgtEl></p:cBhvr></p:animEffect>'
+    '<p:animScale><p:cBhvr><p:cTn id="0" dur="250" autoRev="1" fill="hold"/>'
+    '<p:tgtEl><p:spTgt spid="S"/></p:tgtEl></p:cBhvr><p:by x="105000" y="105000"/>'
+    "</p:animScale>",
+    "teeter": "".join(
+        f'<p:animRot by="{turn}"><p:cBhvr><p:cTn id="0" dur="{duration}" fill="hold">'
+        f'<p:stCondLst><p:cond delay="{delay}"/></p:stCondLst></p:cTn>'
+        '<p:tgtEl><p:spTgt spid="S"/></p:tgtEl><p:attrNameLst><p:attrName>r</p:attrName>'
+        "</p:attrNameLst></p:cBhvr></p:animRot>"
+        for turn, duration, delay in (
+            ("120000", "100", "0"),
+            ("-240000", "200", "200"),
+            ("240000", "200", "400"),
+            ("-240000", "200", "600"),
+            ("120000", "200", "800"),
+        )
+    ),
 }
 # An effect this editor does not write is kept as "custom" (entrance) or "custom_exit".
-CUSTOM = {"entr": "custom", "exit": "custom_exit"}
+CUSTOM = {"entr": "custom", "exit": "custom_exit", "emph": "custom_emphasis"}
 CLASSES = {name: value[2] for name, value in EFFECTS.items()} | {
     name: kind for kind, name in CUSTOM.items()
 }
@@ -187,9 +220,7 @@ def _parse(root: etree._Element) -> list[dict[str, Any]]:
                 node = _time_node(effect)
                 kind = node.get("presetClass")
                 if kind not in CUSTOM:
-                    raise _ReadOnly(
-                        "This slide has emphasis or motion animations that stay read-only."
-                    )
+                    raise _ReadOnly("This slide has motion-path animations that stay read-only.")
                 if effect_index:
                     wanted = "withEffect"
                 elif group_index:
@@ -337,6 +368,8 @@ def _canonical(spid: str, effect: str) -> etree._Element:
     preset, subtype, kind = EFFECTS[effect]
     if kind == "exit":
         return _canonical_exit(spid, effect)
+    if kind == "emph":
+        return _canonical_emphasis(spid, effect)
     par = _element("par")
     node = _element(
         "cTn",
@@ -377,6 +410,31 @@ def _canonical(spid: str, effect: str) -> etree._Element:
     elif effect == "zoom":
         animate("ppt_w", "0", "#ppt_w", additive=False)
         animate("ppt_h", "0", "#ppt_h", additive=False)
+    return par
+
+
+def _canonical_emphasis(spid: str, effect: str) -> etree._Element:
+    preset, subtype, _kind = EFFECTS[effect]
+    par = _element("par")
+    node = _element(
+        "cTn",
+        par,
+        id="0",
+        presetID=preset,
+        presetClass="emph",
+        presetSubtype=subtype,
+        fill="hold",
+        grpId="0",
+        nodeType="clickEffect",
+    )
+    _element("cond", _element("stCondLst", node), delay="0")
+    children = _element("childTnLst", node)
+    template = etree.fromstring(
+        f'<p:childTnLst xmlns:p="{PRESENTATION_NS}">'
+        + _EMPHASIS[effect].replace('spid="S"', f'spid="{spid}"')
+        + "</p:childTnLst>"
+    )
+    children.extend(list(template))
     return par
 
 

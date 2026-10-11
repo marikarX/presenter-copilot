@@ -215,6 +215,15 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Emphasis animations: Pulse, Grow/Shrink, Spin and Teeter join entrances and
+  exits (and `custom_emphasis` keeps an existing one), one of each kind per
+  object or paragraph, in the GUI ("Emphasis effect for ..." rows, an
+  Emphasis group when adding) and Copilot plans. They are written from
+  PowerPoint's own XML for each preset (6, 8, 26, 32), which PowerPoint reads
+  back as Grow/Shrink, Spin and Teeter with the right triggers. Only motion
+  paths, triggers and chart/diagram builds keep a slide read-only now.
+  Corpus: 92 editable animated slides (14 read-only), all re-saved without
+  their last effect with no errors. `test-slide-animations.mjs` 8/8.
 - Chart preview text: the renderer patch now takes the chart-wide text
   properties (`c:chartSpace/c:txPr`) into account: their Latin typeface sets
   the chart font before the theme font, and when they exist the title is bold

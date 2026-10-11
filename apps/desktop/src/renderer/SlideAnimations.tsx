@@ -42,8 +42,30 @@ const STARTS: ReadonlyArray<[string, string]> = [
   ["after_previous", "After previous"],
 ];
 
-const isExit = (effect: string) =>
-  effect === "custom_exit" || EXITS.some(([value]) => value === effect);
+const EMPHASES: ReadonlyArray<[string, string]> = [
+  ["pulse", "Pulse"],
+  ["grow_shrink", "Grow/Shrink"],
+  ["spin", "Spin"],
+  ["teeter", "Teeter"],
+];
+type Kind = "entrance" | "emphasis" | "exit";
+const kindOf = (effect: string): Kind =>
+  effect === "custom_exit" || EXITS.some(([value]) => value === effect)
+    ? "exit"
+    : effect === "custom_emphasis" ||
+        EMPHASES.some(([value]) => value === effect)
+      ? "emphasis"
+      : "entrance";
+const CHOICES: Record<Kind, ReadonlyArray<[string, string]>> = {
+  entrance: ENTRANCES,
+  emphasis: EMPHASES,
+  exit: EXITS,
+};
+const CUSTOMS: Record<Kind, string> = {
+  entrance: "custom",
+  emphasis: "custom_emphasis",
+  exit: "custom_exit",
+};
 
 export function isSlideAnimationState(
   value: unknown,
@@ -104,13 +126,13 @@ export function SlideAnimations({
     setDraft(state.effects);
     setAdding({ objectId: "", effect: "fade", byParagraph: false });
   }, [state]);
-  // Each object, or paragraph, can have one entrance and one exit.
-  const taken = (objectId: string, paragraph: number | null, exit: boolean) =>
+  // Each object, or paragraph, can have one effect of each kind.
+  const taken = (objectId: string, paragraph: number | null, kind: Kind) =>
     draft.some(
       (e) =>
         e.object_id === objectId &&
         (e.paragraph ?? null) === paragraph &&
-        isExit(e.effect) === exit,
+        kindOf(e.effect) === kind,
     );
   const available = state.candidates;
   const chosen = available.find((c) => c.object_id === adding.objectId);
@@ -121,7 +143,7 @@ export function SlideAnimations({
       : [null];
   const conflict =
     !!chosen &&
-    steps.some((step) => taken(adding.objectId, step, isExit(adding.effect)));
+    steps.some((step) => taken(adding.objectId, step, kindOf(adding.effect)));
   const update = (index: number, change: Partial<SlideAnimationEffect>) =>
     setDraft((current) =>
       current.map((effect, i) =>
@@ -151,19 +173,25 @@ export function SlideAnimations({
       {draft.length ? (
         <ol className="pw-animation-list">
           {draft.map((effect, index) => {
-            const exit = isExit(effect.effect);
-            const custom = exit ? "custom_exit" : "custom";
+            const kind = kindOf(effect.effect);
+            const custom = CUSTOMS[kind];
             const target = targetName(effect);
-            // Entrance rows keep their established labels; exit rows say so.
+            // Entrance rows keep their established labels; others name their kind.
             const label = (entrance: string, leaving: string) =>
-              exit ? leaving : entrance;
+              kind === "exit"
+                ? leaving
+                : kind === "emphasis"
+                  ? leaving
+                      .replace("Exit", "Emphasis")
+                      .replace("exit", "emphasis")
+                  : entrance;
             return (
               <li
-                key={`${effect.object_id}:${effect.paragraph ?? "all"}:${exit ? "exit" : "entrance"}`}
+                key={`${effect.object_id}:${effect.paragraph ?? "all"}:${kind}`}
               >
                 <span>
                   {index + 1}. {target}
-                  {exit ? " (exit)" : ""}
+                  {kind === "entrance" ? "" : ` (${kind})`}
                 </span>
                 <select
                   aria-label={label(
@@ -183,7 +211,7 @@ export function SlideAnimations({
                   ) ? (
                     <option value={custom}>Custom (kept as is)</option>
                   ) : null}
-                  {(exit ? EXITS : ENTRANCES).map(([value, name]) => (
+                  {CHOICES[kind].map(([value, name]) => (
                     <option key={value} value={value}>
                       {name}
                     </option>
@@ -283,6 +311,13 @@ export function SlideAnimations({
         >
           <optgroup label="Entrance">
             {ENTRANCES.map(([value, name]) => (
+              <option key={value} value={value}>
+                {name}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Emphasis">
+            {EMPHASES.map(([value, name]) => (
               <option key={value} value={value}>
                 {name}
               </option>
