@@ -249,6 +249,13 @@ Commits this session:
   is set, so wrap="none" bodies stay unwrapped). A long tabbed line used to
   overflow and make autofit shrink the whole body. Corpus mean 2.361% ->
   2.355%: 2 slides better (7.54% -> 5.78%, 3.87% -> 2.33%), none worse.
+- Preview picture outlines straddle the picture edge like PowerPoint's. The
+  renderer drew them as a border-box border, so the whole line sat inside
+  the picture and pushed the image right and down by the line width (thick
+  photo frames cut off the image's right and bottom). An outline with a
+  negative half-width offset leaves the image in place. Corpus mean 2.355%
+  -> 2.312%: 14 slides better by more than 0.3 points (6.29% -> 1.95% at
+  best), none worse.
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
