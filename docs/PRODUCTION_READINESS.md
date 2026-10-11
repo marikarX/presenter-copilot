@@ -221,12 +221,18 @@ Commits this session:
   Garamond and Segoe UI lines were 4-8% too tall). Single spacing is 1.2x the
   font size for every font, as measured in PowerPoint for seven fonts, and the
   renderer's 1.16/1.18/1.19 factors (which compensated for the stretched
-  lines) become 1.2. Because PowerPoint adds or removes a line's spacing
-  above the line while CSS splits it around the line, the first paragraph is
-  offset by half the difference. Corpus mean 2.834% -> 2.532% MAE (median
-  2.473% -> 2.144%): 200 slides better by more than 0.2 points, 42 worse
-  (worst +1.3; mostly vertically centered text with spacing above 100%,
-  where the offset model does not hold).
+  lines) become 1.2. Line spacing other than 100% is placed as measured in
+  PowerPoint for top, middle and bottom anchoring at 80-200%: a line's
+  spacing change goes above it, except that the first line takes only part
+  of its own (about 70% of an increase, 90% of a reduction). CSS splits the
+  change around each line, so the first and last paragraphs get compensating
+  margins (no relative offsets, which autofit would measure as overflow).
+  Probe slides 0.66/0.46/0.92% -> 0.27/0.27/0.25% MAE. Corpus mean 2.834% ->
+  2.406% (median 2.473% -> 2.051%): 245 slides better by more than 0.2
+  points, 27 worse. The largest remaining regressions are normAutofit
+  bodies that overflow slightly and are shrunk by the renderer's fit loop
+  (excluding normAutofit from its unwrapped-width shrink was measured and
+  did not help overall).
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
