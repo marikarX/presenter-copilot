@@ -268,6 +268,15 @@ Commits this session:
   ones lost most of Abadi's gain. Corpus mean 2.312% -> 2.302% (median 2.018%
   -> 2.002%): 5 slides better by more than 0.3 points (4.52% -> 2.81% at
   best), none worse.
+- The preview's autofit check ignores trailing empty paragraphs in a
+  normAutofit body. PowerPoint's stored fontScale/lnSpcReduction already fit
+  the text, but empty paragraphs left at the end (often at the default
+  28 pt) made the preview measure an overflow PowerPoint does not have, and
+  the fit loop shrank visible text that fits, at worst to a fraction of its
+  size. Corpus mean 2.302% -> 2.270%: 8 slides better by more than 0.3
+  points (5.44% -> 2.30% at best), none worse. (Shrinking wrapped bodies by
+  the square root of their overflow instead of their unwrapped width was
+  measured too and was net worse: PowerPoint keeps the stored scale.)
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
