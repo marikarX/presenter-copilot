@@ -293,6 +293,14 @@ Commits this session:
   nothing for these Unicode subtables and is zeroed after decoding. Corpus
   mean 2.247% -> 2.225% (median 1.976% -> 1.959%): 16 slides better by more
   than 0.3 points, none worse.
+- Preview RTL paragraphs whose text has no right-to-left characters keep it
+  in reading order, as PowerPoint does (measured: "What can we do ?" in an
+  rtl="1" paragraph stays as written; only the alignment follows the
+  paragraph). Titles inheriting rtl="1" from an Arabic master no longer
+  move trailing punctuation to the front. Corpus mean 2.225% -> 2.218%: 8
+  slides better by more than 0.3 points; 1 rotated slide measures 1 point
+  worse although its text now sits closer to PowerPoint's (its remaining
+  offset is unrelated).
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
