@@ -285,6 +285,14 @@ Commits this session:
   only its first, as in PowerPoint. Corpus mean 2.270% -> 2.247% (median
   2.001% -> 1.976%): 11 slides better by more than 0.3 points (4.95% ->
   1.81% at best), none worse.
+- Embedded fonts whose format 12/13 cmap subtables carry a non-zero
+  language field now load in the preview. Chromium's font sanitizer rejects
+  such a font outright while PowerPoint accepts it; subset fonts embedded by
+  Google Slides have it, so only the faces that happened to be valid loaded
+  and regular text was drawn with the bold italic face. The field means
+  nothing for these Unicode subtables and is zeroed after decoding. Corpus
+  mean 2.247% -> 2.225% (median 1.976% -> 1.959%): 16 slides better by more
+  than 0.3 points, none worse.
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
