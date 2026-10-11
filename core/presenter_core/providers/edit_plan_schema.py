@@ -328,7 +328,16 @@ PARAMETER_SCHEMAS = {
         {"slide_id": _ID, "transition": _choice("none", "fade", "push", "wipe", "split", "cut")}
     ),
     "set_slide_background": _object(
-        {"slide_id": _ID, "replacement_color": {"anyOf": [_text(7, 7), {"type": "null"}]}}
+        {
+            "slide_id": _ID,
+            "replacement_color": {"anyOf": [_text(7, 7), {"type": "null"}]},
+            "replacement_gradient": {
+                "anyOf": [
+                    _object({"start": _text(7, 7), "end": _text(7, 7), "angle": _integer(0, 359)}),
+                    {"type": "null"},
+                ]
+            },
+        }
     ),
     "reorder_slides": _object(
         {"ordered_slide_ids": {"type": "array", "minItems": 1, "maxItems": 5000, "items": _ID}}

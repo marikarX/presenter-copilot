@@ -823,6 +823,8 @@ class PresentationEditPlanningService:
             params["expected_background"] = {
                 "state": slide.background.state,
                 "color": slide.background.color,
+                "end_color": slide.background.end_color,
+                "angle": slide.background.angle,
             }
         if kind == "group_objects":
             objects = params.get("objects")

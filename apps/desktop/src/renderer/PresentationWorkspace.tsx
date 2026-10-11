@@ -48,6 +48,7 @@ import { SlideObjectCanvas } from "./SlideObjectCanvas";
 import { BulkTextFormat } from "./BulkTextFormat";
 import { FindReplace } from "./FindReplace";
 import { AltTextEditor } from "./AltTextEditor";
+import { BackgroundFills, type BackgroundReplacement } from "./BackgroundFills";
 import { ReplaceFonts, type DeckFont } from "./ReplaceFonts";
 import { ReuseSlides, type ReuseRequest } from "./ReuseSlides";
 import {
@@ -352,10 +353,21 @@ type PictureCrop = {
 };
 
 type SlideBackground = {
-  state: "inherited" | "theme_reference" | "solid" | "unsupported";
+  state:
+    | "inherited"
+    | "theme_reference"
+    | "solid"
+    | "gradient"
+    | "picture"
+    | "custom"
+    | "unsupported";
   color: string | null;
+  end_color?: string | null;
+  angle?: number | null;
   editable: boolean;
 };
+
+const HEX_COLOR = /^#[0-9A-F]{6}$/;
 
 function isSlideBackground(value: unknown): value is SlideBackground {
   if (!value || typeof value !== "object") return false;
@@ -363,11 +375,20 @@ function isSlideBackground(value: unknown): value is SlideBackground {
   return (
     typeof candidate.editable === "boolean" &&
     (candidate.state === "solid"
-      ? typeof candidate.color === "string" &&
-        /^#[0-9A-F]{6}$/.test(candidate.color)
-      : ["inherited", "theme_reference", "unsupported"].includes(
-          candidate.state ?? "",
-        ) && candidate.color === null)
+      ? typeof candidate.color === "string" && HEX_COLOR.test(candidate.color)
+      : candidate.state === "gradient"
+        ? typeof candidate.color === "string" &&
+          HEX_COLOR.test(candidate.color) &&
+          typeof candidate.end_color === "string" &&
+          HEX_COLOR.test(candidate.end_color) &&
+          Number.isInteger(candidate.angle)
+        : [
+            "inherited",
+            "theme_reference",
+            "picture",
+            "custom",
+            "unsupported",
+          ].includes(candidate.state ?? "") && candidate.color === null)
   );
 }
 
@@ -6015,7 +6036,7 @@ export function PresentationWorkspace({
   ]);
 
   const saveSlideBackgroundRevision = useCallback(
-    async (color: string | null) => {
+    async (color: string | null | BackgroundReplacement) => {
       const source = selectedSource;
       const revision = currentRevision;
       const background = slideBackground;
@@ -6045,8 +6066,12 @@ export function PresentationWorkspace({
             expected_background: {
               state: background.state,
               color: background.color,
+              end_color: background.end_color ?? null,
+              angle: background.angle ?? null,
             },
-            replacement_color: color,
+            ...(color !== null && typeof color === "object"
+              ? color
+              : { replacement_color: color }),
           },
         );
         if (
@@ -11317,9 +11342,15 @@ export function PresentationWorkspace({
                         <p className="muted">
                           {slideBackground.state === "solid"
                             ? `This slide uses its own color ${slideBackground.color}.`
-                            : slideBackground.state === "theme_reference"
-                              ? "This slide uses a theme background style."
-                              : "This slide uses its layout background."}
+                            : slideBackground.state === "gradient"
+                              ? `This slide uses a gradient from ${slideBackground.color} to ${slideBackground.end_color}.`
+                              : slideBackground.state === "picture"
+                                ? "This slide uses a picture background."
+                                : slideBackground.state === "custom"
+                                  ? "This slide uses its own theme-colored, patterned or recolored background; choose a new one below or use the layout background."
+                                  : slideBackground.state === "theme_reference"
+                                    ? "This slide uses a theme background style."
+                                    : "This slide uses its layout background."}
                         </p>
                         <div className="pw-shape-color-control">
                           <label>
@@ -11367,11 +11398,29 @@ export function PresentationWorkspace({
                             Use layout background
                           </button>
                         </div>
+                        <BackgroundFills
+                          projectId={project.id}
+                          gradient={
+                            slideBackground.state === "gradient" &&
+                            slideBackground.color &&
+                            slideBackground.end_color
+                              ? {
+                                  start: slideBackground.color,
+                                  end: slideBackground.end_color,
+                                  angle: slideBackground.angle ?? 0,
+                                }
+                              : null
+                          }
+                          disabled={!loadedSourceId || loading}
+                          onApply={(replacement) =>
+                            void saveSlideBackgroundRevision(replacement)
+                          }
+                        />
                       </>
                     ) : (
                       <p className="muted">
-                        This slide uses a picture, gradient or pattern
-                        background that stays read-only.
+                        This slide uses a pattern, tiled or cropped background
+                        that stays read-only.
                       </p>
                     )}
                   </fieldset>

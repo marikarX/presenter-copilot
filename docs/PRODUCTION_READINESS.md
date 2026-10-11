@@ -215,6 +215,20 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Slide backgrounds: besides a solid color and the layout background, a slide
+  can get a two-color linear gradient (`replacement_gradient` start/end/angle,
+  also in Copilot plans) or a picture from the project library stretched
+  over the slide (`replacement_picture_asset_id`), from the background
+  controls in the Objects panel. Gradients and stretched pictures are read
+  back as editable states; any other well-formed background (theme-colored
+  fills, patterns, tiled or recolored pictures) reports "custom" and can be
+  replaced or reset, so the 109 corpus slides whose backgrounds were
+  read-only are now editable. A replaced background picture's relationship
+  is removed with it. PowerPoint reads the result back as a picture fill and
+  a two-stop gradient; the preview matches the picture exactly and the
+  gradient within 3.9% (PowerPoint reaches the end color sooner). Corpus: 46
+  background edits on custom backgrounds, no errors, all checkable decks
+  open. `test_slide_background.py` 9; `test-backgrounds.mjs` 3/3.
 - Emphasis animations: Pulse, Grow/Shrink, Spin and Teeter join entrances and
   exits (and `custom_emphasis` keeps an existing one), one of each kind per
   object or paragraph, in the GUI ("Emphasis effect for ..." rows, an

@@ -481,10 +481,14 @@ class FidelityObject:
 
 @dataclass(frozen=True)
 class FidelityBackground:
-    """A slide's own background: inherited from its layout, a theme style or solid RGB."""
+    """A slide's own background: inherited from its layout, a theme style, a solid RGB
+    color, a two-color linear gradient (color to end_color at angle degrees) or a
+    stretched picture."""
 
     state: str
     color: str | None = None
+    end_color: str | None = None
+    angle: int | None = None
 
 
 @dataclass(frozen=True)
@@ -593,10 +597,18 @@ class FidelityDocument:
                 {
                     "state": slide.background.state,
                     "color": slide.background.color,
+                    "end_color": slide.background.end_color,
+                    "angle": slide.background.angle,
                     "editable": True,
                 }
                 if slide.background is not None
-                else {"state": "unsupported", "color": None, "editable": False}
+                else {
+                    "state": "unsupported",
+                    "color": None,
+                    "end_color": None,
+                    "angle": None,
+                    "editable": False,
+                }
             ),
             "speaker_notes": {
                 "current_text": (
@@ -1763,8 +1775,96 @@ def slide_hidden(slide_root: etree._Element) -> bool:
     return slide_root.get("show") in {"0", "false"}
 
 
+def _rgb_child(parent: etree._Element) -> str | None:
+    """#RRGGBB of a lone, plain srgbClr child."""
+    colors = [item for item in parent if isinstance(item.tag, str)]
+    if len(colors) != 1:
+        return None
+    color = colors[0]
+    value = color.get("val", "")
+    if (
+        color.tag != f"{{{DRAWING_NS}}}srgbClr"
+        or len(color)
+        or set(color.attrib) != {"val"}
+        or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
+    ):
+        return None
+    return f"#{value.upper()}"
+
+
+def _gradient_background(fill: etree._Element) -> FidelityBackground | None:
+    """A two-stop linear gradient written with plain RGB stops, or None."""
+    a = f"{{{DRAWING_NS}}}"
+    if set(fill.attrib) - {"rotWithShape", "flip"} or fill.get("flip", "none") != "none":
+        return None
+    children = [item for item in fill if isinstance(item.tag, str)]
+    stops = fill.find(f"{a}gsLst")
+    linear = fill.find(f"{a}lin")
+    tiles = [item for item in children if item.tag == f"{a}tileRect"]
+    if (
+        stops is None
+        or linear is None
+        or len(children) != 2 + len(tiles)
+        or any(len(t) or t.attrib for t in tiles)
+        or set(linear.attrib) - {"ang", "scaled"}
+    ):
+        return None
+    points = [item for item in stops if isinstance(item.tag, str)]
+    if len(points) != 2 or [p.get("pos") for p in points] != ["0", "100000"]:
+        return None
+    colors = [_rgb_child(point) for point in points]
+    raw = linear.get("ang", "0")
+    if None in colors or not raw.isdigit() or int(raw) % 60000 or int(raw) >= 21600000:
+        return None
+    return FidelityBackground(
+        state="gradient", color=colors[0], end_color=colors[1], angle=int(raw) // 60000
+    )
+
+
+def _picture_background(fill: etree._Element) -> FidelityBackground | None:
+    """A picture stretched over the slide (one embedded blip, no tiling or cropping)."""
+    a = f"{{{DRAWING_NS}}}"
+    if set(fill.attrib) - {"dpi", "rotWithShape"}:
+        return None
+    children = [item for item in fill if isinstance(item.tag, str)]
+    blip = fill.find(f"{a}blip")
+    crop = fill.find(f"{a}srcRect")
+    stretch = fill.find(f"{a}stretch")
+    expected = 2 + (crop is not None)
+    if (
+        blip is None
+        or stretch is None
+        or len(children) != expected
+        or (crop is not None and (crop.attrib or len(crop)))
+        or [etree.QName(item).localname for item in stretch] not in (["fillRect"], [])
+        or any(item.attrib or len(item) for item in stretch)
+        or set(blip.attrib) - {f"{{{REL_NS}}}embed"}
+        or not blip.get(f"{{{REL_NS}}}embed")
+        or any(etree.QName(item).localname != "extLst" for item in blip)
+    ):
+        return None
+    return FidelityBackground(state="picture")
+
+
 def slide_background(slide_root: etree._Element) -> FidelityBackground | None:
-    """Editable background states; picture, gradient and pattern fills return None."""
+    """The slide's background state. A well-formed background this editor does not model
+    (theme-colored fills, patterns, tiled or recolored pictures) is "custom": it can be
+    replaced or reset, but not edited in place. Malformed backgrounds return None."""
+    known = _known_background(slide_root)
+    if known is not None:
+        return known
+    common = slide_root.find(f"{{{PRESENTATION_NS}}}cSld")
+    backgrounds = common.findall(f"{{{PRESENTATION_NS}}}bg") if common is not None else []
+    if len(backgrounds) == 1 and len(backgrounds[0]) == 1:
+        child = backgrounds[0][0]
+        fills = [item for item in child if item.tag in _BACKGROUND_FILLS]
+        if child.tag == f"{{{PRESENTATION_NS}}}bgPr" and len(fills) == 1:
+            return FidelityBackground(state="custom")
+    return None
+
+
+def _known_background(slide_root: etree._Element) -> FidelityBackground | None:
+    """Background states edited in place; others return None."""
     common = slide_root.find(f"{{{PRESENTATION_NS}}}cSld")
     if common is None:
         return None
@@ -1785,18 +1885,14 @@ def slide_background(slide_root: etree._Element) -> FidelityBackground | None:
     ):
         return None
     fill = fills[0]
-    if fill.tag != f"{{{DRAWING_NS}}}solidFill" or len(fill) != 1:
+    if fill.tag == f"{{{DRAWING_NS}}}gradFill":
+        return _gradient_background(fill)
+    if fill.tag == f"{{{DRAWING_NS}}}blipFill":
+        return _picture_background(fill)
+    if fill.tag != f"{{{DRAWING_NS}}}solidFill":
         return None
-    color = fill[0]
-    value = color.get("val", "")
-    if (
-        color.tag != f"{{{DRAWING_NS}}}srgbClr"
-        or len(color)
-        or set(color.attrib) != {"val"}
-        or not re.fullmatch(r"[0-9A-Fa-f]{6}", value)
-    ):
-        return None
-    return FidelityBackground(state="solid", color=f"#{value.upper()}")
+    color = _rgb_child(fill)
+    return FidelityBackground(state="solid", color=color) if color else None
 
 
 HYPERLINK_REL_TYPE = f"{REL_NS}/hyperlink"

@@ -1059,7 +1059,11 @@ def test_provider_slide_background_binds_current_background_and_applies(
             output["operations"] = [
                 {
                     "type": "set_slide_background",
-                    "params": {"slide_id": inventory["slide_id"], "replacement_color": "#0B1F33"},
+                    "params": {
+                        "slide_id": inventory["slide_id"],
+                        "replacement_color": "#0B1F33",
+                        "replacement_gradient": None,
+                    },
                     "rationale": "Darken the title slide",
                     "evidence_ids": [],
                 }
@@ -1069,8 +1073,7 @@ def test_provider_slide_background_binds_current_background_and_applies(
         proposal = call(core, "presentation.workspace.propose_edit_plan", params)
         bound = proposal["operations"][0]["params"]
         assert bound["expected_background"] == {
-            "state": inventory["background"]["state"],
-            "color": inventory["background"]["color"],
+            key: inventory["background"][key] for key in ("state", "color", "end_color", "angle")
         }
         call(
             core,
