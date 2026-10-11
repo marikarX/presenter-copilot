@@ -1,8 +1,97 @@
 # Presenter Copilot session handoff
 
-## Current continuation - committed; cross-Run comparison, list numbering and bullet markers (2026-10-09)
+## Current continuation - Workspace features and measured preview fidelity (2026-10-11)
 
-IN PROGRESS. The previously dirty worktree is now committed on
+HANDOFF. Branch `codex/production-readiness`, worktree clean, nothing pushed.
+141 commits since `bc1ab9c`; the latest is `674bf25`. Every feature and
+renderer change has an entry in `docs/PRODUCTION_READINESS.md`, with its
+measurements.
+
+### What landed
+
+- **Presentation Workspace features, each with a GUI workflow, Copilot plan
+  support where it fits, PowerPoint COM readbacks and a `scripts/test-*.mjs`
+  Electron harness:**
+  - accessibility check (alt text, slide titles), with Copilot fixes;
+  - click actions;
+  - component library (DB schema v24);
+  - format painter;
+  - Replace Fonts;
+  - Reuse Slides (charts, SmartArt, notes);
+  - video and audio insertion (PyAV probe, main-process picker);
+  - lines and arrowheads;
+  - exit, emphasis and paragraph animation builds;
+  - stacked column, stacked bar, area and doughnut charts;
+  - gradient and picture slide backgrounds;
+  - grouped-object editing and slide-strip reordering.
+- **Preview fidelity (renderer patch `patches/@aiden0z__pptx-renderer@1.3.0.patch`
+  plus `font-fallbacks.ts`).** Every rule was measured against PowerPoint
+  before it was applied:
+  - gradients blend like PowerPoint;
+  - line spacing and spaced-line placement;
+  - autofit tolerance;
+  - per-line run sizing;
+  - wrapping of tabbed text;
+  - picture outlines straddle the edge;
+  - width- and metric-matched fallbacks for 20 Office cloud fonts;
+  - trailing empty paragraphs are ignored for autofit;
+  - wide bullets push the text, and a multi-character `buChar` shows only its first character;
+  - embedded fonts with a bad cmap `language` field load;
+  - LTR text in RTL paragraphs stays in reading order;
+  - table rows grow like PowerPoint's;
+  - first-line height in table cells.
+
+  Corpus stable RGB MAE over 563 slides went from 3.170% to 2.189%
+  (median 2.714% -> 1.962%).
+
+### How to measure the next preview change
+
+1. Write the renderer patch as a regex script against all three bundles; the
+   `.local/session2/patch_*.py` scripts are examples.
+2. Apply it through the patch flow:
+   1. `rm -rf .local/renderer-edit && pnpm patch @aiden0z/pptx-renderer@1.3.0 --edit-dir .local/renderer-edit`
+   2. Run the script on the edit directory, then a syntax check with acorn (`--module`, except for the cjs bundle).
+   3. `pnpm patch-commit "<abs path>/.local/renderer-edit"`, then `pnpm install`, then `rm -rf apps/desktop/node_modules/.vite`.
+3. Check single slides with `python .local/session2/slide_compare.py <deck> <out> <slides...>`,
+   which shows PowerPoint on the left, the preview on the right, and prints MAE.
+4. Gate on the full corpus:
+   1. Run `cd core && PYTHONPATH=. .venv/Scripts/python.exe -m presenter_core.tools.presentation_preview_compare --preview-compatibility all > <json>`.
+      It exits with 1 because three decks with blocked active content always fail.
+   2. Compare with the previous run using `python .local/session2/corpus_delta.py <before.json> <after.json>`.
+      The latest baseline is `.local/session2/corpus-compare-fonts5.json`.
+   3. Don't run another PowerPoint-driven render or edit `apps/desktop/src` while a corpus run is going.
+5. Look at the regressed slides before accepting a change. MAE favours tiny text over slightly misaligned text of the right size.
+6. Run the gates:
+   - desktop `pnpm -s lint`, `npx prettier --check src scripts`, `npx vitest run` (331), `pnpm -s typecheck`;
+   - `pnpm -s build && node scripts/test-workspace.mjs` (117 checks). A rare screenshot timeout passes on re-run.
+
+### Measured but not done (next leads)
+
+- **Table text colour (Google Slides tables, 07-mapping slide 10):** PowerPoint
+  colours this table text with the theme's `tx1`, not the table style's
+  explicit black. The rule needs PowerPoint experiments.
+- **Synthetic bold:** PowerPoint draws Calibri Light and Gabriola bold about
+  1.7% narrower than regular, while Segoe UI Light keeps its width. That
+  makes Chromium wrap a few titles a word early. No general rule found.
+- **CSS tab stops:** CSS skips a tab stop that is less than half a character
+  away, and PowerPoint doesn't (28-ia-careers slide 38).
+- **Wrapped normAutofit overflow above 15%:** the renderer still shrinks to
+  the unwrapped-width ratio. Shrinking by the square root of the overflow was
+  measured and was worse; PowerPoint keeps the stored scale.
+- **Known limits:** 3D SmartArt and perspective camera pictures (27-ia
+  slides 2, 3 and 19), and the rotated overflowing text box on 29-ia slide 17.
+- **Table row height (15-digital-humanities slide 9):** rows still run
+  slightly taller than PowerPoint's.
+
+### Human-gated items (unchanged)
+
+- Sign in with ChatGPT needs a re-run on a signed build. Signing and clean
+  Windows validation are accepted tech debt.
+- An optional human-labelled Fast Decisions set.
+
+## Previous continuation - committed; cross-Run comparison, list numbering and bullet markers (2026-10-09)
+
+SUPERSEDED by the entry above. The previously dirty worktree is now committed on
 `codex/production-readiness` (`bc1ab9c`), and work continues as small commits
 (not pushed). Earlier handoff entries describing "no staging/commit" and
 freeze/preservation verifiers are historical; git history is now the record.
