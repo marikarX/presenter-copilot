@@ -215,6 +215,17 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Chart preview text: the renderer patch now takes the chart-wide text
+  properties (`c:chartSpace/c:txPr`) into account: their Latin typeface sets
+  the chart font before the theme font, and when they exist the title is bold
+  only if they say so (PowerPoint draws python-pptx/app charts' titles
+  regular). Chart run sizes are converted from points to pixels like the
+  chart-wide size already was (titles were 25% small), and a bottom legend
+  gets room below the axis labels that grows with the chart-wide text size
+  (it overlapped the labels). The authored-chart legend repair covers
+  doughnut as well as pie. App-created stacked column / stacked bar / area
+  slides went from 2.5/3.0/2.4% to 2.1/1.9/1.9% MAE against PowerPoint; the
+  563-slide corpus is unchanged (mean 2.845%, median 2.479%).
 - More chart types: native charts can be created and edited as stacked
   column, stacked bar (bar groupings `stacked` with full overlap), area and
   doughnut, besides column, bar, line and pie (GUI chart-type menu, Copilot

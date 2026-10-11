@@ -2,7 +2,7 @@ import type { PresentationData } from "@aiden0z/pptx-renderer";
 
 const COLORS = ["2563EB", "D97706", "059669", "9333EA", "DC2626", "0891B2"];
 
-// The renderer builds pie legends from the theme palette, ignoring direct dPt
+// The renderer builds pie and doughnut legends from the theme palette, ignoring direct dPt
 // fills used by the slices. Scope this repair to our bounded authored charts;
 // clone a chart-local theme so slides and unrelated imported charts stay intact.
 export function normalizeAuthoredPiePreview(
@@ -19,7 +19,12 @@ export function normalizeAuthoredPiePreview(
       .allChildren()
       .filter((node) => node.localName.endsWith("Chart"));
     const pie = charts[0];
-    if (charts.length !== 1 || !pie || pie.localName !== "pieChart") continue;
+    if (
+      charts.length !== 1 ||
+      !pie ||
+      (pie.localName !== "pieChart" && pie.localName !== "doughnutChart")
+    )
+      continue;
     const series = pie.children("ser");
     const first = series[0];
     if (series.length !== 1 || !first) continue;

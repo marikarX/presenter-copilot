@@ -34,14 +34,19 @@ beforeEach(() =>
 afterEach(() => vi.unstubAllGlobals());
 const ownPath = `ppt/charts/copilot-${"a".repeat(32)}.xml`;
 const colors = ["2563EB", "D97706", "059669"];
-function fixture(path = ownPath, pointColor = colors[1], count = 3) {
+function fixture(
+  path = ownPath,
+  pointColor = colors[1],
+  count = 3,
+  kind = "pieChart",
+) {
   const points = colors
     .map(
       (color, i) =>
         `<c:dPt><c:idx val="${i}"/><c:spPr><a:solidFill><a:srgbClr val="${i === 1 ? pointColor : color}"/></a:solidFill></c:spPr></c:dPt>`,
     )
     .join("");
-  const xml = `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:plotArea><c:pieChart><c:ser>${points}<c:cat><c:strRef><c:strCache><c:ptCount val="${count}"/></c:strCache></c:strRef></c:cat></c:ser></c:pieChart></c:plotArea></c:chart></c:chartSpace>`;
+  const xml = `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:plotArea><c:${kind}><c:ser>${points}<c:cat><c:strRef><c:strCache><c:ptCount val="${count}"/></c:strCache></c:strRef></c:cat></c:ser></c:${kind}></c:plotArea></c:chart></c:chartSpace>`;
   const files: PptxFiles = {
     contentTypes: "",
     presentation:
@@ -92,4 +97,11 @@ it.each([
   );
   expect(normalizeAuthoredPiePreview(presentation)).toBe(0);
   expect(presentation.chartThemes?.has(path as string) ?? false).toBe(false);
+});
+it("repairs the authored doughnut legend palette the same way", () => {
+  const { presentation } = fixture(ownPath, colors[1], 3, "doughnutChart");
+  expect(normalizeAuthoredPiePreview(presentation)).toBe(1);
+  expect(
+    presentation.chartThemes!.get(ownPath)!.colorScheme.get("accent3"),
+  ).toBe("059669");
 });
