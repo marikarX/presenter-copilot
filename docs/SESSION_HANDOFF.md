@@ -33,7 +33,7 @@ measurements.
   - per-line run sizing;
   - wrapping of tabbed text;
   - picture outlines straddle the edge;
-  - width- and metric-matched fallbacks for 20 Office cloud fonts;
+  - width- and metric-matched fallbacks for 22 Office cloud fonts;
   - trailing empty paragraphs are ignored for autofit;
   - wide bullets push the text, and a multi-character `buChar` shows only its first character;
   - embedded fonts with a bad cmap `language` field load;
