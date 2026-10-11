@@ -215,6 +215,16 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Preview gradients follow PowerPoint's measured blending: a gradient with
+  exactly two stops at 0% and 100% blends in linear light with smoothstep
+  easing; any other gradient (more stops, or stops inset from the ends)
+  blends linearly in sRGB. The renderer patch spells this out as
+  intermediate stops for both CSS gradients (backgrounds) and SVG fills
+  (shapes, outlines; SVG interpolates in linearRGB). Probes against
+  PowerPoint: background gradient 3.85% -> 0.47% MAE, two-stop shape
+  gradients 2.58% -> 0.52%, multi-stop 0.27-0.42%. Corpus mean 2.845% ->
+  2.834% (median 2.479% -> 2.473%), 16 slides better by >0.2 points, none
+  worse by more than 0.06.
 - Slide backgrounds: besides a solid color and the layout background, a slide
   can get a two-color linear gradient (`replacement_gradient` start/end/angle,
   also in Copilot plans) or a picture from the project library stretched
