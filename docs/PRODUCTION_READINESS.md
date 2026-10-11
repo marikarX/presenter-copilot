@@ -215,6 +215,18 @@ Commits this session:
   effect types, exit flags and triggers. Corpus: 188 of 248 animated slides
   are editable (3 with existing exits, previously read-only).
   `test_slide_animations.py`; `test-slide-animations.mjs` 6/6.
+- Preview line spacing: each paragraph now uses its own text font, so the
+  line box no longer stretches to fit an inherited page font (Times New
+  Roman) whose ascent/descent shares differ from the run font's (Perpetua,
+  Garamond and Segoe UI lines were 4-8% too tall). Single spacing is 1.2x the
+  font size for every font, as measured in PowerPoint for seven fonts, and the
+  renderer's 1.16/1.18/1.19 factors (which compensated for the stretched
+  lines) become 1.2. Because PowerPoint adds or removes a line's spacing
+  above the line while CSS splits it around the line, the first paragraph is
+  offset by half the difference. Corpus mean 2.834% -> 2.532% MAE (median
+  2.473% -> 2.144%): 200 slides better by more than 0.2 points, 42 worse
+  (worst +1.3; mostly vertically centered text with spacing above 100%,
+  where the offset model does not hold).
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
