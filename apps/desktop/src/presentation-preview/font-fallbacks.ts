@@ -117,6 +117,12 @@ const METRIC_FALLBACKS: ReadonlyMap<string, readonly MetricFallback[]> =
       [{ family: "Courier New", regular: "100%", bold: "100%" }],
     ],
     ["inconsolata", [{ family: "Consolas", regular: "90.9%", bold: "90.9%" }]],
+    ["sagona book", [{ family: "Cambria", regular: "112.0%", bold: "108.9%" }]],
+    [
+      "avenir next lt pro",
+      [{ family: "Segoe UI", regular: "103.7%", bold: "103.6%" }],
+    ],
+    ["daytona", [{ family: "Tahoma", regular: "109.6%", bold: "100.1%" }]],
   ]);
 
 /**
@@ -146,6 +152,9 @@ const CLOUD_FONT_METRICS: ReadonlyMap<string, readonly [number, number]> =
     ["bembo", [89.6, 23.3]],
     ["source code pro", [98.4, 27.3]],
     ["inconsolata", [100.4, 45.4]],
+    ["sagona book", [96, 23.7]],
+    ["avenir next lt pro", [96.3, 25]],
+    ["daytona", [104.3, 35.6]],
   ]);
 
 const FALLBACK_STYLES = [

@@ -314,6 +314,12 @@ Commits this session:
   default; table cells use it, text boxes keep their measured rule. Corpus
   mean 2.218% -> 2.197%: 9 slides better by more than 0.3 points (9.11% ->
   6.78%, 5.52% -> 3.80%), 1 table slide 0.4 worse.
+- Width- and metric-matched preview fallbacks for three more cloud fonts:
+  Sagona Book (Cambria), Avenir Next LT Pro (Segoe UI) and Daytona (Tahoma).
+  Measured before the table fix it was net worse (the larger text pushed
+  table rows into the clipping); after it, corpus mean 2.197% -> 2.189%: 6
+  slides better by more than 0.3 points, 1 table slide 0.35 worse (Cambria
+  is heavier than the light Sagona Book).
 - Preview gradients follow PowerPoint's measured blending: a gradient with
   exactly two stops at 0% and 100% blends in linear light with smoothstep
   easing; any other gradient (more stops, or stops inset from the ends)
